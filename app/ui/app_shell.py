@@ -1,0 +1,482 @@
+import flet as ft
+
+from app.services import authenticate_user, create_user, get_role_modules, has_users, list_roles
+from app.ui.pages.admin import admin_page
+from app.ui.pages.dashboard import dashboard_page
+from app.ui.pages.alerts import alerts_page
+from app.ui.pages.employee_management import employee_management_page
+from app.ui.pages.placeholders import placeholder_page
+from app.ui.pages.ppe import ppe_page
+from app.ui.pages.referentials import referentials_page
+from app.ui.pages.reports import reports_page
+from app.ui.pages.monthly_timesheet import monthly_timesheet_page
+from app.ui.pages.timesheet import timesheet_page
+from app.ui.pages.toolbox_talk import toolbox_talk_page
+from app.ui.pages.training_management import training_management_page
+from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_MUTED, SURFACE, TEXT
+
+
+NAV_ITEMS = [
+    ("Dashboard", "Tableau de bord", ft.Icons.DASHBOARD_OUTLINED),
+    ("Referentials", "Referentiels", ft.Icons.TUNE_OUTLINED),
+    ("EmployeeManagement", "Gestion employes", ft.Icons.PEOPLE_ALT_OUTLINED),
+    ("TrainingManagement", "Gestion formation", ft.Icons.SCHOOL_OUTLINED),
+    ("ToolboxTalk", "Toolbox Talk", ft.Icons.FORUM_OUTLINED),
+    ("TimeSheet", "TimeSheet", ft.Icons.CALENDAR_MONTH_OUTLINED),
+    ("MonthlyTimesheet", "TimeSheet 1-25", ft.Icons.EVENT_NOTE_OUTLINED),
+    ("Ppe", "Gestion des EPI", ft.Icons.INVENTORY_2_OUTLINED),
+    ("Alerts", "Alertes", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
+    ("Reports", "Rapports", ft.Icons.PICTURE_AS_PDF_OUTLINED),
+    ("Admin", "Administration", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
+]
+
+
+def build_app(page: ft.Page) -> None:
+    page.title = "OREZONE QHSE"
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.bgcolor = SURFACE
+    page.padding = 0
+    page.window.min_width = 1000
+    page.window.min_height = 680
+    session: dict[str, object] = {"user": None, "dark_mode": False}
+    root = ft.Container(expand=True)
+    page.add(root)
+
+    def show_login(message: str = "") -> None:
+        root.content = _login_view(page, session, show_app, show_setup, message)
+        page.update()
+
+    def show_setup(message: str = "") -> None:
+        root.content = _setup_view(page, session, show_app, show_login, message)
+        page.update()
+
+    def logout() -> None:
+        session["user"] = None
+        show_login("Session fermee.")
+
+    def show_app() -> None:
+        root.content = _app_view(page, session, logout)
+        page.update()
+
+    if has_users():
+        show_login()
+    else:
+        show_setup()
+
+
+def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.Control:
+    user = dict(session.get("user") or {})
+    allowed_keys = set(get_role_modules(str(user.get("role") or "")))
+    visible_nav_items = [item for item in NAV_ITEMS if item[0] in allowed_keys]
+    if not visible_nav_items:
+        visible_nav_items = [NAV_ITEMS[0]]
+
+    content = ft.Container(expand=True, padding=24)
+    active_title = ft.Text("", size=18, weight=ft.FontWeight.BOLD, color=TEXT)
+    active_subtitle = ft.Text("", size=12, color=MUTED)
+    current_key: str | None = None
+    nav_buttons: list[ft.TextButton] = []
+
+    def render(index: int) -> None:
+        nonlocal current_key
+        key, label, _ = visible_nav_items[index]
+        try:
+            content.content = _build_screen(key, label, page, user, render_key)
+            active_title.value = label
+            active_subtitle.value = _module_subtitle(key)
+            current_key = key
+        except Exception as exc:
+            content.content = _error_view(label, exc)
+            active_title.value = label
+            active_subtitle.value = "Erreur de chargement du module."
+            current_key = key
+        refresh_nav_styles()
+        page.update()
+
+    def render_key(key: str) -> None:
+        for index, item in enumerate(visible_nav_items):
+            if item[0] == key:
+                render(index)
+                return
+
+    def refresh_current(event: ft.ControlEvent | None = None) -> None:
+        if current_key is None:
+            render(0)
+            return
+        for index, item in enumerate(visible_nav_items):
+            if item[0] == current_key:
+                render(index)
+                return
+
+    def toggle_dark_mode(event: ft.ControlEvent) -> None:
+        enabled = bool(event.control.value)
+        session["dark_mode"] = enabled
+        page.theme_mode = ft.ThemeMode.DARK if enabled else ft.ThemeMode.LIGHT
+        page.bgcolor = "#0B1220" if enabled else SURFACE
+        page.update()
+
+    def nav_style(selected: bool) -> ft.ButtonStyle:
+        return ft.ButtonStyle(
+            color="#FFFFFF" if selected else SIDEBAR_MUTED,
+            bgcolor="#1D4ED8" if selected else SIDEBAR,
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        )
+
+    def refresh_nav_styles() -> None:
+        for button in nav_buttons:
+            selected = button.data == current_key
+            button.style = nav_style(selected)
+            if isinstance(button.content, ft.Row):
+                for control in button.content.controls:
+                    if isinstance(control, ft.Icon):
+                        control.color = "#FFFFFF" if selected else SIDEBAR_MUTED
+                    if isinstance(control, ft.Text):
+                        control.color = "#FFFFFF" if selected else SIDEBAR_MUTED
+
+    nav_buttons = [
+        ft.TextButton(
+            data=key,
+            content=ft.Row(
+                controls=[
+                    ft.Icon(icon, size=19, color=SIDEBAR_MUTED),
+                    ft.Text(label, size=13, weight=ft.FontWeight.W_500, color=SIDEBAR_MUTED),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            style=nav_style(False),
+            on_click=lambda event, nav_index=index: render(nav_index),
+        )
+        for index, (key, label, icon) in enumerate(visible_nav_items)
+    ]
+
+    nav_list = ft.Column(
+        controls=nav_buttons,
+        spacing=6,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+
+    app = ft.Row(
+        controls=[
+            ft.Container(
+                width=246,
+                bgcolor=SIDEBAR,
+                border=ft.border.only(right=ft.BorderSide(1, "#1F2937")),
+                content=ft.Column(
+                    controls=[
+                        ft.Container(
+                            padding=ft.padding.symmetric(horizontal=20, vertical=18),
+                            content=ft.Column(
+                                controls=[
+                                    ft.Text(
+                                        "OREZONE QHSE",
+                                        size=18,
+                                        weight=ft.FontWeight.BOLD,
+                                        color="#F9FAFB",
+                                    ),
+                                    ft.Text(
+                                        "Industrial Admin Dashboard",
+                                        size=11,
+                                        color=SIDEBAR_MUTED,
+                                    ),
+                                ],
+                                spacing=3,
+                            ),
+                        ),
+                        ft.Container(
+                            padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                            content=nav_list,
+                            expand=True,
+                        ),
+                        ft.Container(
+                            bgcolor="#0B1220",
+                            border=ft.border.only(top=ft.BorderSide(1, "#1F2937")),
+                            padding=ft.padding.symmetric(horizontal=14, vertical=14),
+                            content=ft.Column(
+                                controls=[
+                                    ft.Text(
+                                        "Session",
+                                        size=11,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=SIDEBAR_MUTED,
+                                    ),
+                                    ft.Text(
+                                        str(user.get("username") or "-"),
+                                        size=12,
+                                        color="#F9FAFB",
+                                        weight=ft.FontWeight.BOLD,
+                                    ),
+                                    ft.Text(
+                                        str(user.get("role") or "-"),
+                                        size=11,
+                                        color=SIDEBAR_MUTED,
+                                    ),
+                                    ft.OutlinedButton(
+                                        content=ft.Row(
+                                            controls=[
+                                                ft.Icon(ft.Icons.LOGOUT_OUTLINED, color=DANGER, size=18),
+                                                ft.Text("Deconnexion", color=DANGER),
+                                            ],
+                                            spacing=8,
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            tight=True,
+                                        ),
+                                        on_click=lambda event: logout(),
+                                        width=214,
+                                    ),
+                                ],
+                                spacing=8,
+                                tight=True,
+                            ),
+                        ),
+                    ],
+                    spacing=0,
+                    expand=True,
+                ),
+            ),
+            ft.Column(
+                controls=[
+                    ft.Container(
+                        bgcolor=PANEL,
+                        border=ft.border.only(bottom=ft.BorderSide(1, BORDER)),
+                        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+                        content=ft.Row(
+                            controls=[
+                                ft.Column(
+                                    controls=[active_title, active_subtitle],
+                                    spacing=2,
+                                    expand=True,
+                                ),
+                                ft.Container(
+                                    border=ft.border.all(1, BORDER),
+                                    border_radius=8,
+                                    padding=ft.padding.symmetric(horizontal=10, vertical=7),
+                                    content=ft.Row(
+                                        controls=[
+                                            ft.Icon(ft.Icons.SYNC, size=16, color=PRIMARY),
+                                            ft.Text("SQLite sync", size=12, color=TEXT, weight=ft.FontWeight.BOLD),
+                                        ],
+                                        spacing=7,
+                                        tight=True,
+                                    ),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.REFRESH,
+                                    tooltip="Rafraichir le module",
+                                    on_click=refresh_current,
+                                ),
+                                ft.Switch(
+                                    label="Dark",
+                                    value=bool(session.get("dark_mode")),
+                                    active_color=PRIMARY,
+                                    on_change=toggle_dark_mode,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=12,
+                        ),
+                    ),
+                    content,
+                ],
+                spacing=0,
+                expand=True,
+            ),
+        ],
+        spacing=0,
+        expand=True,
+    )
+    render(0)
+    return app
+
+
+def _module_subtitle(key: str) -> str:
+    subtitles = {
+        "Dashboard": "KPI, alertes et supervision terrain en temps reel local.",
+        "Referentials": "Donnees de base partagees par les autres modules.",
+        "EmployeeManagement": "RH, affectations, badges et statut operationnel.",
+        "TrainingManagement": "Formations, conformite et matrice des competences.",
+        "ToolboxTalk": "Themes securite journaliers et suivi HSE terrain.",
+        "TimeSheet": "Periode 21-20, heures drilling, repos et validation.",
+        "MonthlyTimesheet": "Periode 1-25, 10H par jour travaille et breaks colores.",
+        "Ppe": "Stock EPI, dotations, inspections et seuils critiques.",
+        "Alerts": "Signaux QHSE, stock, badges, formations et operations.",
+        "Reports": "Exports operationnels Excel/PDF et rapports consolides.",
+        "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
+    }
+    return subtitles.get(key, "Module OREZONE QHSE.")
+
+
+def _build_screen(
+    key: str,
+    label: str,
+    page: ft.Page,
+    user: dict[str, object],
+    render_key: object,
+) -> ft.Control:
+    if key == "Dashboard":
+        return dashboard_page()
+    if key == "Referentials":
+        return referentials_page(page)
+    if key == "EmployeeManagement":
+        return employee_management_page(page)
+    if key == "TrainingManagement":
+        return training_management_page()
+    if key == "ToolboxTalk":
+        return toolbox_talk_page(page)
+    if key == "TimeSheet":
+        return timesheet_page(page)
+    if key == "MonthlyTimesheet":
+        return monthly_timesheet_page(page)
+    if key == "Ppe":
+        return ppe_page()
+    if key == "Alerts":
+        return alerts_page(navigate=render_key)
+    if key == "Reports":
+        return reports_page()
+    if key == "Admin":
+        return admin_page(user, page)
+    return placeholder_page(label)
+
+
+def _login_view(
+    page: ft.Page,
+    session: dict[str, object],
+    show_app: object,
+    show_setup: object,
+    message: str = "",
+) -> ft.Control:
+    username = ft.TextField(label="Nom utilisateur", width=320, autofocus=True)
+    password = ft.TextField(label="Mot de passe", password=True, can_reveal_password=True, width=320)
+    status = ft.Text(message, color="#64748B", size=12)
+
+    def login(event: ft.ControlEvent | None = None) -> None:
+        try:
+            session["user"] = authenticate_user(username.value, password.value)
+            show_app()
+        except ValueError as exc:
+            status.value = str(exc)
+            status.color = "#DC2626"
+            page.update()
+
+    return _auth_panel(
+        title="Connexion",
+        subtitle="Acces securise a OREZONE QHSE.",
+        controls=[
+            username,
+            password,
+            ft.ElevatedButton("Se connecter", icon=ft.Icons.LOGIN_OUTLINED, on_click=login, width=320),
+            ft.TextButton("Creer le premier administrateur", on_click=lambda event: show_setup(), visible=not has_users()),
+            status,
+        ],
+    )
+
+
+def _setup_view(
+    page: ft.Page,
+    session: dict[str, object],
+    show_app: object,
+    show_login: object,
+    message: str = "",
+) -> ft.Control:
+    username = ft.TextField(label="Administrateur", value="admin", width=320, autofocus=True)
+    password = ft.TextField(label="Mot de passe", password=True, can_reveal_password=True, width=320)
+    confirm = ft.TextField(label="Confirmer", password=True, can_reveal_password=True, width=320)
+    status = ft.Text(message or "Aucun utilisateur detecte: cree le premier administrateur.", color="#64748B", size=12)
+
+    def create_admin(event: ft.ControlEvent | None = None) -> None:
+        try:
+            if password.value != confirm.value:
+                raise ValueError("Les mots de passe ne correspondent pas.")
+            roles = list_roles()
+            admin_role = next((role for role in roles if role["nom"] == "Administrateur"), None)
+            if admin_role is None:
+                raise ValueError("Role Administrateur introuvable.")
+            create_user(
+                {
+                    "username": username.value,
+                    "password": password.value,
+                    "role_id": admin_role["id_role"],
+                    "statut": "actif",
+                }
+            )
+            session["user"] = authenticate_user(username.value, password.value)
+            show_app()
+        except ValueError as exc:
+            status.value = str(exc)
+            status.color = "#DC2626"
+            page.update()
+
+    return _auth_panel(
+        title="Premier demarrage",
+        subtitle="Creation du compte administrateur local.",
+        controls=[
+            username,
+            password,
+            confirm,
+            ft.ElevatedButton("Creer et ouvrir", icon=ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED, on_click=create_admin, width=320),
+            ft.TextButton("Retour connexion", on_click=lambda event: show_login(), visible=has_users()),
+            status,
+        ],
+    )
+
+
+def _auth_panel(title: str, subtitle: str, controls: list[ft.Control]) -> ft.Control:
+    return ft.Container(
+        expand=True,
+        bgcolor=SURFACE,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Container(
+            width=430,
+            bgcolor="#FFFFFF",
+            border=ft.border.all(1, "#BFDBFE"),
+            border_radius=8,
+            padding=28,
+            content=ft.Column(
+                controls=[
+                    ft.Text("OREZONE QHSE", size=18, weight=ft.FontWeight.BOLD, color=TEXT),
+                    ft.Text(title, size=26, weight=ft.FontWeight.BOLD, color=TEXT),
+                    ft.Text(subtitle, size=13, color="#64748B"),
+                    ft.Divider(height=18, color="#BFDBFE"),
+                    *controls,
+                ],
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+        ),
+    )
+
+
+def _error_view(module_name: str, error: Exception) -> ft.Control:
+    return ft.Container(
+        bgcolor="#FEF2F2",
+        border=ft.border.all(1, "#FECACA"),
+        border_radius=8,
+        padding=18,
+        content=ft.Column(
+            controls=[
+                ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, color=DANGER, size=24),
+                        ft.Text(
+                            f"Erreur dans {module_name}",
+                            color=DANGER,
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Text(str(error), color="#991B1B", size=12, selectable=True),
+                ft.Text(
+                    "Ferme le fichier Excel concerne s'il est ouvert, puis actualise le module.",
+                    color=MUTED,
+                    size=12,
+                ),
+            ],
+            spacing=10,
+        ),
+    )

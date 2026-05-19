@@ -1,0 +1,302 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Any
+
+from app.db.connection import db_session
+
+
+WORK_HOURS = 10
+
+
+def current_monthly_timesheet_month() -> str:
+    today = date.today()
+    return today.strftime("%Y-%m")
+
+
+def get_monthly_timesheet_period(month: str) -> dict[str, str]:
+    parsed = _parse_month(month)
+    return {
+        "month": parsed.strftime("%Y-%m"),
+        "start": parsed.replace(day=1).isoformat(),
+        "end": parsed.replace(day=25).isoformat(),
+    }
+
+
+def list_monthly_timesheet_days(month: str) -> list[str]:
+    period = get_monthly_timesheet_period(month)
+    start = date.fromisoformat(period["start"])
+    end = date.fromisoformat(period["end"])
+    days = []
+    current = start
+    while current <= end:
+        days.append(current.isoformat())
+        current = current.replace(day=current.day + 1)
+    return days
+
+
+def list_monthly_timesheet_site_options() -> list[dict[str, Any]]:
+    with db_session() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                s.id_site AS value,
+                CASE
+                    WHEN d.nom IS NULL THEN s.nom
+                    ELSE s.nom || ' - ' || d.nom
+                END AS label
+            FROM sites s
+            LEFT JOIN departments d ON d.id_department = s.department_id
+            WHERE s.actif = 1
+            ORDER BY CASE WHEN s.nom = 'SYAMA' THEN 0 ELSE 1 END, s.nom
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_monthly_10h_timesheet(
+    month: str | None = None,
+    site_id: int | None = None,
+    employee_type: str = "national",
+) -> dict[str, Any]:
+    selected_month = month or current_monthly_timesheet_month()
+    period = get_monthly_timesheet_period(selected_month)
+    days = list_monthly_timesheet_days(selected_month)
+    selected_site_id = int(site_id or 0) or None
+    selected_employee_type = str(employee_type or "national").strip()
+    if selected_employee_type not in {"national", "expatriate"}:
+        raise ValueError("Type employe invalide pour le TimeSheet.")
+    with db_session() as connection:
+        site_filter = ""
+        site_params: tuple[Any, ...] = ()
+        if selected_site_id is not None:
+            site_filter = """
+              AND EXISTS (
+                    SELECT 1
+                    FROM employee_site_assignments esa_site
+                    WHERE esa_site.employe_id = e.id_employe
+                      AND esa_site.site_id = ?
+                      AND esa_site.date_debut <= ?
+                      AND COALESCE(esa_site.date_fin, '9999-12-31') >= ?
+              )
+            """
+            site_params = (selected_site_id, period["end"], period["start"])
+        employees = connection.execute(
+            f"""
+            SELECT DISTINCT
+                e.id_employe,
+                COALESCE(e.nom, e.nom_complet) AS nom,
+                COALESCE(e.prenom, '') AS prenom,
+                e.nom_complet,
+                b.numero_badge,
+                f.nom AS fonction,
+                s.id_site AS site_id,
+                s.nom AS site,
+                d.nom AS departement_site,
+                COALESCE(g.nom, '-') AS groupe
+            FROM employes e
+            JOIN fonctions f ON f.id_fonction = e.fonction_id
+            JOIN sites s ON s.id_site = e.site_id
+            LEFT JOIN departments d ON d.id_department = s.department_id
+            LEFT JOIN groupes g ON g.id_groupe = e.groupe_id
+            LEFT JOIN badges b ON b.employe_id = e.id_employe
+            WHERE e.statut = 'actif'
+              AND e.type_employe = ?
+              {site_filter}
+            ORDER BY nom, prenom, e.nom_complet
+            """,
+            (selected_employee_type, *site_params),
+        ).fetchall()
+        breaks = _breaks_by_employee(connection, period["start"], period["end"])
+        assignments = _site_assignments_by_employee(connection, period["start"], period["end"], selected_site_id)
+        site = _site_context(connection, selected_site_id)
+
+    rows: list[dict[str, Any]] = []
+    summary = {
+        "employees": 0,
+        "worked_days": 0,
+        "rest_days": 0,
+        "normal_break_days": 0,
+        "annual_break_days": 0,
+        "hours": 0,
+    }
+    for employee in employees:
+        employee_id = int(employee["id_employe"])
+        cells = []
+        employee_hours = 0
+        worked_days = 0
+        rest_days = 0
+        normal_break_days = 0
+        annual_break_days = 0
+        for day in days:
+            parsed = date.fromisoformat(day)
+            if selected_site_id is not None and not _assigned_to_site_on_day(
+                assignments.get(employee_id, []),
+                selected_site_id,
+                day,
+            ):
+                status = "not_assigned"
+                label = "N/A"
+                hours = 0
+                break_type = None
+                break_start = None
+                break_end = None
+            else:
+                break_record = _break_for_day(breaks.get(employee_id, []), day)
+                if break_record and str(break_record.get("type_break")) == "annual":
+                    status = "annual_break"
+                    label = "BA"
+                    hours = 0
+                    annual_break_days += 1
+                elif break_record:
+                    status = "normal_break"
+                    label = "B"
+                    hours = 0
+                    normal_break_days += 1
+                elif parsed.weekday() == 6:
+                    status = "rest"
+                    label = "R"
+                    hours = 0
+                    rest_days += 1
+                else:
+                    status = "worked"
+                    label = "10h"
+                    hours = WORK_HOURS
+                    employee_hours += hours
+                    worked_days += 1
+                break_type = str(break_record.get("type_break")) if break_record else None
+                break_start = str(break_record.get("date_debut")) if break_record else None
+                break_end = str(break_record.get("date_fin")) if break_record else None
+            cells.append(
+                {
+                    "date": day,
+                    "day": int(day[-2:]),
+                    "weekday": _weekday_label(day),
+                    "status": status,
+                    "label": label,
+                    "hours": hours,
+                    "break_type": break_type,
+                    "break_start": break_start,
+                    "break_end": break_end,
+                }
+            )
+        rows.append(
+            {
+                "employee": dict(employee),
+                "cells": cells,
+                "worked_days": worked_days,
+                "rest_days": rest_days,
+                "normal_break_days": normal_break_days,
+                "annual_break_days": annual_break_days,
+                "hours": employee_hours,
+            }
+        )
+        summary["employees"] += 1
+        summary["worked_days"] += worked_days
+        summary["rest_days"] += rest_days
+        summary["normal_break_days"] += normal_break_days
+        summary["annual_break_days"] += annual_break_days
+        summary["hours"] += employee_hours
+    return {
+        "period": period,
+        "site_id": selected_site_id,
+        "site": site,
+        "days": [
+            {
+                "date": day,
+                "day": int(day[-2:]),
+                "weekday": _weekday_label(day),
+                "is_sunday": date.fromisoformat(day).weekday() == 6,
+            }
+            for day in days
+        ],
+        "rows": rows,
+        "summary": summary,
+    }
+
+
+def _breaks_by_employee(connection: Any, start: str, end: str) -> dict[int, list[dict[str, Any]]]:
+    rows = connection.execute(
+        """
+        SELECT employe_id, type_break, date_debut, date_fin, statut
+        FROM employee_breaks
+        WHERE statut IN ('planifie', 'en_cours', 'termine')
+          AND date_debut <= ?
+          AND date_fin >= ?
+        ORDER BY date_debut
+        """,
+        (end, start),
+    ).fetchall()
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(int(row["employe_id"]), []).append(dict(row))
+    return grouped
+
+
+def _break_for_day(records: list[dict[str, Any]], day: str) -> dict[str, Any] | None:
+    for record in records:
+        if str(record["date_debut"]) <= day <= str(record["date_fin"]):
+            return record
+    return None
+
+
+def _site_assignments_by_employee(
+    connection: Any,
+    start: str,
+    end: str,
+    site_id: int | None,
+) -> dict[int, list[dict[str, Any]]]:
+    if site_id is None:
+        return {}
+    rows = connection.execute(
+        """
+        SELECT employe_id, site_id, date_debut, date_fin
+        FROM employee_site_assignments
+        WHERE site_id = ?
+          AND date_debut <= ?
+          AND COALESCE(date_fin, '9999-12-31') >= ?
+        ORDER BY date_debut
+        """,
+        (site_id, end, start),
+    ).fetchall()
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(int(row["employe_id"]), []).append(dict(row))
+    return grouped
+
+
+def _assigned_to_site_on_day(records: list[dict[str, Any]], site_id: int, day: str) -> bool:
+    return any(
+        int(record.get("site_id") or 0) == site_id
+        and str(record.get("date_debut") or "") <= day
+        and str(record.get("date_fin") or "9999-12-31") >= day
+        for record in records
+    )
+
+
+def _site_context(connection: Any, site_id: int | None) -> dict[str, Any] | None:
+    if site_id is None:
+        return None
+    row = connection.execute(
+        """
+        SELECT s.id_site, s.nom, s.localisation, d.nom AS departement
+        FROM sites s
+        LEFT JOIN departments d ON d.id_department = s.department_id
+        WHERE s.id_site = ?
+        """,
+        (site_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _parse_month(value: str) -> date:
+    try:
+        parsed = date.fromisoformat(f"{str(value or '').strip()}-01")
+    except ValueError as exc:
+        raise ValueError("Mois invalide. Utilise le format AAAA-MM.") from exc
+    return parsed
+
+
+def _weekday_label(value: str) -> str:
+    labels = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+    return labels[date.fromisoformat(value).weekday()]
