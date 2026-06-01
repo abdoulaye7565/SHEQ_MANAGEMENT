@@ -7,6 +7,7 @@ from app.db.connection import db_session
 
 
 WORK_HOURS = 10
+PERMISSION_DAYS = 3
 
 
 def current_monthly_timesheet_month() -> str:
@@ -143,7 +144,11 @@ def get_monthly_10h_timesheet(
                 break_end = None
             else:
                 break_record = _break_for_day(breaks.get(employee_id, []), day)
-                if break_record and str(break_record.get("type_break")) == "annual":
+                if break_record and _permission_exceeds_allowed_days(break_record, day):
+                    status = "absent"
+                    label = "A"
+                    hours = 0
+                elif break_record and str(break_record.get("type_break")) == "annual":
                     status = "annual_break"
                     label = "BA"
                     hours = 0
@@ -238,6 +243,14 @@ def _break_for_day(records: list[dict[str, Any]], day: str) -> dict[str, Any] | 
         if str(record["date_debut"]) <= day <= str(record["date_fin"]):
             return record
     return None
+
+
+def _permission_exceeds_allowed_days(record: dict[str, Any], day: str) -> bool:
+    if str(record.get("type_break") or "") != "permission":
+        return False
+    start = date.fromisoformat(str(record.get("date_debut") or ""))
+    current = date.fromisoformat(day)
+    return (current - start).days >= PERMISSION_DAYS
 
 
 def _site_assignments_by_employee(

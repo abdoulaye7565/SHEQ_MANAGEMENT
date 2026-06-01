@@ -388,5 +388,6 @@ def _target_key(source_key: str) -> str | None:
         "breaks": "EmployeeManagement",
         "attendance": "TimeSheet",
         "ppe": "Ppe",
+        "maintenance": "MaintenanceActions",
         "training": "TrainingManagement",
     }.get(source_key)

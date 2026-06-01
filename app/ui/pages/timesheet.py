@@ -28,6 +28,7 @@ from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 WORK_DRILLING = "#2563EB"
 WORK_STANDARD = "#16A34A"
+HOLIDAY = "#22C55E"
 REST = "#CBD5E1"
 ABSENT = "#FCA5A5"
 UNFILLED = "#E5E7EB"
@@ -54,6 +55,15 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     site_scope_field = ft.Dropdown(label="TimeSheet site", value="all", width=250)
     activity_date_field = ft.TextField(label="Date activite", hint_text="AAAA-MM-JJ", width=170)
     drilling_switch = ft.Switch(label="Drilling actif", value=False, active_color=PRIMARY)
+    day_type_field = ft.Dropdown(
+        label="Type de jour",
+        value="work",
+        width=190,
+        options=[
+            ft.dropdown.Option("work", "Jour travaille"),
+            ft.dropdown.Option("holiday", "Jour chome 8H"),
+        ],
+    )
     comment_field = ft.TextField(label="Commentaire", width=260)
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=240)
     function_filter = ft.Dropdown(label="Fonction", value="all", width=220)
@@ -65,10 +75,12 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("all", "Tous"),
             ft.dropdown.Option("worked_drilling", "12H drilling"),
             ft.dropdown.Option("worked_standard", "8H"),
+            ft.dropdown.Option("holiday", "Jour chome 8H"),
             ft.dropdown.Option("rest", "Repos"),
             ft.dropdown.Option("absent", "Absent"),
             ft.dropdown.Option("unfilled", "Non renseigne"),
             ft.dropdown.Option("break", "Break"),
+            ft.dropdown.Option("annual", "Annual leave"),
             ft.dropdown.Option("permission", "Permission"),
             ft.dropdown.Option("sick", "Sick"),
         ],
@@ -90,6 +102,15 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     bulk_start_field = ft.TextField(label="Debut drilling", hint_text="AAAA-MM-JJ", width=170)
     bulk_end_field = ft.TextField(label="Fin drilling", hint_text="AAAA-MM-JJ", width=170)
     bulk_drilling_switch = ft.Switch(label="Drilling", value=True, active_color=PRIMARY)
+    bulk_day_type_field = ft.Dropdown(
+        label="Type periode",
+        value="work",
+        width=190,
+        options=[
+            ft.dropdown.Option("work", "Jours travailles"),
+            ft.dropdown.Option("holiday", "Jours chomes 8H"),
+        ],
+    )
     edit_employee_field = ft.Dropdown(label="Employe", width=260)
     edit_date_field = ft.TextField(label="Date", hint_text="AAAA-MM-JJ", width=170)
     edit_status_field = ft.Dropdown(
@@ -101,6 +122,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("rest", "Repos"),
             ft.dropdown.Option("absent", "Absent"),
             ft.dropdown.Option("break", "Break"),
+            ft.dropdown.Option("annual", "Annual leave"),
             ft.dropdown.Option("permission", "Permission"),
             ft.dropdown.Option("sick", "Sick"),
         ],
@@ -212,6 +234,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         try:
             activity = get_day_activity(str(activity_date_field.value or ""))
             drilling_switch.value = bool(activity["has_drilling"])
+            day_type_field.value = str(activity.get("day_type") or "work")
             comment_field.value = str(activity.get("commentaire") or "")
             notify("Activite du jour chargee.", MUTED)
         except ValueError as exc:
@@ -224,8 +247,9 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 str(activity_date_field.value or ""),
                 bool(drilling_switch.value),
                 str(comment_field.value or ""),
+                day_type=str(day_type_field.value or "work"),
             )
-            notify("Activite drilling mise a jour. Le TimeSheet est recalcule.", SUCCESS)
+            notify("Activite du jour mise a jour. Le TimeSheet est recalcule.", SUCCESS)
             refresh()
         except ValueError as exc:
             notify(str(exc), DANGER)
@@ -238,6 +262,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 str(bulk_end_field.value or ""),
                 bool(bulk_drilling_switch.value),
                 str(comment_field.value or ""),
+                day_type=str(bulk_day_type_field.value or "work"),
             )
             notify(f"{updated} jour(s) d'activite mis a jour.", SUCCESS)
             refresh()
@@ -371,6 +396,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 controls=[
                     _legend("12h drilling", WORK_DRILLING, "#FFFFFF"),
                     _legend("8h sans drilling", WORK_STANDARD, "#FFFFFF"),
+                    _legend("Jour chome 8h", HOLIDAY, "#FFFFFF"),
                     _legend("Repos", REST, TEXT),
                     _legend("Absent", ABSENT, TEXT),
                     _legend("Non renseigne", UNFILLED, TEXT),
@@ -454,6 +480,9 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             if selected_status != "all":
                 if selected_status in {"permission", "sick"}:
                     if not any(cell["status"] == "break" and cell["label"].lower() == selected_status[0] for cell in cells):
+                        continue
+                elif selected_status == "annual":
+                    if not any(cell["status"] == "break" and cell["label"] == "AL" for cell in cells):
                         continue
                 elif selected_status == "break":
                     if not any(cell["status"] == "break" and cell["label"] == "B" for cell in cells):
@@ -626,6 +655,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                     controls=[
                                         activity_date_field,
                                         drilling_switch,
+                                        day_type_field,
                                         comment_field,
                                         ft.OutlinedButton("Charger jour", icon=ft.Icons.TODAY_OUTLINED, on_click=load_activity),
                                         ft.ElevatedButton("Enregistrer jour", icon=ft.Icons.SAVE_OUTLINED, on_click=save_activity),
@@ -639,6 +669,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                         bulk_start_field,
                                         bulk_end_field,
                                         bulk_drilling_switch,
+                                        bulk_day_type_field,
                                         ft.OutlinedButton("Appliquer periode", icon=ft.Icons.DATE_RANGE_OUTLINED, on_click=save_bulk_activity),
                                     ],
                                     wrap=True,
@@ -738,6 +769,7 @@ def _calendar_cell(cell: dict[str, Any], employee_id: int, on_status_change: obj
             ft.PopupMenuItem(content=ft.Text("Repos"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "rest")),
             ft.PopupMenuItem(content=ft.Text("Absent"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "absent")),
             ft.PopupMenuItem(content=ft.Text("Break"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "break")),
+            ft.PopupMenuItem(content=ft.Text("Annual leave"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "annual")),
             ft.PopupMenuItem(content=ft.Text("Permission"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "permission")),
             ft.PopupMenuItem(content=ft.Text("Sick"), on_click=lambda event: on_status_change(employee_id, str(cell["date"]), "sick")),
         ],
@@ -751,10 +783,14 @@ def _cell_style(cell: dict[str, Any]) -> tuple[str, str, str]:
         return WORK_DRILLING, "#FFFFFF", "Present avec activite drilling: 12H"
     if status == "worked_standard":
         return WORK_STANDARD, "#FFFFFF", "Present sans drilling: 8H"
+    if status == "holiday":
+        return HOLIDAY, "#FFFFFF", "Jour ferie ou chome paye: 8H"
     if status == "break" and label == "P":
         return PERMISSION, "#FFFFFF", "Permission"
     if status == "break" and label == "S":
         return SICK, "#FFFFFF", "Sick / Maladie"
+    if status == "break" and label == "AL":
+        return "#5B3DB6", "#FFFFFF", "Annual leave"
     if status == "break":
         return BREAK, TEXT, "Break"
     if status == "absent":
@@ -767,7 +803,7 @@ def _cell_style(cell: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _break_color(label: str) -> str:
-    return {"B": BREAK, "P": PERMISSION, "S": SICK}.get(label, BREAK)
+    return {"B": BREAK, "P": PERMISSION, "S": SICK, "AL": "#5B3DB6"}.get(label, BREAK)
 
 
 def _shift_label(shift_code: str) -> str:

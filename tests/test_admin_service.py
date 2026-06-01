@@ -118,6 +118,24 @@ class AdminServiceTest(unittest.TestCase):
         self.assertNotIn("Admin", stock_modules)
         self.assertEqual(unknown_modules, ["Dashboard"])
 
+    def test_partial_admin_permissions_are_completed_by_migration(self) -> None:
+        with connection.db_session() as db:
+            admin_role = db.execute("SELECT id_role FROM roles WHERE nom = 'Administrateur'").fetchone()
+            db.execute("DELETE FROM role_module_permissions WHERE role_id = ?", (admin_role["id_role"],))
+            for module in ("ToolboxTalk", "TimeSheet", "Admin"):
+                db.execute(
+                    """
+                    INSERT INTO role_module_permissions(role_id, module_key)
+                    VALUES (?, ?)
+                    """,
+                    (admin_role["id_role"], module),
+                )
+
+        connection.initialize_database()
+
+        admin_modules = get_role_modules("Administrateur")
+        self.assertEqual(admin_modules, admin_service.ROLE_MODULES["Administrateur"])
+
     def test_role_permissions_can_be_updated_and_audited(self) -> None:
         stock_role_id = self._role_id("Responsable stock")
 

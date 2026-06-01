@@ -102,6 +102,29 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(cells["2026-05-11"]["status"], "worked")
         self.assertEqual(row["normal_break_days"], 10)
 
+    def test_permission_after_three_days_becomes_absence_in_monthly_timesheet(self) -> None:
+        create_break(
+            {
+                "employe_id": self.employee_id,
+                "type_break": "permission",
+                "date_debut": "2026-05-01",
+                "date_fin": "2026-05-04",
+                "statut": "planifie",
+            }
+        )
+
+        timesheet = get_monthly_10h_timesheet("2026-05")
+        row = timesheet["rows"][0]
+        cells = {cell["date"]: cell for cell in row["cells"]}
+
+        self.assertEqual(cells["2026-05-01"]["status"], "normal_break")
+        self.assertEqual(cells["2026-05-02"]["status"], "normal_break")
+        self.assertEqual(cells["2026-05-03"]["status"], "normal_break")
+        self.assertEqual(cells["2026-05-04"]["status"], "absent")
+        self.assertEqual(cells["2026-05-04"]["label"], "A")
+        self.assertEqual(row["normal_break_days"], 3)
+        self.assertEqual(row["hours"], 180)
+
     def test_export_monthly_timesheet_xlsx_contains_status_labels(self) -> None:
         self._create_employee("Expat Employee", employee_type="expatriate")
         create_break(

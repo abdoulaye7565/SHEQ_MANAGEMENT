@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from app.config import EXPORTS_DIR
@@ -35,6 +36,7 @@ class TimeSheetExportTest(unittest.TestCase):
 
     def test_export_timesheet_xls_contains_colors_and_legend(self) -> None:
         set_day_activity("2026-04-21", True)
+        set_day_activity("2026-05-01", False, "Jour chome", day_type="holiday")
         save_attendance_day(
             "2026-04-21",
             {
@@ -52,44 +54,49 @@ class TimeSheetExportTest(unittest.TestCase):
         )
 
         output = export_timesheet_xls("2026-04")
-        content = output.read_text(encoding="utf-8")
+        self.assertEqual(output.suffix, ".xlsx")
+        with zipfile.ZipFile(output) as workbook:
+            content = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            styles = workbook.read("xl/styles.xml").decode("utf-8")
 
         self.assertTrue(output.name.startswith("timesheet_orezone_2026-04"))
-        self.assertIn("OREZONE TIMESHEET", content)
         self.assertIn("Legende", content)
-        self.assertIn("S1", content)
-        self.assertIn("Chaque semaine TimeSheet", content)
-        self.assertIn("worked-drilling", content)
-        self.assertIn('bgcolor="#2563eb"', content)
-        self.assertIn("background-color:#2563eb", content)
-        self.assertIn("Present avec activite drilling = 12H", content)
+        self.assertIn("MLE", content)
+        self.assertIn("NOM", content)
+        self.assertIn("PRENOMS", content)
+        self.assertIn("R = OFF DAYS", content)
+        self.assertIn("8 = JOURS FERIES &amp; CHOMES PAYES", content)
+        self.assertIn("Jour ferie ou chome paye = 8H", content)
+        self.assertIn("ANNUAL LEAVE", content)
+        self.assertIn("FF00A6D6", styles)
         self.assertIn("Prepared by", content)
         self.assertIn("Checked by", content)
         self.assertIn("Approved by", content)
-        self.assertIn("Heures 12H", content)
-        self.assertIn("Heures 8H", content)
         self.assertIn("Export Employe", content)
         self.assertIn("Second Export Employe", content)
 
     def test_export_timesheet_all_employees_creates_one_file_per_employee(self) -> None:
         output_dir = export_timesheet_all_employees_xls("2026-04")
-        files = sorted(output_dir.glob("*.xls"))
+        files = sorted(output_dir.glob("*.xlsx"))
 
         self.assertTrue(output_dir.name.startswith("timesheets_individuels_orezone_2026-04"))
         self.assertEqual(len(files), 2)
-        contents = [path.read_text(encoding="utf-8") for path in files]
+        contents = []
+        for path in files:
+            with zipfile.ZipFile(path) as workbook:
+                contents.append(workbook.read("xl/worksheets/sheet1.xml").decode("utf-8"))
         self.assertTrue(any("Export Employe" in content for content in contents))
         self.assertTrue(any("Second Export Employe" in content for content in contents))
 
     def test_export_timesheet_employee_uses_print_layout(self) -> None:
         output = export_timesheet_employee_xls("2026-04", self.employee_id)
-        content = output.read_text(encoding="utf-8")
+        self.assertEqual(output.suffix, ".xlsx")
+        with zipfile.ZipFile(output) as workbook:
+            content = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
 
-        self.assertIn("OREZONE INDIVIDUAL TIMESHEET", content)
-        self.assertIn("@page", content)
         self.assertIn("Prepared by", content)
-        self.assertIn("Date</th><th>Jour</th><th>Statut</th><th>Heures", content)
-        self.assertNotIn("OREZONE TIMESHEET</td>", content)
+        self.assertIn("Export Employe", content)
+        self.assertIn("Legende", content)
 
     def _create_employee(self, name: str = "Export Employe") -> int:
         with connection.db_session() as db:

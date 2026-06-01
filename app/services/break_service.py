@@ -10,6 +10,8 @@ BREAK_TYPES = ["break", "annual", "permission", "sick"]
 BREAK_STATUSES = ["planifie", "en_cours", "termine", "annule"]
 WORK_DAYS_BEFORE_BREAK = 14
 DEFAULT_BREAK_DAYS = 7
+PERMISSION_DAYS = 3
+ANNUAL_BREAK_DAYS = 30
 
 
 def list_breaks() -> list[dict[str, Any]]:
@@ -284,6 +286,9 @@ def _validate_payload(payload: dict[str, Any]) -> None:
     end = _parse_date(payload["date_fin"])
     if end < start:
         raise ValueError("La date de fin doit etre apres la date de debut.")
+    duration = (end - start).days + 1
+    if payload["type_break"] == "annual" and duration > ANNUAL_BREAK_DAYS:
+        raise ValueError("Break annuel invalide: la duree maximale est de 30 jours.")
 
 
 def _parse_date(value: str) -> date:

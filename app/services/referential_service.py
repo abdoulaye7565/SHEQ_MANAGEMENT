@@ -75,6 +75,14 @@ REFERENTIAL_CONFIGS: dict[str, dict[str, Any]] = {
         "display": "nom",
         "fields": [
             {"name": "nom", "label": "Nom de la formation", "type": "text", "required": True},
+            {
+                "name": "department_id",
+                "label": "Departement",
+                "type": "fk",
+                "ref_table": "training_departments",
+                "ref_pk": "id_department",
+                "ref_display": "nom",
+            },
             {"name": "categorie", "label": "Categorie", "type": "text"},
             {"name": "validite_mois", "label": "Validite en mois", "type": "int", "default": 24},
             {"name": "actif", "label": "Actif", "type": "bool", "default": 1},

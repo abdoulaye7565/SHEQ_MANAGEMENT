@@ -273,7 +273,29 @@ def breaks_page() -> ft.Control:
         controls=[
             module_header(
                 "Breaks et permissions",
-                "Planification des breaks d'une semaine et suivi des permissions.",
+                "Planification des breaks, permissions et conges annuels avec regles de duree.",
+            ),
+            ft.Container(
+                bgcolor="#EFF6FF",
+                border=ft.border.all(1, "#BFDBFE"),
+                border_radius=8,
+                padding=14,
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Regles appliquees", size=14, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.Text(
+                            "Permission: 3 jours maximum comptabilises en permission; a partir du 4e jour, le TimeSheet marque l'employe en absence sans heures.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                        ft.Text(
+                            "Break annuel / annual leave: duree maximale autorisee de 30 jours.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                    ],
+                    spacing=4,
+                ),
             ),
             ft.Container(
                 bgcolor="#FFFFFF",

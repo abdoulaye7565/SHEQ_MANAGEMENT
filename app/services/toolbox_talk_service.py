@@ -7,47 +7,49 @@ from typing import Any
 
 from app.db.connection import db_session
 
+DEFAULT_TOOLBOX_FACILITATOR = "ABOU DIARRA"
+
 DEFAULT_TOOLBOX_THEMES = [
-    "Port obligatoire des EPI adaptes a la tache",
-    "Gestion de la fatigue et vigilance avant prise de poste",
-    "Circulation des engins et separation pietons / vehicules",
-    "Analyse des risques avant travaux: Stop, Think, Act",
-    "Travail en hauteur: harnais, points d'ancrage et controle",
-    "Prevention des chutes de plain-pied et rangement des zones",
-    "Consignation et isolation des energies dangereuses",
-    "Manutention manuelle et prevention des troubles musculosquelettiques",
-    "Signalement des presqu'accidents et conditions dangereuses",
-    "Gestion des produits chimiques et lecture des FDS",
-    "Hydratation, chaleur et prevention du stress thermique",
-    "Utilisation correcte des extincteurs et alerte incendie",
-    "Controle pre-operationnel des outils et equipements",
-    "Communication radio et respect des instructions terrain",
-    "Protection de l'environnement: dechets, hydrocarbures et poussiere",
-    "Interdiction de travailler sous influence alcool ou drogues",
-    "Permis de travail et autorisations avant activite critique",
-    "Ordre et proprete sur les plateformes de forage",
-    "Prevention des projections lors des travaux mecaniques",
-    "Controle des flexibles sous pression et raccords hydrauliques",
-    "Gestion des angles morts autour des equipements mobiles",
-    "Respect des limitations de vitesse sur site",
-    "Procedure d'urgence et points de rassemblement",
-    "Prevention des incendies lors des travaux a chaud",
-    "Utilisation des echelles et acces temporaires",
-    "Verification des garde-corps, caillebotis et ouvertures",
-    "Prevention du bruit et port des protections auditives",
-    "Gestion des poussieres et protection respiratoire",
-    "Travaux de nuit: visibilite, eclairage et communication",
-    "Controle des permis d'excavation et reseaux enterres",
-    "Securite pendant les operations de levage",
-    "Inspection des sangles, chaines et accessoires de levage",
-    "Signalisation et balisage des zones dangereuses",
-    "Premiers secours: alerte rapide et protection de la victime",
-    "Respect des procedures de forage et zones interdites",
-    "Prevention des coincements mains et doigts",
-    "Gestion des visiteurs et sous-traitants sur site",
-    "Conduite defensive sur piste miniere",
-    "Controle des documents QHSE avant demarrage travaux",
-    "Retour d'experience apres incident ou presqu'accident",
+    "Mandatory PPE selection and use / Port obligatoire des EPI adaptes a la tache",
+    "Fatigue management before starting work / Gestion de la fatigue avant prise de poste",
+    "Mobile equipment traffic and pedestrian segregation / Circulation des engins et separation pietons vehicules",
+    "Job risk assessment: Stop, Think, Act / Analyse des risques avant travaux: Stop, Think, Act",
+    "Working at height: harness, anchor points and inspection / Travail en hauteur: harnais, points d'ancrage et controle",
+    "Slip, trip and fall prevention / Prevention des chutes de plain-pied et rangement des zones",
+    "Lockout and isolation of hazardous energy / Consignation et isolation des energies dangereuses",
+    "Manual handling and ergonomics / Manutention manuelle et prevention des TMS",
+    "Near-miss and unsafe condition reporting / Signalement des presqu'accidents et conditions dangereuses",
+    "Chemical management and SDS review / Gestion des produits chimiques et lecture des FDS",
+    "Hydration, heat stress and sun protection / Hydratation, chaleur et prevention du stress thermique",
+    "Fire response and correct extinguisher use / Utilisation correcte des extincteurs et alerte incendie",
+    "Pre-operational inspection of tools and equipment / Controle pre-operationnel des outils et equipements",
+    "Radio communication and field instructions / Communication radio et respect des instructions terrain",
+    "Environmental protection: waste, hydrocarbons and dust / Protection de l'environnement: dechets, hydrocarbures et poussiere",
+    "Fitness for work: alcohol and drug prohibition / Aptitude au travail: interdiction alcool et drogues",
+    "Permit to work before critical activities / Permis de travail avant activite critique",
+    "Housekeeping on drilling platforms / Ordre et proprete sur les plateformes de forage",
+    "Mechanical work projection hazards / Prevention des projections lors des travaux mecaniques",
+    "Hydraulic hoses, pressure lines and fittings / Controle des flexibles sous pression et raccords hydrauliques",
+    "Blind spots around mobile equipment / Gestion des angles morts autour des equipements mobiles",
+    "Site speed limits and defensive driving / Respect des limitations de vitesse sur site",
+    "Emergency procedure and muster points / Procedure d'urgence et points de rassemblement",
+    "Hot work fire prevention / Prevention des incendies lors des travaux a chaud",
+    "Ladders and temporary access safety / Utilisation des echelles et acces temporaires",
+    "Guardrails, grating and openings inspection / Verification des garde-corps, caillebotis et ouvertures",
+    "Noise control and hearing protection / Prevention du bruit et port des protections auditives",
+    "Dust control and respiratory protection / Gestion des poussieres et protection respiratoire",
+    "Night work visibility, lighting and communication / Travaux de nuit: visibilite, eclairage et communication",
+    "Excavation permits and buried services / Controle des permis d'excavation et reseaux enterres",
+    "Lifting operations safety / Securite pendant les operations de levage",
+    "Slings, chains and lifting accessories inspection / Inspection des sangles, chaines et accessoires de levage",
+    "Barricading and signage of hazardous areas / Signalisation et balisage des zones dangereuses",
+    "First aid: rapid alert and victim protection / Premiers secours: alerte rapide et protection de la victime",
+    "Drilling procedures and restricted areas / Respect des procedures de forage et zones interdites",
+    "Hand and finger pinch-point prevention / Prevention des coincements mains et doigts",
+    "Visitor and contractor control on site / Gestion des visiteurs et sous-traitants sur site",
+    "Defensive driving on mine roads / Conduite defensive sur piste miniere",
+    "QHSE document control before work starts / Controle des documents QHSE avant demarrage travaux",
+    "Incident and near-miss lessons learned / Retour d'experience apres incident ou presqu'accident",
 ]
 
 
@@ -144,7 +146,7 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
     theme = str(values.get("theme") or "").strip()
     if not theme:
         raise ValueError("Theme / topic obligatoire.")
-    facilitator = str(values.get("facilitateur") or "").strip() or None
+    facilitator = _normalize_facilitator(values.get("facilitateur"))
     site_id = values.get("site_id")
     normalized_site_id = int(site_id) if site_id not in ("", None) else None
     with db_session() as connection:
@@ -240,6 +242,7 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
     catalog = list_theme_catalog()
     if not catalog:
         raise ValueError("Cree au moins un theme avant l'affectation mensuelle.")
+    selected_facilitator = str(facilitateur or "").strip() or None
     assigned = 0
     with db_session() as connection:
         existing_rows = connection.execute(
@@ -250,14 +253,18 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
             """,
             (days[0], days[-1]),
         ).fetchall()
-        existing = {str(row["date_theme"]) for row in existing_rows}
+        existing_with_theme = {
+            str(row["date_theme"])
+            for row in existing_rows
+            if str(row["theme"] or "").strip()
+        }
         existing_theme_counts: dict[str, int] = {}
         if not overwrite:
             for row in existing_rows:
                 theme = str(row["theme"] or "").strip()
                 if theme:
                     existing_theme_counts[theme] = existing_theme_counts.get(theme, 0) + 1
-        target_days = [day for day in days if overwrite or day not in existing]
+        target_days = [day for day in days if overwrite or day not in existing_with_theme]
         theme_pool: list[str] = []
         for row in catalog:
             theme = str(row["theme"] or "").strip()
@@ -273,22 +280,44 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
                 "un theme normal une seule fois, un theme obligatoire deux fois maximum."
             )
         for day in days:
-            if day in existing and not overwrite:
+            if day in existing_with_theme and not overwrite:
                 continue
             theme = theme_pool.pop()
             connection.execute(
                 """
                 INSERT INTO themes_securite(date_theme, theme, facilitateur)
-                VALUES (?, ?, ?)
+                VALUES (?, ?, COALESCE(?, ?))
                 ON CONFLICT(date_theme) DO UPDATE SET
                     theme = excluded.theme,
-                    facilitateur = COALESCE(excluded.facilitateur, themes_securite.facilitateur),
+                    facilitateur = CASE
+                        WHEN ? IS NULL THEN COALESCE(themes_securite.facilitateur, excluded.facilitateur)
+                        ELSE excluded.facilitateur
+                    END,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (day, theme, str(facilitateur or "").strip() or None),
+                (day, theme, selected_facilitator, DEFAULT_TOOLBOX_FACILITATOR, selected_facilitator),
             )
             assigned += 1
     return assigned
+
+
+def apply_monthly_toolbox_facilitator(month: str | None = None, facilitateur: str | None = None) -> int:
+    selected_month = _parse_month(month or current_toolbox_month())
+    days = _month_days(selected_month)
+    facilitator = _normalize_facilitator(facilitateur)
+    with db_session() as connection:
+        for day in days:
+            connection.execute(
+                """
+                INSERT INTO themes_securite(date_theme, theme, facilitateur)
+                VALUES (?, '', ?)
+                ON CONFLICT(date_theme) DO UPDATE SET
+                    facilitateur = excluded.facilitateur,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (day, facilitator),
+            )
+    return len(days)
 
 
 def get_toolbox_topic_for_date(date_theme: str | None = None, auto_assign: bool = True) -> dict[str, Any] | None:
@@ -349,13 +378,46 @@ def get_toolbox_options() -> dict[str, list[dict[str, Any]]]:
             ORDER BY nom
             """
         ).fetchall()
-    return {"sites": [dict(row) for row in sites], "themes": list_theme_catalog()}
+    return {
+        "sites": [dict(row) for row in sites],
+        "themes": list_theme_catalog(),
+        "facilitators": list_toolbox_facilitators(),
+    }
+
+
+def list_toolbox_facilitators() -> list[dict[str, str]]:
+    names = {DEFAULT_TOOLBOX_FACILITATOR}
+    with db_session() as connection:
+        employee_rows = connection.execute(
+            """
+            SELECT nom_complet
+            FROM employes
+            WHERE statut = 'actif'
+              AND COALESCE(nom_complet, '') <> ''
+            ORDER BY nom_complet
+            """
+        ).fetchall()
+        topic_rows = connection.execute(
+            """
+            SELECT DISTINCT facilitateur
+            FROM themes_securite
+            WHERE COALESCE(facilitateur, '') <> ''
+            ORDER BY facilitateur
+            """
+        ).fetchall()
+    for row in employee_rows:
+        names.add(str(row["nom_complet"]).strip())
+    for row in topic_rows:
+        names.add(str(row["facilitateur"]).strip())
+    ordered = [DEFAULT_TOOLBOX_FACILITATOR]
+    ordered.extend(sorted(name for name in names if name and name != DEFAULT_TOOLBOX_FACILITATOR))
+    return [{"value": name, "label": name} for name in ordered]
 
 
 def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
     target_date = _parse_date(str(values.get("date_theme") or ""))
     theme = str(values.get("theme") or "").strip()
-    facilitator = str(values.get("facilitateur") or "").strip() or None
+    facilitator = _normalize_facilitator(values.get("facilitateur"))
     site_id = values.get("site_id")
     if not theme:
         raise ValueError("Theme / topic obligatoire.")
@@ -365,6 +427,10 @@ def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
         "facilitateur": facilitator,
         "site_id": int(site_id) if site_id not in ("", None) else None,
     }
+
+
+def _normalize_facilitator(value: Any) -> str:
+    return str(value or "").strip() or DEFAULT_TOOLBOX_FACILITATOR
 
 
 def _parse_month(value: str) -> str:

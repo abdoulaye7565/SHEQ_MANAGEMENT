@@ -5,6 +5,8 @@ from typing import Any
 import flet as ft
 
 from app.services import (
+    DEFAULT_TOOLBOX_FACILITATOR,
+    apply_monthly_toolbox_facilitator,
     assign_topic_to_dates,
     assign_monthly_topics,
     clear_monthly_toolbox_topics,
@@ -31,6 +33,15 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
     theme_area = ft.Column(spacing=10)
     options = get_toolbox_options()
 
+    def facilitator_options(current: str | None = None) -> list[ft.dropdown.Option]:
+        names = [str(row["label"]) for row in options.get("facilitators", [])]
+        selected = str(current or "").strip()
+        if selected and selected not in names:
+            names.append(selected)
+        if DEFAULT_TOOLBOX_FACILITATOR not in names:
+            names.insert(0, DEFAULT_TOOLBOX_FACILITATOR)
+        return [ft.dropdown.Option(name, name) for name in names]
+
     month_field = ft.TextField(label="Mois", value=current_toolbox_month(), hint_text="AAAA-MM", width=150)
     status_filter = ft.Dropdown(
         label="Etat",
@@ -43,11 +54,25 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         ],
     )
     date_field = ft.TextField(label="Date", hint_text="AAAA-MM-JJ", width=160)
-    topic_field = ft.Dropdown(label="Theme / topic journalier", width=420)
-    facilitator_field = ft.TextField(label="Facilitateur", width=220)
-    catalog_theme_field = ft.TextField(label="Nouveau theme", width=420)
+    topic_field = ft.Dropdown(label="Topic EN / Theme FR journalier", width=520)
+    facilitator_field = ft.Dropdown(
+        label="Facilitateur",
+        value=DEFAULT_TOOLBOX_FACILITATOR,
+        width=260,
+        options=facilitator_options(),
+    )
+    catalog_theme_field = ft.TextField(
+        label="Nouveau theme bilingue",
+        hint_text="English topic / Theme francais",
+        width=520,
+    )
     mandatory_field = ft.Checkbox(label="Theme obligatoire")
-    monthly_facilitator_field = ft.TextField(label="Facilitateurs du mois", width=300)
+    monthly_facilitator_field = ft.Dropdown(
+        label="Facilitateur du mois",
+        value=DEFAULT_TOOLBOX_FACILITATOR,
+        width=260,
+        options=facilitator_options(),
+    )
     generated_count_field = ft.TextField(label="Nombre de themes", value="31", width=150)
     site_field = ft.Dropdown(
         label="Site",
@@ -78,11 +103,17 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def load_theme_options() -> None:
+        nonlocal options
+        options = get_toolbox_options()
         state["themes"] = list_theme_catalog()
         topic_field.options = [
             ft.dropdown.Option(str(row["theme"]), str(row["theme"]))
             for row in state["themes"]
         ]
+        facilitator_field.options = facilitator_options(str(facilitator_field.value or DEFAULT_TOOLBOX_FACILITATOR))
+        monthly_facilitator_field.options = facilitator_options(str(monthly_facilitator_field.value or DEFAULT_TOOLBOX_FACILITATOR))
+        facilitator_field.value = str(facilitator_field.value or DEFAULT_TOOLBOX_FACILITATOR)
+        monthly_facilitator_field.value = str(monthly_facilitator_field.value or DEFAULT_TOOLBOX_FACILITATOR)
 
     def filtered_rows() -> list[dict[str, Any]]:
         data = state.get("data") or {"rows": []}
@@ -98,7 +129,8 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         state["editing_date"] = row["date_theme"]
         date_field.value = row["date_theme"]
         topic_field.value = str(row.get("theme") or "")
-        facilitator_field.value = str(row.get("facilitateur") or "")
+        facilitator_field.options = facilitator_options(str(row.get("facilitateur") or DEFAULT_TOOLBOX_FACILITATOR))
+        facilitator_field.value = str(row.get("facilitateur") or DEFAULT_TOOLBOX_FACILITATOR)
         site_field.value = str(row.get("site_id") or "")
         notify(f"Edition du topic du {row['date_theme']}.", PRIMARY)
         _update()
@@ -108,7 +140,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         state["selected_dates"] = set()
         date_field.value = ""
         topic_field.value = ""
-        facilitator_field.value = ""
+        facilitator_field.value = DEFAULT_TOOLBOX_FACILITATOR
         site_field.value = ""
         notify("Formulaire vide.", MUTED)
         _update()
@@ -143,6 +175,15 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         try:
             count = assign_monthly_topics(month_field.value, monthly_facilitator_field.value)
             notify(f"{count} topic(s) affecte(s) automatiquement sur le mois.", SUCCESS)
+            refresh()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+            _update()
+
+    def apply_facilitator_to_month(event: ft.ControlEvent | None = None) -> None:
+        try:
+            count = apply_monthly_toolbox_facilitator(month_field.value, monthly_facilitator_field.value)
+            notify(f"Facilitateur applique sur {count} jour(s) du mois.", SUCCESS)
             refresh()
         except ValueError as exc:
             notify(str(exc), DANGER)
@@ -252,7 +293,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                             ft.DataColumn(ft.Text("Sel.")),
                             ft.DataColumn(ft.Text("Date")),
                             ft.DataColumn(ft.Text("Jour")),
-                            ft.DataColumn(ft.Text("Topic")),
+                        ft.DataColumn(ft.Text("Topic EN / Theme FR")),
                             ft.DataColumn(ft.Text("Facilitateur")),
                             ft.DataColumn(ft.Text("Site")),
                             ft.DataColumn(ft.Text("Etat")),
@@ -318,6 +359,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                     generated_count_field,
                     ft.OutlinedButton("Generer themes", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=generate_catalog),
                     monthly_facilitator_field,
+                    ft.OutlinedButton("Appliquer facilitateur au mois", icon=ft.Icons.PERSON_PIN_OUTLINED, on_click=apply_facilitator_to_month),
                     ft.OutlinedButton("Affecter le mois aleatoire", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=assign_month),
                     ft.OutlinedButton("Dissocier le mois", icon=ft.Icons.LINK_OFF_OUTLINED, on_click=clear_month_topics),
                 ],
@@ -344,7 +386,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         controls=[
             module_header(
                 "Gestion des Meeting Toolbox Talk",
-                "Planification des themes journaliers: un topic par jour du mois.",
+                "Planification bilingue anglais / francais des topics journaliers.",
             ),
             ft.Container(
                 bgcolor="#EFF6FF",
@@ -375,7 +417,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                 padding=16,
                 content=ft.Column(
                     controls=[
-                        ft.Text("Banque de themes", color=TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text("Banque de themes bilingues", color=TEXT, weight=ft.FontWeight.BOLD),
                         theme_area,
                     ],
                     spacing=10,
@@ -388,7 +430,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                 padding=16,
                 content=ft.Column(
                     controls=[
-                        ft.Text("Theme journalier", color=TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text("Theme journalier bilingue", color=TEXT, weight=ft.FontWeight.BOLD),
                         ft.Row(
                             controls=[
                                 date_field,

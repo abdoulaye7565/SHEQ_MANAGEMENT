@@ -12,7 +12,13 @@ from app.services.ppe_service import get_ppe_export_data
 from app.services.monthly_timesheet_service import get_monthly_10h_timesheet
 from app.services.timesheet_service import get_timesheet, list_timesheet_audit
 from app.services.toolbox_talk_service import list_toolbox_topics
-from app.services.xlsx_service import write_attendance_list_xlsx, write_simple_xlsx, write_styled_xlsx
+from app.services.xlsx_service import (
+    write_attendance_list_xlsx as write_attendance_list_workbook,
+    write_daily_lineup_xlsx as write_daily_lineup_workbook,
+    write_simple_xlsx,
+    write_styled_xlsx,
+    write_toolbox_talk_xlsx as write_toolbox_talk_workbook,
+)
 
 
 def export_rows_xlsx(
@@ -89,7 +95,7 @@ def export_attendance_xlsx(date_presence: str) -> Path:
 
 def export_attendance_records_xlsx(date_presence: str, records: list[dict[str, Any]]) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = _unique_export_path(f"liste_presence_orezone_{date_presence}.xls")
+    output_path = _unique_export_path(f"liste_presence_orezone_{date_presence}.xlsx")
     summary = {
         "total": len(records),
         "present": sum(1 for row in records if str(row.get("statut") or "").lower() == "present"),
@@ -102,11 +108,11 @@ def export_attendance_records_xlsx(date_presence: str, records: list[dict[str, A
         "overtime": sum(1 for row in records if float(row.get("heures") or 0) > 12),
     }
     try:
-        _write_attendance_list_xls(output_path, date_presence, records, summary)
+        write_attendance_list_workbook(output_path, date_presence, records, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path(f"liste_presence_orezone_{date_presence}_nouveau.xls")
-        _write_attendance_list_xls(fallback, date_presence, records, summary)
+        fallback = _unique_export_path(f"liste_presence_orezone_{date_presence}_nouveau.xlsx")
+        write_attendance_list_workbook(fallback, date_presence, records, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
         return fallback
 
 
@@ -163,7 +169,7 @@ def export_employees_xlsx() -> Path:
 
 def export_daily_lineup_xlsx(records: list[dict[str, Any]]) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = _unique_export_path("list_of_orezone_employee.xls")
+    output_path = _unique_export_path("list_of_orezone_employee.xlsx")
     rows = [
         {
             "matricule": row.get("matricule") or "",
@@ -193,11 +199,11 @@ def export_daily_lineup_xlsx(records: list[dict[str, Any]]) -> Path:
         ),
     }
     try:
-        _write_employee_list_xls(output_path, rows, summary)
+        write_daily_lineup_workbook(output_path, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path("list_of_orezone_employee_nouveau.xls")
-        _write_employee_list_xls(fallback, rows, summary)
+        fallback = _unique_export_path("list_of_orezone_employee_nouveau.xlsx")
+        write_daily_lineup_workbook(fallback, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
         return fallback
 
 
@@ -206,13 +212,13 @@ def export_training_matrix_xls(
     rows: list[dict[str, Any]],
 ) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = _unique_export_path("matrice_formations_orezone.xls")
+    output_path = _unique_export_path("matrice_formations_orezone.xlsx")
     try:
-        _write_training_matrix_xls(output_path, training_types, rows)
+        _write_training_matrix_xlsx(output_path, training_types, rows)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path("matrice_formations_orezone_nouveau.xls")
-        _write_training_matrix_xls(fallback, training_types, rows)
+        fallback = _unique_export_path("matrice_formations_orezone_nouveau.xlsx")
+        _write_training_matrix_xlsx(fallback, training_types, rows)
         return fallback
 
 
@@ -225,13 +231,13 @@ def export_timesheet_xls(month: str, site_id: int | None = None) -> Path:
             char if char.isalnum() or char in "._-" else "_"
             for char in str(timesheet["site"].get("nom") or "")
         )
-    output_path = _unique_export_path(f"timesheet_orezone{site_suffix}_{timesheet['period']['month']}.xls")
+    output_path = _unique_export_path(f"timesheet_orezone{site_suffix}_{timesheet['period']['month']}.xlsx")
     try:
-        _write_timesheet_xls(output_path, timesheet)
+        _write_timesheet_xlsx(output_path, timesheet)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path(f"timesheet_orezone{site_suffix}_{timesheet['period']['month']}_nouveau.xls")
-        _write_timesheet_xls(fallback, timesheet)
+        fallback = _unique_export_path(f"timesheet_orezone{site_suffix}_{timesheet['period']['month']}_nouveau.xlsx")
+        _write_timesheet_xlsx(fallback, timesheet)
         return fallback
 
 
@@ -256,16 +262,16 @@ def export_timesheet_employee_xls(month: str, employee_id: int) -> Path:
         "print_individual": True,
     }
     output_path = _unique_export_path(
-        f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}.xls"
+        f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}.xlsx"
     )
     try:
-        _write_timesheet_xls(output_path, individual)
+        _write_timesheet_xlsx(output_path, individual)
         return output_path
     except PermissionError:
         fallback = _unique_export_path(
-            f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}_nouveau.xls"
+            f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}_nouveau.xlsx"
         )
-        _write_timesheet_xls(fallback, individual)
+        _write_timesheet_xlsx(fallback, individual)
         return fallback
 
 
@@ -313,9 +319,9 @@ def _export_timesheet_rows_to_directory(timesheet: dict[str, Any], rows: list[di
         }
         output_path = _unique_export_path_in_dir(
             output_dir,
-            f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}.xls",
+            f"timesheet_orezone_{timesheet['period']['month']}_{safe_name or employee_id}.xlsx",
         )
-        _write_timesheet_xls(output_path, individual)
+        _write_timesheet_xlsx(output_path, individual)
     return output_dir
 
 
@@ -425,61 +431,70 @@ def _monthly_10h_export_style(row: dict[str, Any]) -> list[str | None]:
 
 
 def export_toolbox_talk_xlsx(month: str) -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     data = list_toolbox_topics(month)
-    table_headers = ["Date", "Jour", "Theme / Topic", "Facilitateur", "Site", "Etat"]
-    rows = [
-        [
-            "Description OREZONE",
-            "Planning mensuel des Toolbox Talk Meeting pour la sensibilisation QHSE terrain.",
-            "",
-            "",
-            "",
-            "",
-        ],
-        ["Mois", data.get("label") or data["month"], "", "", "", ""],
-        ["", "", "", "", "", ""],
-        table_headers,
-    ]
-    styles = [
-        ["section", "section", "section", "section", "section", "section"],
-        [None, None, None, None, None, None],
-        [None, None, None, None, None, None],
-        ["section", "section", "section", "section", "section", "section"],
-    ]
-    rows.extend(
-        [
-            row["date_theme"],
-            row["weekday"],
-            row.get("theme") or "",
-            row.get("facilitateur") or "",
-            row.get("site") or "",
-            "Renseigne" if row.get("status") == "done" else "A completer",
-        ]
-        for row in data["rows"]
-    )
-    styles.extend(
-        [None, None, None, None, None, "done" if row.get("status") == "done" else "danger"]
-        for row in data["rows"]
-    )
-    return export_styled_rows_xlsx(
-        f"toolbox_talk_meeting_{data['month']}.xlsx",
-        "Toolbox Talk",
-        ["OREZONE QHSE - TOOLBOX TALK MEETING", "", "", "", "", ""],
-        rows,
-        styles,
-    )
+    output_path = _unique_export_path(f"toolbox_talk_meeting_{data['month']}.xlsx")
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    rows = []
+    for row in data["rows"]:
+        topic_en, theme_fr = _split_bilingual_toolbox_topic(str(row.get("theme") or ""))
+        rows.append({**row, "topic_en": topic_en, "theme_fr": theme_fr})
+    try:
+        write_toolbox_talk_workbook(
+            output_path,
+            str(data.get("label") or data["month"]),
+            str(data["month"]),
+            rows,
+            dict(data.get("summary") or {}),
+            generated_at,
+        )
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path(f"toolbox_talk_meeting_{data['month']}_nouveau.xlsx")
+        write_toolbox_talk_workbook(
+            fallback,
+            str(data.get("label") or data["month"]),
+            str(data["month"]),
+            rows,
+            dict(data.get("summary") or {}),
+            generated_at,
+        )
+        return fallback
+
+
+def _split_bilingual_toolbox_topic(value: str) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return "", ""
+    for separator in (" / ", " | ", " - FR: "):
+        if separator in text:
+            left, right = text.split(separator, 1)
+            return _clean_topic_label(left), _clean_topic_label(right)
+    if text.lower().startswith("en:") and "fr:" in text.lower():
+        _, rest = text.split(":", 1)
+        marker = rest.lower().find("fr:")
+        return _clean_topic_label(rest[:marker]), _clean_topic_label(rest[marker + 3 :])
+    return text, text
+
+
+def _clean_topic_label(value: str) -> str:
+    text = str(value or "").strip()
+    for prefix in ("EN:", "FR:", "English:", "French:", "Francais:", "Français:"):
+        if text.lower().startswith(prefix.lower()):
+            return text[len(prefix) :].strip()
+    return text
 
 
 def export_ppe_inventory_xls() -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     data = get_ppe_export_data()
-    output_path = _unique_export_path("gestion_epi_orezone.xls")
+    output_path = _unique_export_path("gestion_epi_orezone.xlsx")
     try:
-        _write_ppe_inventory_xls(output_path, data)
+        _write_ppe_inventory_xlsx(output_path, data)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path("gestion_epi_orezone_nouveau.xls")
-        _write_ppe_inventory_xls(fallback, data)
+        fallback = _unique_export_path("gestion_epi_orezone_nouveau.xlsx")
+        _write_ppe_inventory_xlsx(fallback, data)
         return fallback
 
 
@@ -550,11 +565,25 @@ def _monthly_10h_cell_style(cell: dict[str, Any]) -> str | None:
 
 def _write_xlsx_safely(path: Path, sheet_name: str, headers: list[str], rows: list[list[Any]]) -> Path:
     try:
-        write_simple_xlsx(path, sheet_name, headers, rows)
+        write_styled_xlsx(
+            path,
+            sheet_name,
+            headers,
+            rows,
+            include_company_description=True,
+            document_title=sheet_name,
+        )
         return path
     except PermissionError:
         fallback = _unique_export_path(f"{path.stem}_nouveau{path.suffix}")
-        write_simple_xlsx(fallback, sheet_name, headers, rows)
+        write_styled_xlsx(
+            fallback,
+            sheet_name,
+            headers,
+            rows,
+            include_company_description=True,
+            document_title=sheet_name,
+        )
         return fallback
 
 
@@ -566,11 +595,27 @@ def _write_styled_xlsx_safely(
     styles: list[list[str | None]],
 ) -> Path:
     try:
-        write_styled_xlsx(path, sheet_name, headers, rows, styles)
+        write_styled_xlsx(
+            path,
+            sheet_name,
+            headers,
+            rows,
+            styles,
+            include_company_description=True,
+            document_title=sheet_name,
+        )
         return path
     except PermissionError:
         fallback = _unique_export_path(f"{path.stem}_nouveau{path.suffix}")
-        write_styled_xlsx(fallback, sheet_name, headers, rows, styles)
+        write_styled_xlsx(
+            fallback,
+            sheet_name,
+            headers,
+            rows,
+            styles,
+            include_company_description=True,
+            document_title=sheet_name,
+        )
         return fallback
 
 
@@ -889,6 +934,99 @@ th {{ background: #1e3a8a; color: #fff; font-weight: bold; text-align: center; }
     path.write_text(content, encoding="utf-8")
 
 
+def _write_timesheet_xlsx(path: Path, timesheet: dict[str, Any]) -> None:
+    days = timesheet["days"]
+    period = timesheet["period"]
+    summary = timesheet["summary"]
+    headers = [
+        "MLE",
+        "NOM",
+        "PRENOMS",
+        "FONCTION",
+        *[f"{day['day']:02d}" for day in days],
+        "TOTAL",
+        "12H",
+        "8H",
+        "R",
+        "A",
+        "B",
+        "P",
+        "S",
+        "H",
+    ]
+    rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    for row in timesheet["rows"]:
+        employee = row["employee"]
+        rows.append(
+            [
+                _timesheet_employee_code(employee),
+                employee.get("nom") or employee.get("nom_complet") or "-",
+                employee.get("prenom") or "",
+                employee.get("fonction") or "-",
+                *[_timesheet_compact_cell_label(cell) for cell in row["cells"]],
+                row["worked_days"],
+                row.get("drilling_hours", 0),
+                row.get("standard_hours", 0),
+                row["rest_days"],
+                row.get("absent_days", 0),
+                row["break_days"],
+                row.get("permission_days", 0),
+                row.get("sick_days", 0),
+                row["hours"],
+            ]
+        )
+        styles.append(
+            [
+                None,
+                None,
+                None,
+                None,
+                *[_timesheet_xlsx_cell_style(cell) for cell in row["cells"]],
+                None,
+                "drilling",
+                "standard",
+                "rest",
+                "danger",
+                "break",
+                "permission",
+                "sick",
+                None,
+            ]
+        )
+    rows.extend(
+        [
+            [],
+            ["Legende", "R = OFF DAYS", "8 = JOURS FERIES & CHOMES PAYES", "12 = JOURS DRILLING", "B = BREAK", "P = PERMISSION", "S = SICK LEAVE", "AL = ANNUAL LEAVE"],
+            ["Regles", "Les dimanches sont R par defaut mais peuvent etre travailles si une presence est saisie.", "Jour ferie ou chome paye = 8H", "Presence drilling = 12H", "Presence sans drilling = 8H"],
+            ["Resume", f"Employes: {summary.get('employees', 0)}", f"Heures: {summary.get('hours', 0)}", f"Jours travailles: {summary.get('worked_days', 0)}", f"Repos: {summary.get('rest_days', 0)}"],
+            ["Prepared by", "", "Checked by", "", "Approved by", ""],
+        ]
+    )
+    styles.extend(
+        [
+            [],
+            ["section", "rest", "holiday", "drilling", "break", "permission", "sick", "annual"],
+            ["section", None, "holiday", "drilling", "standard"],
+            ["section", None, None, None, None],
+            ["section", None, "section", None, "section", None],
+        ]
+    )
+    title = "TimeSheet"
+    if timesheet.get("site"):
+        title += f" {timesheet['site'].get('nom') or ''}"
+    sheet_name = f"{title} {period['month']}"[:31]
+    write_styled_xlsx(
+        path,
+        sheet_name,
+        headers,
+        rows,
+        styles,
+        include_company_description=True,
+        document_title=title,
+    )
+
+
 def _write_timesheet_xls(path: Path, timesheet: dict[str, Any]) -> None:
     if timesheet.get("print_individual") and len(timesheet.get("rows") or []) == 1:
         _write_individual_timesheet_print_xls(path, timesheet)
@@ -898,94 +1036,100 @@ def _write_timesheet_xls(path: Path, timesheet: dict[str, Any]) -> None:
     period = timesheet["period"]
     summary = timesheet["summary"]
     headers = [
-        "N",
-        "Employe",
-        "Badge",
-        "Fonction",
-        *[f"S{day['week_index']}\n{day['day']:02d}\n{day['weekday']}\n{day['planned_hours']}h" for day in days],
-        "Jours travailles",
-        *timesheet.get("week_labels", []),
-        "Heures 12H",
-        "Heures 8H",
-        "Repos",
-        "Absent",
-        "Non renseigne",
-        "Break",
-        "Permission",
-        "Sick",
-        "Heures",
-        "Heures reelles",
+        "MLE",
+        "NOM",
+        "PRENOMS",
+        "FONCTION",
+        *[f"{day['day']:02d}" for day in days],
+        "TOTAL",
+        "12H",
+        "8H",
+        "R",
+        "A",
+        "B",
+        "P",
+        "S",
+        "H",
     ]
     header_html = "".join(f"<th>{_xml_escape(header)}</th>" for header in headers)
+    weekday_html = "".join(
+        f'<td class="weekday {"sunday" if str(day["weekday"]).lower().startswith("dim") else ""}">{_xml_escape(day["weekday"])}</td>'
+        for day in days
+    )
     rows_html = []
     for index, row in enumerate(timesheet["rows"], start=1):
         employee = row["employee"]
+        employee_style = _timesheet_employee_band_style(index)
         cells = [
-            f'<td class="number">{index}</td>',
-            f'<td class="employee">{_xml_escape(_timesheet_employee_name(employee))}</td>',
-            f'<td>{_xml_escape(employee.get("numero_badge") or "-")}</td>',
-            f'<td>{_xml_escape(employee.get("fonction") or "-")}</td>',
+            f'<td class="employee-id" bgcolor="{employee_style["bgcolor"]}" style="{employee_style["style"]}">{_xml_escape(_timesheet_employee_code(employee))}</td>',
+            f'<td class="employee-name" bgcolor="{employee_style["bgcolor"]}" style="{employee_style["style"]}">{_xml_escape(employee.get("nom") or employee.get("nom_complet") or "-")}</td>',
+            f'<td class="employee-name" bgcolor="{employee_style["bgcolor"]}" style="{employee_style["style"]}">{_xml_escape(employee.get("prenom") or "")}</td>',
+            f'<td class="function" bgcolor="{employee_style["bgcolor"]}" style="{employee_style["style"]}">{_xml_escape(employee.get("fonction") or "-")}</td>',
         ]
         for cell in row["cells"]:
             inline_style = _timesheet_cell_inline_style(cell)
             cells.append(
                 f'<td class="day-cell {_timesheet_cell_class(cell)} {_timesheet_week_class(cell)}" '
                 f'bgcolor="{inline_style["bgcolor"]}" style="{inline_style["style"]}">'
-                f'{_xml_escape(cell["label"])}</td>'
+                f'{_xml_escape(_timesheet_compact_cell_label(cell))}</td>'
             )
         cells.extend(
             [
                 f'<td class="total ok">{row["worked_days"]}</td>',
-                *[
-                    f'<td class="total hours">{row.get("weekly_hours", {}).get(week, 0)}</td>'
-                    for week in timesheet.get("week_labels", [])
-                ],
                 f'<td class="total worked-drilling">{row.get("drilling_hours", 0)}</td>',
                 f'<td class="total worked-standard">{row.get("standard_hours", 0)}</td>',
                 f'<td class="total rest">{row["rest_days"]}</td>',
                 f'<td class="total absent">{row.get("absent_days", 0)}</td>',
-                f'<td class="total unfilled">{row.get("unfilled_days", 0)}</td>',
                 f'<td class="total break">{row["break_days"]}</td>',
                 f'<td class="total permission">{row.get("permission_days", 0)}</td>',
                 f'<td class="total sick">{row.get("sick_days", 0)}</td>',
                 f'<td class="total hours">{row["hours"]}</td>',
-                f'<td class="total hours">{row.get("actual_hours", 0)}</td>',
             ]
         )
         rows_html.append(f"<tr>{''.join(cells)}</tr>")
 
     col_count = len(headers)
+    day_count = len(days)
+    title = "OREZONE TIMESHEET"
+    if timesheet.get("site"):
+        title += f" - {timesheet['site'].get('nom') or ''}"
     content = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-body {{ font-family: Calibri, Arial, sans-serif; color: #172033; }}
+@page {{ mso-page-orientation: landscape; margin: 0.25in; }}
+body {{ font-family: Calibri, Arial, sans-serif; color: #111827; }}
 table {{ border-collapse: collapse; }}
-td, th {{ border: 1px solid #cbd5e1; padding: 5px 7px; font-size: 10pt; mso-number-format:"\\@"; }}
-th {{ background: #1e3a8a; color: #fff; font-weight: bold; text-align: center; white-space: pre-line; }}
-th:nth-child(7n+5) {{ border-left: 3px solid #0f172a; }}
-.title {{ background: #1e3a8a; color: #fff; font-size: 20pt; font-weight: bold; text-align: center; }}
-.subtitle {{ background: #eff6ff; color: #172033; font-weight: bold; }}
+td, th {{ border: 1px solid #94a3b8; padding: 2px 3px; font-size: 8pt; mso-number-format:"\\@"; }}
+th {{ background: #e5e7eb; color: #111827; font-weight: bold; text-align: center; }}
+.title {{ background: #111827; color: #fff; font-size: 14pt; font-weight: bold; text-align: center; }}
+.subtitle {{ background: #e5e7eb; color: #111827; font-weight: bold; }}
 .metric {{ background: #dbeafe; font-weight: bold; text-align: center; }}
 .metric-ok {{ background: #dcfce7; font-weight: bold; text-align: center; }}
 .metric-warn {{ background: #fef3c7; font-weight: bold; text-align: center; }}
-.employee {{ font-weight: bold; min-width: 180px; }}
-.number {{ text-align: center; }}
-.day-cell {{ text-align: center; font-weight: bold; width: 42px; }}
-.week-start {{ border-left: 3px solid #0f172a; }}
-.worked-drilling {{ background: #2563eb; color: #fff; }}
-.worked-standard {{ background: #16a34a; color: #fff; }}
-.rest {{ background: #cbd5e1; color: #172033; }}
-.absent {{ background: #fca5a5; color: #172033; }}
-.unfilled {{ background: #e5e7eb; color: #172033; }}
-.break {{ background: #f59e0b; color: #172033; }}
-.permission {{ background: #a855f7; color: #fff; }}
-.sick {{ background: #dc2626; color: #fff; }}
+.employee-id {{ width: 62px; font-weight: bold; text-align: center; }}
+.employee-name {{ width: 110px; font-weight: bold; }}
+.function {{ width: 155px; font-weight: bold; }}
+.weekday {{ background: #f8fafc; color: #475569; text-align: center; font-size: 7pt; }}
+.sunday {{ background: #d1d5db; color: #111827; font-weight: bold; }}
+.day-cell {{ text-align: center; font-weight: bold; width: 26px; min-width: 26px; max-width: 26px; }}
+.week-start {{ border-left: 2px solid #111827; }}
+.worked-drilling {{ background: #00a6d6; color: #111827; }}
+.worked-standard {{ background: #ffffff; color: #111827; }}
+.holiday {{ background: #22c55e; color: #ffffff; }}
+.rest {{ background: #c0392b; color: #ffffff; }}
+.absent {{ background: #ef4444; color: #ffffff; }}
+.unfilled {{ background: #e5e7eb; color: #111827; }}
+.break {{ background: #facc15; color: #111827; }}
+.annual {{ background: #5b3db6; color: #ffffff; }}
+.permission {{ background: #f4a261; color: #ffffff; }}
+.sick {{ background: #10b981; color: #ffffff; }}
 .total {{ text-align: center; font-weight: bold; }}
 .ok {{ background: #dcfce7; }}
 .hours {{ background: #dbeafe; color: #1e3a8a; }}
-.legend-title {{ background: #1e3a8a; color: #fff; font-weight: bold; }}
+.legend-title {{ background: #111827; color: #fff; font-weight: bold; }}
+.legend-cell {{ text-align: center; font-weight: bold; color: #fff; }}
 .signature {{ background: #eff6ff; font-weight: bold; text-align: center; height: 24px; }}
 .signature-box {{ height: 58px; }}
 .note {{ color: #475569; font-style: italic; }}
@@ -993,7 +1137,7 @@ th:nth-child(7n+5) {{ border-left: 3px solid #0f172a; }}
 </head>
 <body>
 <table>
-<tr><td colspan="{col_count}" class="title">OREZONE TIMESHEET</td></tr>
+<tr><td colspan="{col_count}" class="title">{_xml_escape(title)}</td></tr>
 <tr><td colspan="{col_count}" class="subtitle">{_xml_escape(period["label"])} | Periode: {_xml_escape(period["start"])} au {_xml_escape(period["end"])} | Genere: {_xml_escape(generated_at)}</td></tr>
 <tr><td colspan="{col_count}"></td></tr>
 <tr>
@@ -1011,21 +1155,28 @@ th:nth-child(7n+5) {{ border-left: 3px solid #0f172a; }}
 </tr>
 <tr><td colspan="{col_count}"></td></tr>
 <tr>{header_html}</tr>
+<tr><td colspan="4" class="weekday">JOURS</td>{weekday_html}<td colspan="9" class="weekday">TOTAUX</td></tr>
 {''.join(rows_html)}
 <tr><td colspan="{col_count}"></td></tr>
-<tr><td colspan="6" class="legend-title">Legende</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="worked-drilling" bgcolor="#2563eb" style="background-color:#2563eb;color:#ffffff;">12h</td><td colspan="5">Present avec activite drilling = 12H</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="worked-standard" bgcolor="#16a34a" style="background-color:#16a34a;color:#ffffff;">8h</td><td colspan="5">Present sans activite drilling = 8H</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="rest" bgcolor="#cbd5e1" style="background-color:#cbd5e1;color:#172033;">R</td><td colspan="5">Repos planifie</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="absent" bgcolor="#fca5a5" style="background-color:#fca5a5;color:#172033;">A</td><td colspan="5">Absent sur la liste de presence</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="unfilled" bgcolor="#e5e7eb" style="background-color:#e5e7eb;color:#172033;">NR</td><td colspan="5">Statut non renseigne</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="break" bgcolor="#f59e0b" style="background-color:#f59e0b;color:#172033;">B</td><td colspan="5">Break</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="permission" bgcolor="#a855f7" style="background-color:#a855f7;color:#ffffff;">P</td><td colspan="5">Permission</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td class="sick" bgcolor="#dc2626" style="background-color:#dc2626;color:#ffffff;">S</td><td colspan="5">Sick / Maladie</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
+<tr><td colspan="4" class="legend-title">Legende</td><td colspan="{max(col_count - 4, 1)}"></td></tr>
+<tr><td colspan="4" class="legend-title">SUNDAY</td><td colspan="{day_count}" class="note">Les dimanches sont grises dans la ligne JOURS.</td><td colspan="9"></td></tr>
+<tr>
+<td class="legend-cell rest" bgcolor="#c0392b" style="background-color:#c0392b;color:#ffffff;">R = OFF DAYS</td>
+<td colspan="3" class="legend-cell sick" bgcolor="#10b981" style="background-color:#10b981;color:#ffffff;">SICK LEAVE</td>
+<td colspan="3" class="legend-cell permission" bgcolor="#f4a261" style="background-color:#f4a261;color:#ffffff;">PERMISSION</td>
+<td colspan="3" class="legend-cell worked-drilling" bgcolor="#00a6d6" style="background-color:#00a6d6;color:#111827;">12 = JOURS DRILLING</td>
+<td colspan="3" class="legend-cell holiday" bgcolor="#22c55e" style="background-color:#22c55e;color:#ffffff;">8 = JOURS FERIES &amp; CHOMES PAYES</td>
+<td colspan="3" class="legend-cell break" bgcolor="#facc15" style="background-color:#facc15;color:#111827;">B = BREAK</td>
+<td colspan="4" class="legend-cell" bgcolor="#5b3db6" style="background-color:#5b3db6;color:#ffffff;">ANNUAL LEAVE</td>
+<td colspan="{max(col_count - 21, 1)}"></td>
+</tr>
 <tr><td class="legend-title">S1/S2</td><td colspan="5">Chaque semaine TimeSheet est un bloc de 7 jours depuis le 21</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
+<tr><td class="worked-drilling" bgcolor="#00a6d6" style="background-color:#00a6d6;color:#111827;">12</td><td colspan="5">Present avec activite drilling = 12H</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
+<tr><td class="worked-standard" bgcolor="#ffffff" style="background-color:#ffffff;color:#111827;">8</td><td colspan="5">Present sans activite drilling = 8H</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
+<tr><td class="holiday" bgcolor="#22c55e" style="background-color:#22c55e;color:#ffffff;">8</td><td colspan="5">Jour ferie ou chome paye = 8H</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
 <tr><td colspan="{col_count}"></td></tr>
 <tr><td colspan="6" class="legend-title">Regles de calcul</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
-<tr><td colspan="6" class="note">Une presence sur jour drilling compte 12H. Une presence sur jour sans drilling compte 8H. Break, permission et sick comptent 8H quelle que soit l'activite. Repos, absent et non renseigne comptent 0H. Les heures reelles viennent de la liste de presence.</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
+<tr><td colspan="6" class="note">Une presence sur jour drilling compte 12H. Une presence sur jour sans drilling compte 8H. Un jour ferie ou chome paye compte 8H. Les dimanches sont marques R. Break, permission, sick et annual leave comptent 8H. Repos, absent et non renseigne comptent 0H. Les heures reelles viennent de la liste de presence.</td><td colspan="{max(col_count - 6, 1)}"></td></tr>
 <tr><td colspan="{col_count}"></td></tr>
 <tr>
 <td colspan="4" class="signature">Prepared by</td>
@@ -1328,6 +1479,66 @@ tr:nth-child(even) td {{ background: #f8fafc; }}
     path.write_text(content, encoding="utf-8")
 
 
+def _write_ppe_inventory_xlsx(path: Path, data: dict[str, Any]) -> None:
+    summary = data["summary"]
+    headers = ["Section", "Col 1", "Col 2", "Col 3", "Col 4", "Col 5", "Col 6", "Col 7", "Col 8"]
+    rows: list[list[Any]] = [
+        ["Dashboard", "Active PPE items", summary["items"], "Available stock", summary["stock_total"], "Assigned PPE", summary["assigned"], "Low stock alerts", summary["low_stock"]],
+        [],
+        ["Catalogue", "Type", "PPE", "Size", "Standard", "Condition", "Stock", "Threshold", "Status"],
+    ]
+    styles: list[list[str | None]] = [
+        ["section", None, None, None, None, None, None, None, None],
+        [],
+        ["section", "section", "section", "section", "section", "section", "section", "section", "section"],
+    ]
+    for item in data["items"]:
+        rows.append(
+            [
+                "Catalogue",
+                item.get("type_epi") or "",
+                item.get("nom") or "",
+                item.get("taille") or "",
+                item.get("norme") or "",
+                item.get("etat") or "",
+                item.get("quantite_disponible") or 0,
+                item.get("seuil_minimum") or 0,
+                "LOW STOCK" if item.get("stock_bas") else "OK",
+            ]
+        )
+        styles.append([None, None, None, None, None, None, None, None, "danger" if item.get("stock_bas") else "done"])
+    rows.append([])
+    styles.append([])
+    rows.append(["Assignments", "Name", "First name", "Type", "PPE", "Quantity", "Issue date", "Return date", "Status"])
+    styles.append(["section"] * 9)
+    for item in data["assignments"]:
+        rows.append(["Assignments", item.get("nom") or "", item.get("prenom") or "", item.get("type_epi") or "", item.get("epi") or "", item.get("quantite") or 0, item.get("date_remise") or "", item.get("date_retour") or "", item.get("statut") or ""])
+        styles.append([None] * 9)
+    rows.append([])
+    styles.append([])
+    rows.append(["Compliance", "Name", "First name", "Function", "PPE type", "Required", "Assigned", "Status", ""])
+    styles.append(["section"] * 9)
+    for item in data["compliance"]:
+        rows.append(["Compliance", item.get("nom") or "", item.get("prenom") or "", item.get("fonction") or "", item.get("type_epi") or "", item.get("requis") or 0, item.get("affecte") or 0, item.get("statut") or "", ""])
+        styles.append([None, None, None, None, None, None, None, "done" if item.get("statut") == "ok" else "danger", None])
+    rows.append([])
+    styles.append([])
+    rows.append(["Alerts", "Alert", "Type", "PPE", "Stock", "Threshold", "Expiration", "Condition", ""])
+    styles.append(["section"] * 9)
+    for item in data["alerts"]:
+        rows.append(["Alerts", item.get("alerte") or "", item.get("type_epi") or "", item.get("nom") or "", item.get("quantite_disponible") or "", item.get("seuil_minimum") or "", item.get("date_expiration") or "", item.get("etat") or "", ""])
+        styles.append(["danger"] * 9)
+    write_styled_xlsx(
+        path,
+        "PPE Inventory",
+        headers,
+        rows,
+        styles,
+        include_company_description=True,
+        document_title="OREZONE QHSE - PPE Inventory",
+    )
+
+
 def _timesheet_summary_for_rows(base_summary: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     summary = {
         **base_summary,
@@ -1369,14 +1580,73 @@ def _timesheet_employee_name(employee: dict[str, Any]) -> str:
     return str(employee.get("nom_complet") or "-")
 
 
+def _timesheet_employee_code(employee: dict[str, Any]) -> str:
+    return str(employee.get("matricule") or employee.get("numero_badge") or "-")
+
+
+def _timesheet_employee_band_style(index: int) -> dict[str, str]:
+    colors = [
+        ("#7bbf43", "#111827"),
+        ("#22a7c9", "#111827"),
+        ("#facc15", "#111827"),
+        ("#f97316", "#111827"),
+        ("#93c5fd", "#111827"),
+    ]
+    background, text = colors[(index - 1) % len(colors)]
+    return {
+        "bgcolor": background,
+        "style": f"background-color:{background};color:{text};font-weight:bold;",
+    }
+
+
+def _timesheet_compact_cell_label(cell: dict[str, Any]) -> str:
+    status = str(cell.get("status") or "")
+    label = str(cell.get("label") or "")
+    if status in {"worked_drilling", "worked_standard"}:
+        return str(int(float(cell.get("hours") or 0)))
+    if label.lower().endswith("h") and label[:-1].isdigit():
+        return label[:-1]
+    return label
+
+
 def _timesheet_cell_class(cell: dict[str, Any]) -> str:
     status = str(cell.get("status") or "")
     label = str(cell.get("label") or "")
+    if status == "holiday":
+        return "holiday"
+    if status == "break" and label == "AL":
+        return "annual"
     if status == "break" and label == "P":
         return "permission"
     if status == "break" and label == "S":
         return "sick"
     return status.replace("_", "-")
+
+
+def _timesheet_xlsx_cell_style(cell: dict[str, Any]) -> str | None:
+    status = str(cell.get("status") or "")
+    label = str(cell.get("label") or "")
+    if status == "worked_drilling":
+        return "drilling"
+    if status == "worked_standard":
+        return "standard"
+    if status == "holiday":
+        return "holiday"
+    if status == "rest":
+        return "rest"
+    if status == "absent":
+        return "danger"
+    if status == "unfilled":
+        return "unfilled"
+    if status == "break" and label == "AL":
+        return "annual"
+    if status == "break" and label == "P":
+        return "permission"
+    if status == "break" and label == "S":
+        return "sick"
+    if status == "break":
+        return "break"
+    return None
 
 
 def _timesheet_week_class(cell: dict[str, Any]) -> str:
@@ -1387,18 +1657,21 @@ def _timesheet_cell_inline_style(cell: dict[str, Any]) -> dict[str, str]:
     status = str(cell.get("status") or "")
     label = str(cell.get("label") or "")
     colors = {
-        "worked_drilling": ("#2563eb", "#ffffff"),
-        "worked_standard": ("#16a34a", "#ffffff"),
-        "rest": ("#cbd5e1", "#172033"),
-        "absent": ("#fca5a5", "#172033"),
-        "unfilled": ("#e5e7eb", "#172033"),
+        "worked_drilling": ("#00a6d6", "#111827"),
+        "worked_standard": ("#ffffff", "#111827"),
+        "holiday": ("#22c55e", "#ffffff"),
+        "rest": ("#c0392b", "#ffffff"),
+        "absent": ("#ef4444", "#ffffff"),
+        "unfilled": ("#e5e7eb", "#111827"),
     }
-    if status == "break" and label == "P":
-        background, text = "#a855f7", "#ffffff"
+    if status == "break" and label == "AL":
+        background, text = "#5b3db6", "#ffffff"
+    elif status == "break" and label == "P":
+        background, text = "#f4a261", "#ffffff"
     elif status == "break" and label == "S":
-        background, text = "#dc2626", "#ffffff"
+        background, text = "#10b981", "#ffffff"
     elif status == "break":
-        background, text = "#f59e0b", "#172033"
+        background, text = "#facc15", "#111827"
     else:
         background, text = colors.get(status, ("#cbd5e1", "#172033"))
     border = "border-left:3px solid #0f172a;" if cell.get("week_start") else ""
@@ -1521,6 +1794,50 @@ def _break_text_is_due(value: Any) -> bool:
     return "retard" in text or "aujourd" in text
 
 
+def _write_training_matrix_xlsx(
+    path: Path,
+    training_types: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> None:
+    headers = ["N", "Employee", "Badge", "Function", *[str(item.get("nom") or "") for item in training_types]]
+    data_rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    for index, row in enumerate(rows, start=1):
+        employee = row["employee"]
+        cells = row.get("cells", [])
+        data_rows.append(
+            [
+                index,
+                f"{employee.get('nom') or '-'} {employee.get('prenom') or ''}".strip(),
+                employee.get("numero_badge") or "",
+                employee.get("fonction") or "",
+                *[_training_cell_text(cell) for cell in cells],
+            ]
+        )
+        styles.append(
+            [
+                None,
+                None,
+                "danger" if not employee.get("numero_badge") else None,
+                None,
+                *[_training_cell_class(cell) for cell in cells],
+            ]
+        )
+    data_rows.append([])
+    styles.append([])
+    data_rows.append(["Legend", "Green = compliant", "Yellow = renewal soon", "Red = missing or expired"])
+    styles.append(["section", "done", "soon", "danger"])
+    write_styled_xlsx(
+        path,
+        "Training Matrix",
+        headers,
+        data_rows,
+        styles,
+        include_company_description=True,
+        document_title="OREZONE QHSE - Training Matrix",
+    )
+
+
 def _training_matrix_summary_rows(
     training_types: list[dict[str, Any]],
     rows: list[dict[str, Any]],
@@ -1606,6 +1923,7 @@ def _state_label(state: str | None) -> str:
     return {
         "work": "Au travail",
         "break": "En break",
+        "annual": "Break annuel",
         "permission": "Permission",
         "sick": "Malade",
     }.get(str(state or "work"), "Au travail")

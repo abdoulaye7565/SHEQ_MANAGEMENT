@@ -49,15 +49,13 @@ def get_dashboard_summary() -> dict[str, Any]:
         )
         summary["breaks_dus"] = _breaks_due_count(connection, today_text)
         summary["presence_today"] = _presence_for_day(connection, today_text)
-        summary["presence_trend"] = [
-            _presence_for_day(connection, (trend_start + timedelta(days=offset)).isoformat())
-            for offset in range(14)
-        ]
+        summary["presence_trend"] = _presence_trend(connection, trend_start.isoformat(), today_text)
         summary["presence_by_shift"] = _presence_by_shift(connection, today_text)
         summary["workforce_by_state"] = _workforce_by_state(connection, today_text)
         summary["workforce_by_team"] = _workforce_by_team(connection, today_text)
         summary["ppe"] = _ppe_summary(connection)
         summary["training"] = _training_summary(connection, today_text)
+        summary["maintenance_actions"] = _maintenance_action_summary(connection, today_text)
         summary["attendance_rate"] = summary["presence_today"]["rate"]
         summary["workforce_rate"] = _percent(
             max(summary["employes"] - summary["employes_hors_service"], 0),
@@ -120,6 +118,57 @@ def _presence_for_day(connection: Any, target_date: str) -> dict[str, Any]:
         "hours": round(float(row["hours"] or 0), 2),
         "rate": _percent(presents, total),
     }
+
+
+def _presence_trend(connection: Any, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT
+            p.date_presence,
+            COUNT(*) AS total,
+            SUM(CASE WHEN p.statut_presence = 'present' THEN 1 ELSE 0 END) AS presents,
+            SUM(CASE WHEN p.statut_presence = 'absent' THEN 1 ELSE 0 END) AS absents,
+            SUM(p.heures_travaillees) AS hours
+        FROM presences p
+        JOIN employes e ON e.id_employe = p.employe_id
+        WHERE p.date_presence >= ?
+          AND p.date_presence <= ?
+          AND e.statut = 'actif'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM employee_breaks eb
+              WHERE eb.employe_id = e.id_employe
+                AND eb.statut IN ('planifie', 'en_cours')
+                AND eb.date_debut <= p.date_presence
+                AND eb.date_fin >= p.date_presence
+          )
+        GROUP BY p.date_presence
+        """,
+        (start_date, end_date),
+    ).fetchall()
+    by_date = {str(row["date_presence"]): row for row in rows}
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    days = (end - start).days + 1
+    trend = []
+    for offset in range(days):
+        current = (start + timedelta(days=offset)).isoformat()
+        row = by_date.get(current)
+        total = int(row["total"] or 0) if row else 0
+        presents = int(row["presents"] or 0) if row else 0
+        absents = int(row["absents"] or 0) if row else 0
+        hours = float(row["hours"] or 0) if row else 0
+        trend.append(
+            {
+                "date": current,
+                "total": total,
+                "present": presents,
+                "absent": absents,
+                "hours": round(hours, 2),
+                "rate": _percent(presents, total),
+            }
+        )
+    return trend
 
 
 def _breaks_due_count(connection: Any, current_date: str) -> int:
@@ -323,6 +372,37 @@ def _training_summary(connection: Any, current_date: str) -> dict[str, int]:
     return {"expired": expired, "soon": soon}
 
 
+def _maintenance_action_summary(connection: Any, current_date: str) -> dict[str, int]:
+    maintenance = connection.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status IN ('planifiee', 'en_cours') THEN 1 ELSE 0 END) AS open_count,
+            SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND planned_date < ? THEN 1 ELSE 0 END) AS late_count,
+            SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count
+        FROM equipment_maintenance
+        """,
+        (current_date,),
+    ).fetchone()
+    actions = connection.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status IN ('ouverte', 'en_cours') THEN 1 ELSE 0 END) AS open_count,
+            SUM(CASE WHEN status IN ('ouverte', 'en_cours') AND due_date < ? THEN 1 ELSE 0 END) AS late_count,
+            SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count
+        FROM action_tracker
+        """,
+        (current_date,),
+    ).fetchone()
+    return {
+        "maintenance_open": int(maintenance["open_count"] or 0),
+        "maintenance_late": int(maintenance["late_count"] or 0),
+        "maintenance_critical": int(maintenance["critical_count"] or 0),
+        "actions_open": int(actions["open_count"] or 0),
+        "actions_late": int(actions["late_count"] or 0),
+        "actions_critical": int(actions["critical_count"] or 0),
+    }
+
+
 def _average(values: list[int]) -> int:
     if not values:
         return 0
@@ -342,6 +422,10 @@ def _performance_indicators(summary: dict[str, Any]) -> list[dict[str, Any]]:
         + summary["breaks_dus"]
         + summary["ppe"]["low_stock"]
         + summary["training"]["expired"]
+        + summary["maintenance_actions"]["maintenance_late"]
+        + summary["maintenance_actions"]["actions_late"]
+        + summary["maintenance_actions"]["maintenance_critical"]
+        + summary["maintenance_actions"]["actions_critical"]
     )
     return [
         {

@@ -28,6 +28,7 @@ ALL_MODULES = [
     "TimeSheet",
     "MonthlyTimesheet",
     "Ppe",
+    "MaintenanceActions",
     "Alerts",
     "Reports",
     "Admin",
@@ -43,14 +44,15 @@ ROLE_MODULES = {
         "TimeSheet",
         "MonthlyTimesheet",
         "Ppe",
+        "MaintenanceActions",
         "Alerts",
         "Reports",
         "Admin",
     ],
-    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "Alerts", "Reports"],
-    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "Alerts", "Reports"],
-    "Responsable stock": ["Dashboard", "Ppe", "Alerts", "Reports"],
-    "Direction": ["Dashboard", "Alerts", "Reports"],
+    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "Reports"],
+    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts", "Reports"],
+    "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts", "Reports"],
+    "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "Reports"],
 }
 
 
@@ -85,6 +87,7 @@ def has_users() -> bool:
 
 def get_role_modules(role: str) -> list[str]:
     role_name = str(role or "")
+    ensure_default_role_permissions()
     with db_session() as connection:
         rows = connection.execute(
             """
@@ -99,7 +102,7 @@ def get_role_modules(role: str) -> list[str]:
     if rows:
         configured = [str(row["module_key"]) for row in rows if str(row["module_key"]) in ALL_MODULES]
         if role_name == ADMIN_ROLE_NAME:
-            for mandatory_module in ("ToolboxTalk", "MonthlyTimesheet", "Admin"):
+            for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Admin"):
                 if mandatory_module not in configured:
                     configured.append(mandatory_module)
         return _ordered_modules(configured)
@@ -132,7 +135,7 @@ def ensure_default_role_permissions() -> None:
                 "SELECT COUNT(*) AS total FROM role_module_permissions WHERE role_id = ?",
                 (role["id_role"],),
             ).fetchone()
-            if int(existing["total"] or 0):
+            if role_name != ADMIN_ROLE_NAME and int(existing["total"] or 0):
                 continue
             for module in modules:
                 connection.execute(

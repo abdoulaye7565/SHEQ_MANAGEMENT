@@ -21,6 +21,17 @@ def dashboard_page() -> ft.Control:
     today = summary["presence_today"]
     ppe = summary["ppe"]
     training = summary["training"]
+    maintenance = summary["maintenance_actions"]
+    critical_total = (
+        summary["alertes_ouvertes"]
+        + summary["breaks_dus"]
+        + ppe["low_stock"]
+        + training["expired"]
+        + maintenance["maintenance_late"]
+        + maintenance["actions_late"]
+        + maintenance["maintenance_critical"]
+        + maintenance["actions_critical"]
+    )
 
     kpis = [
         _metric_card(
@@ -57,11 +68,11 @@ def dashboard_page() -> ft.Control:
         ),
         _metric_card(
             "Alertes critiques",
-            summary["alertes_ouvertes"] + summary["breaks_dus"] + ppe["low_stock"] + training["expired"],
+            critical_total,
             DANGER,
             ft.Icons.REPORT_PROBLEM_OUTLINED,
-            "Alertes, breaks, EPI et formations",
-            min((summary["alertes_ouvertes"] + summary["breaks_dus"] + ppe["low_stock"] + training["expired"]) * 10, 100),
+            "Alertes, breaks, EPI, formations, maintenance",
+            min(critical_total * 10, 100),
         ),
     ]
 
@@ -183,12 +194,15 @@ def _workforce_panel(summary: dict[str, Any]) -> ft.Control:
 
 def _operational_focus_panel(summary: dict[str, Any]) -> ft.Control:
     today = summary["presence_today"]
+    maintenance = summary["maintenance_actions"]
     items = [
         ("Au travail", summary["workforce_at_work"], SUCCESS, ft.Icons.ENGINEERING_OUTLINED),
         ("En break", summary["workforce_on_break"], WARNING, ft.Icons.BEACH_ACCESS_OUTLINED),
         ("Presents aujourd'hui", today["present"], SUCCESS, ft.Icons.CHECK_CIRCLE_OUTLINE),
         ("Absents aujourd'hui", today["absent"], DANGER, ft.Icons.CANCEL_OUTLINED),
         ("Breaks a planifier", summary["breaks_dus"], DANGER, ft.Icons.EVENT_BUSY_OUTLINED),
+        ("Maintenance ouvertes", maintenance["maintenance_open"], WARNING if maintenance["maintenance_open"] else SUCCESS, ft.Icons.HANDYMAN_OUTLINED),
+        ("Actions ouvertes", maintenance["actions_open"], WARNING if maintenance["actions_open"] else SUCCESS, ft.Icons.TASK_ALT_OUTLINED),
     ]
     return _panel(
         "Priorites operationnelles",
@@ -238,16 +252,19 @@ def _team_analysis_panel(summary: dict[str, Any]) -> ft.Control:
 def _qhse_panel(summary: dict[str, Any]) -> ft.Control:
     ppe = summary["ppe"]
     training = summary["training"]
+    maintenance = summary["maintenance_actions"]
     items = [
         ("EPI actifs", ppe["items"], PRIMARY, ft.Icons.HEALTH_AND_SAFETY_OUTLINED),
         ("Stock EPI bas", ppe["low_stock"], DANGER if ppe["low_stock"] else SUCCESS, ft.Icons.INVENTORY_2_OUTLINED),
         ("EPI affectes", ppe["assigned"], PRIMARY, ft.Icons.ASSIGNMENT_IND_OUTLINED),
         ("Formations expirees", training["expired"], DANGER if training["expired"] else SUCCESS, ft.Icons.SCHOOL_OUTLINED),
         ("Formations <= 30j", training["soon"], WARNING if training["soon"] else SUCCESS, ft.Icons.UPDATE_OUTLINED),
+        ("Maintenances retard", maintenance["maintenance_late"], DANGER if maintenance["maintenance_late"] else SUCCESS, ft.Icons.HANDYMAN_OUTLINED),
+        ("Actions retard", maintenance["actions_late"], DANGER if maintenance["actions_late"] else SUCCESS, ft.Icons.TASK_ALT_OUTLINED),
     ]
     return _panel(
         "Conformite QHSE",
-        "Synthese EPI et formations a surveiller.",
+        "Synthese EPI, formations, maintenance et actions a surveiller.",
         ft.Column(controls=[_operation_line(*item) for item in items], spacing=8),
     )
 

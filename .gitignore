@@ -3,10 +3,16 @@ __pycache__/
 .venv/
 venv/
 build/
+build_*/
 dist/
+dist_*/
 *.spec
 *.db
 data/*.db
+*.db-wal
+*.db-shm
+data/*.db-wal
+data/*.db-shm
 exports/*
 backups/*
 !backups/.gitkeep

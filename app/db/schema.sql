@@ -58,11 +58,13 @@ CREATE TABLE IF NOT EXISTS break_types (
 CREATE TABLE IF NOT EXISTS training_types (
     id_training_type INTEGER PRIMARY KEY AUTOINCREMENT,
     nom TEXT NOT NULL UNIQUE,
+    department_id INTEGER,
     categorie TEXT,
     validite_mois INTEGER NOT NULL DEFAULT 24,
     actif INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT
+    updated_at TEXT,
+    FOREIGN KEY (department_id) REFERENCES training_departments(id_department)
 );
 
 CREATE TABLE IF NOT EXISTS training_departments (
@@ -417,8 +419,10 @@ CREATE TABLE IF NOT EXISTS attendance_audit (
 CREATE TABLE IF NOT EXISTS timesheet_day_settings (
     date_presence TEXT PRIMARY KEY,
     has_drilling INTEGER NOT NULL DEFAULT 0,
+    day_type TEXT NOT NULL DEFAULT 'work',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    commentaire TEXT
+    commentaire TEXT,
+    CHECK (day_type IN ('work', 'holiday'))
 );
 
 CREATE TABLE IF NOT EXISTS timesheet_day_overrides (
@@ -465,6 +469,65 @@ CREATE TABLE IF NOT EXISTS shift_templates (
     CHECK (shift_code IN ('DAY', 'NIGHT', 'BREAK'))
 );
 
+CREATE TABLE IF NOT EXISTS equipment_maintenance (
+    id_maintenance INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipment_code TEXT,
+    equipment_name TEXT NOT NULL,
+    category TEXT,
+    site_id INTEGER,
+    responsible_employee_id INTEGER,
+    maintenance_type TEXT NOT NULL DEFAULT 'preventive',
+    priority TEXT NOT NULL DEFAULT 'moyenne',
+    status TEXT NOT NULL DEFAULT 'planifiee',
+    planned_date TEXT NOT NULL,
+    completed_date TEXT,
+    next_due_date TEXT,
+    cost REAL NOT NULL DEFAULT 0,
+    observations TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (responsible_employee_id) REFERENCES employes(id_employe),
+    CHECK (maintenance_type IN ('preventive', 'corrective', 'inspection', 'calibration')),
+    CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
+    CHECK (status IN ('planifiee', 'en_cours', 'terminee', 'annulee', 'en_retard')),
+    CHECK (completed_date IS NULL OR completed_date >= planned_date)
+);
+
+CREATE TABLE IF NOT EXISTS action_tracker (
+    id_action INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL DEFAULT 'HSE',
+    title TEXT NOT NULL,
+    description TEXT,
+    site_id INTEGER,
+    owner_employee_id INTEGER,
+    priority TEXT NOT NULL DEFAULT 'moyenne',
+    status TEXT NOT NULL DEFAULT 'ouverte',
+    due_date TEXT NOT NULL,
+    closed_date TEXT,
+    progress INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (owner_employee_id) REFERENCES employes(id_employe),
+    CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
+    CHECK (status IN ('ouverte', 'en_cours', 'terminee', 'annulee', 'en_retard')),
+    CHECK (progress >= 0 AND progress <= 100),
+    CHECK (closed_date IS NULL OR closed_date >= due_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_equipment_maintenance_status_date
+    ON equipment_maintenance(status, planned_date, priority);
+
+CREATE INDEX IF NOT EXISTS idx_equipment_maintenance_site_date
+    ON equipment_maintenance(site_id, planned_date);
+
+CREATE INDEX IF NOT EXISTS idx_action_tracker_status_due
+    ON action_tracker(status, due_date, priority);
+
+CREATE INDEX IF NOT EXISTS idx_action_tracker_owner_due
+    ON action_tracker(owner_employee_id, due_date);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_date
     ON attendance_audit(date_presence, employe_id);
 
@@ -491,6 +554,57 @@ CREATE INDEX IF NOT EXISTS idx_employee_site_assignments_employee_dates
 
 CREATE INDEX IF NOT EXISTS idx_employee_site_assignments_site_dates
     ON employee_site_assignments(site_id, date_debut, date_fin);
+
+CREATE INDEX IF NOT EXISTS idx_employes_statut_type_site
+    ON employes(statut, type_employe, site_id);
+
+CREATE INDEX IF NOT EXISTS idx_employes_fonction
+    ON employes(fonction_id);
+
+CREATE INDEX IF NOT EXISTS idx_badges_employe
+    ON badges(employe_id);
+
+CREATE INDEX IF NOT EXISTS idx_presences_date_employe
+    ON presences(date_presence, employe_id);
+
+CREATE INDEX IF NOT EXISTS idx_employee_breaks_dates_status
+    ON employee_breaks(date_debut, date_fin, statut);
+
+CREATE INDEX IF NOT EXISTS idx_employee_breaks_status_employee_dates
+    ON employee_breaks(statut, employe_id, date_debut, date_fin);
+
+CREATE INDEX IF NOT EXISTS idx_timesheet_day_overrides_employee_date
+    ON timesheet_day_overrides(employe_id, date_presence);
+
+CREATE INDEX IF NOT EXISTS idx_timesheet_day_settings_date
+    ON timesheet_day_settings(date_presence);
+
+CREATE INDEX IF NOT EXISTS idx_formations_type_expiration
+    ON formations(type_training_id, date_expiration);
+
+CREATE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_active_required
+    ON toolbox_theme_catalog(actif, obligatoire, theme);
+
+CREATE INDEX IF NOT EXISTS idx_themes_securite_site_date
+    ON themes_securite(site_id, date_theme);
+
+CREATE INDEX IF NOT EXISTS idx_epi_type_etat
+    ON epi(type_epi_id, etat, actif);
+
+CREATE INDEX IF NOT EXISTS idx_stock_epi_epi
+    ON stock_epi(epi_id);
+
+CREATE INDEX IF NOT EXISTS idx_mouvements_stock_epi_date
+    ON mouvements_stock_epi(epi_id, date_mouvement);
+
+CREATE INDEX IF NOT EXISTS idx_affectations_epi_active_employee
+    ON affectations_epi(employe_id, date_retour);
+
+CREATE INDEX IF NOT EXISTS idx_utilisateurs_role_status
+    ON utilisateurs(role_id, statut);
+
+CREATE INDEX IF NOT EXISTS idx_role_module_permissions_module
+    ON role_module_permissions(module_key);
 
 INSERT OR IGNORE INTO shifts(code, libelle) VALUES
     ('DAY', 'Day Shift'),

@@ -76,14 +76,29 @@ def training_page() -> ft.Control:
         fresh = get_training_options()
         state["options"] = fresh
         employee_field.options = [ft.dropdown.Option(str(item["value"]), str(item["label"])) for item in fresh["employees"]]
-        training_field.options = [ft.dropdown.Option(str(item["value"]), str(item["label"])) for item in fresh["training_types"]]
+        training_field.options = [
+            ft.dropdown.Option(str(item["value"]), f"{item['label']} - {item.get('department') or 'Sans departement'}")
+            for item in fresh["training_types"]
+        ]
         department_field.options = [ft.dropdown.Option(str(item["value"]), str(item["label"])) for item in fresh["departments"]]
         employee_field.value = employee_field.value or (str(fresh["employees"][0]["value"]) if fresh["employees"] else None)
         training_field.value = training_field.value or (str(fresh["training_types"][0]["value"]) if fresh["training_types"] else None)
         department_field.value = department_field.value or (fresh["departments"][0]["value"] if fresh["departments"] else None)
+        sync_department_from_training()
         state["bulk_employee_ids"] = state["bulk_employee_ids"] & {int(item["value"]) for item in fresh["employees"]}
         state["bulk_training_type_ids"] = state["bulk_training_type_ids"] & {int(item["value"]) for item in fresh["training_types"]}
         render_bulk_selection()
+
+    def sync_department_from_training(event: ft.ControlEvent | None = None) -> None:
+        selected = int(training_field.value or 0)
+        for item in state.get("options", {}).get("training_types", []):
+            if int(item["value"]) == selected and item.get("department"):
+                department_field.value = str(item["department"])
+                break
+        if event is not None:
+            _update()
+
+    training_field.on_change = sync_department_from_training
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
         state["records"] = list_trainings(search_field.value or "")
@@ -96,7 +111,7 @@ def training_page() -> ft.Control:
 
     def refresh_filter_options() -> None:
         trainings = sorted({str(row.get("formation") or "-") for row in state["records"]})
-        departments = sorted({str(row.get("structure_responsable") or "-") for row in state["records"]})
+        departments = sorted({str(row.get("training_department") or row.get("structure_responsable") or "-") for row in state["records"]})
         current_training = training_filter.value
         current_department = department_filter.value
         training_filter.options = [ft.dropdown.Option("all", "Toutes les formations")]
@@ -116,7 +131,8 @@ def training_page() -> ft.Control:
                 continue
             if selected_training != "all" and str(record.get("formation") or "-") != selected_training:
                 continue
-            if selected_department != "all" and str(record.get("structure_responsable") or "-") != selected_department:
+            record_department = str(record.get("training_department") or record.get("structure_responsable") or "-")
+            if selected_department != "all" and record_department != selected_department:
                 continue
             training_date = str(record.get("date_formation") or "")
             if date_from_filter.value and training_date < date_from_filter.value.strip():
@@ -282,9 +298,10 @@ def training_page() -> ft.Control:
 
     def add_training_type(event: ft.ControlEvent | None = None) -> None:
         try:
-            created_id = create_training_type(new_training_field.value)
+            created_id = create_training_type(new_training_field.value, department_field.value)
             load_options()
             training_field.value = str(created_id)
+            sync_department_from_training()
             new_training_field.value = ""
             notify("Nom de formation cree et selectionne.", SUCCESS)
         except ValueError as exc:
@@ -354,7 +371,7 @@ def training_page() -> ft.Control:
                     ft.Container(
                         width=260,
                         content=ft.Checkbox(
-                            label=str(item["label"]),
+                            label=f"{item['label']} - {item.get('department') or 'Sans departement'}",
                             value=int(item["value"]) in selected_trainings,
                             on_change=lambda event, current=item: toggle_bulk_training(
                                 int(current["value"]),
@@ -382,7 +399,7 @@ def training_page() -> ft.Control:
                 record.get("date_formation") or "",
                 record.get("date_expiration") or "",
                 record.get("facilitateur") or "",
-                record.get("structure_responsable") or "",
+                record.get("training_department") or record.get("structure_responsable") or "",
                 _state_text(record.get("etat")),
             ]
             for record in records
@@ -521,7 +538,7 @@ def training_page() -> ft.Control:
                                     ft.DataCell(ft.Text(str(record.get("date_formation") or "-"))),
                                     ft.DataCell(ft.Text(str(record.get("date_expiration") or "-"))),
                                     ft.DataCell(ft.Text(str(record.get("facilitateur") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("structure_responsable") or "-"))),
+                                    ft.DataCell(ft.Text(str(record.get("training_department") or record.get("structure_responsable") or "-"))),
                                     ft.DataCell(_state_badge(record.get("etat"))),
                                     ft.DataCell(
                                         ft.Row(

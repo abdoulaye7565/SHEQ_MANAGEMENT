@@ -33,8 +33,9 @@ def list_trainings(search: str = "") -> list[dict[str, Any]]:
            OR COALESCE(e.prenom, '') LIKE ?
            OR COALESCE(b.numero_badge, '') LIKE ?
            OR COALESCE(f.structure_responsable, '') LIKE ?
+           OR COALESCE(td.nom, '') LIKE ?
         """
-        params = (pattern, pattern, pattern, pattern, pattern, pattern)
+        params = (pattern, pattern, pattern, pattern, pattern, pattern, pattern)
     with db_session() as connection:
         rows = connection.execute(
             f"""
@@ -48,6 +49,8 @@ def list_trainings(search: str = "") -> list[dict[str, Any]]:
                 fn.nom AS fonction,
                 f.type_training_id,
                 tt.nom AS formation,
+                tt.department_id AS training_department_id,
+                td.nom AS training_department,
                 f.date_debut AS date_formation,
                 f.date_expiration,
                 f.structure_responsable,
@@ -57,6 +60,7 @@ def list_trainings(search: str = "") -> list[dict[str, Any]]:
             JOIN employes e ON e.id_employe = f.employe_id
             JOIN fonctions fn ON fn.id_fonction = e.fonction_id
             JOIN training_types tt ON tt.id_training_type = f.type_training_id
+            LEFT JOIN training_departments td ON td.id_department = tt.department_id
             LEFT JOIN badges b ON b.employe_id = e.id_employe
             {where}
             ORDER BY f.date_expiration, formation, nom, prenom
@@ -266,21 +270,32 @@ def delete_training(training_id: int) -> None:
         connection.execute("DELETE FROM formations WHERE id_formation = ?", (training_id,))
 
 
-def create_training_type(name: str) -> int:
+def create_training_type(name: str, department: Any = None) -> int:
     training_name = str(name or "").strip()
     if not training_name:
         raise ValueError("Nom de la formation obligatoire.")
     with db_session() as connection:
+        department_id = _resolve_training_department_id(connection, department)
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO training_types (
-                nom, categorie, validite_mois, actif
-            ) VALUES (?, 'operationnelle', ?, 1)
+                nom, department_id, categorie, validite_mois, actif
+            ) VALUES (?, ?, 'operationnelle', ?, 1)
             """,
-            (training_name, TRAINING_VALIDITY_MONTHS),
+            (training_name, department_id, TRAINING_VALIDITY_MONTHS),
         )
         if cursor.lastrowid:
             return int(cursor.lastrowid)
+        if department_id:
+            connection.execute(
+                """
+                UPDATE training_types
+                SET department_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE nom = ?
+                """,
+                (department_id, training_name),
+            )
         row = connection.execute(
             "SELECT id_training_type FROM training_types WHERE nom = ?",
             (training_name,),
@@ -319,12 +334,15 @@ def get_training_options() -> dict[str, list[dict[str, Any]]]:
         training_types = connection.execute(
             """
             SELECT
-                id_training_type AS value,
-                nom AS label,
+                tt.id_training_type AS value,
+                tt.nom AS label,
+                tt.department_id,
+                COALESCE(td.nom, 'Sans departement') AS department,
                 validite_mois
-            FROM training_types
-            WHERE actif = 1
-            ORDER BY nom
+            FROM training_types tt
+            LEFT JOIN training_departments td ON td.id_department = tt.department_id
+            WHERE tt.actif = 1
+            ORDER BY COALESCE(td.nom, 'Sans departement'), tt.nom
             """
         ).fetchall()
         departments = connection.execute(
@@ -358,10 +376,11 @@ def get_training_matrix() -> dict[str, Any]:
         ).fetchall()
         types = connection.execute(
             """
-            SELECT id_training_type, nom
-            FROM training_types
-            WHERE actif = 1
-            ORDER BY nom
+            SELECT tt.id_training_type, tt.nom, tt.department_id, td.nom AS department
+            FROM training_types tt
+            LEFT JOIN training_departments td ON td.id_department = tt.department_id
+            WHERE tt.actif = 1
+            ORDER BY COALESCE(td.nom, 'Sans departement'), tt.nom
             """
         ).fetchall()
         latest = connection.execute(
@@ -384,6 +403,8 @@ def get_training_matrix() -> dict[str, Any]:
         int(training_type["id_training_type"]): {
             "type_training_id": int(training_type["id_training_type"]),
             "formation": training_type["nom"],
+            "department_id": training_type["department_id"],
+            "department": training_type["department"],
             "valid": 0,
             "soon": 0,
             "expired": 0,
@@ -413,6 +434,7 @@ def get_training_matrix() -> dict[str, Any]:
                         "days_left": None,
                         "type_training_id": training_type["id_training_type"],
                         "training_name": training_type["nom"],
+                        "training_department": training_type["department"],
                     }
                 )
                 continue
@@ -440,6 +462,7 @@ def get_training_matrix() -> dict[str, Any]:
                     "days_left": days_left,
                     "type_training_id": training_type["id_training_type"],
                     "training_name": training_type["nom"],
+                    "training_department": training_type["department"],
                     "latest_training_id": training["id_formation"],
                 }
             )
@@ -517,6 +540,39 @@ def _training_validity_months(connection: Any, training_type_id: int) -> int:
     if row is None:
         raise ValueError("Nom de la formation introuvable.")
     return TRAINING_VALIDITY_MONTHS
+
+
+def _resolve_training_department_id(connection: Any, department: Any) -> int | None:
+    if department in ("", None):
+        row = connection.execute(
+            "SELECT id_department FROM training_departments WHERE nom = 'HSE'"
+        ).fetchone()
+        return int(row["id_department"]) if row else None
+    try:
+        department_id = int(department)
+    except (TypeError, ValueError):
+        department_name = str(department or "").strip()
+        row = connection.execute(
+            "SELECT id_department FROM training_departments WHERE nom = ?",
+            (department_name,),
+        ).fetchone()
+        if row:
+            return int(row["id_department"])
+        cursor = connection.execute(
+            """
+            INSERT INTO training_departments (nom, actif)
+            VALUES (?, 1)
+            """,
+            (department_name,),
+        )
+        return int(cursor.lastrowid)
+    row = connection.execute(
+        "SELECT id_department FROM training_departments WHERE id_department = ?",
+        (department_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Departement formation introuvable.")
+    return department_id
 
 
 def _with_training_state(row: dict[str, Any]) -> dict[str, Any]:

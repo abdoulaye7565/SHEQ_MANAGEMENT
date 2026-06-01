@@ -5,6 +5,7 @@ from typing import Any
 
 from app.db.connection import db_session
 from app.services.break_service import list_break_alerts
+from app.services.maintenance_action_service import list_maintenance_action_alerts
 from app.services.ppe_service import list_ppe_alerts
 
 
@@ -41,6 +42,7 @@ def list_alerts(
         *_manual_alerts(),
         *_break_alerts(),
         *_ppe_alerts(),
+        *_maintenance_action_alerts(),
         *_training_alerts(),
         *_attendance_alerts(),
     ]
@@ -118,6 +120,7 @@ def get_alert_filter_options() -> dict[str, list[dict[str, str]]]:
             {"value": "manual", "label": "Alertes manuelles"},
             {"value": "breaks", "label": "Breaks"},
             {"value": "ppe", "label": "EPI et stock"},
+            {"value": "maintenance", "label": "Maintenance et actions"},
             {"value": "training", "label": "Formations"},
             {"value": "attendance", "label": "Presence"},
         ],
@@ -225,6 +228,47 @@ def _ppe_alerts() -> list[dict[str, Any]]:
                 reference_id=row.get("id_epi"),
                 reference_label=name,
                 action_hint="Traiter dans le module EPI",
+            )
+        )
+    return alerts
+
+
+def _maintenance_action_alerts() -> list[dict[str, Any]]:
+    current_date = date.today().isoformat()
+    data = list_maintenance_action_alerts()
+    alerts: list[dict[str, Any]] = []
+    for row in data["maintenance"]:
+        equipment = _equipment_label(row)
+        late = str(row.get("planned_date") or "") < current_date
+        alerts.append(
+            _alert(
+                alert_id=f"maintenance:{row.get('id_maintenance')}",
+                source_key="maintenance",
+                source="Maintenance",
+                type_alerte="Maintenance en retard" if late else "Maintenance critique",
+                message=f"{equipment} - site {row.get('site') or '-'} - planifiee le {row.get('planned_date') or '-'}.",
+                niveau="critique" if late or row.get("priority") == "critique" else "haut",
+                date_creation=str(row.get("planned_date") or current_date),
+                reference_id=row.get("id_maintenance"),
+                reference_label=equipment,
+                action_hint="Traiter dans Maintenance & Actions",
+            )
+        )
+    for row in data["actions"]:
+        title = str(row.get("title") or "Action")
+        late = str(row.get("due_date") or "") < current_date
+        alerts.append(
+            _alert(
+                alert_id=f"action:{row.get('id_action')}",
+                source_key="maintenance",
+                source="Action Tracker",
+                type_alerte="Action en retard" if late else "Action critique",
+                message=f"{title} - site {row.get('site') or '-'} - echeance {row.get('due_date') or '-'}.",
+                niveau="critique" if late or row.get("priority") == "critique" else "haut",
+                date_creation=str(row.get("due_date") or current_date),
+                reference_id=row.get("id_action"),
+                reference_label=title,
+                action_hint="Traiter dans Maintenance & Actions",
             )
         )
     return alerts
@@ -465,6 +509,12 @@ def _alert(
 def _employee_name(row: dict[str, Any]) -> str:
     data = dict(row)
     return f"{data.get('nom') or '-'} {data.get('prenom') or ''}".strip()
+
+
+def _equipment_label(row: dict[str, Any]) -> str:
+    code = str(row.get("equipment_code") or "").strip()
+    name = str(row.get("equipment_name") or "-")
+    return f"{code} - {name}" if code else name
 
 
 def _level_label(level: str) -> str:

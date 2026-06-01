@@ -18,6 +18,7 @@ from app.services.attendance_export_service import (
     export_toolbox_talk_xlsx,
     export_training_matrix_xls,
 )
+from app.services.maintenance_action_service import export_action_tracker_xlsx, export_equipment_maintenance_xlsx
 from app.services.attendance_service import get_monthly_attendance_summary, today_iso
 from app.services.employee_service import list_employees, list_former_employees
 from app.services.timesheet_service import current_timesheet_month
@@ -132,6 +133,22 @@ def list_report_definitions() -> list[dict[str, Any]]:
             "month_param": False,
         },
         {
+            "key": "equipment_maintenance",
+            "title": "Maintenance equipements",
+            "category": "Maintenance",
+            "description": "Planning maintenance, priorites, responsables et echeances.",
+            "date_param": False,
+            "month_param": False,
+        },
+        {
+            "key": "action_tracker",
+            "title": "Action Tracker",
+            "category": "Actions",
+            "description": "Actions ouvertes, retards, responsables, avancement et priorites.",
+            "date_param": False,
+            "month_param": False,
+        },
+        {
             "key": "alerts",
             "title": "Alertes QHSE",
             "category": "Alertes",
@@ -188,6 +205,10 @@ def generate_report(report_key: str, params: dict[str, Any] | None = None) -> Pa
         return export_toolbox_talk_xlsx(month_value)
     if key == "ppe_inventory":
         return export_ppe_inventory_xls()
+    if key == "equipment_maintenance":
+        return export_equipment_maintenance_xlsx()
+    if key == "action_tracker":
+        return export_action_tracker_xlsx()
     if key == "alerts":
         return _export_alerts()
     raise ValueError("Rapport inconnu.")

@@ -43,10 +43,9 @@ def list_site_options() -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-def list_employees(search: str = "", include_inactive: bool = False) -> list[dict[str, Any]]:
+def list_employees(search: str = "", include_inactive: bool = False, employee_id: int | None = None) -> list[dict[str, Any]]:
     current_date = date.today().isoformat()
     pattern = f"%{search.strip()}%"
-    status_clause = "" if include_inactive else "e.statut = 'actif'"
     search_clause = """
         (e.nom_complet LIKE ?
          OR COALESCE(e.nom, '') LIKE ?
@@ -56,17 +55,18 @@ def list_employees(search: str = "", include_inactive: bool = False) -> list[dic
          OR f.nom LIKE ?
          OR s.nom LIKE ?)
     """
-    where = """
-        WHERE {conditions}
-    """
-    params: tuple[Any, ...] = (pattern, pattern, pattern, pattern, pattern, pattern, pattern)
-    if not search.strip():
-        where = "WHERE e.statut = 'actif'" if not include_inactive else ""
-        params = ()
-    else:
-        conditions = search_clause if include_inactive else f"{status_clause} AND {search_clause}"
-        where = where.format(conditions=conditions)
-    params = (current_date, current_date, current_date, current_date, current_date, *params)
+    conditions: list[str] = []
+    filter_params: list[Any] = []
+    if not include_inactive:
+        conditions.append("e.statut = 'actif'")
+    if employee_id is not None:
+        conditions.append("e.id_employe = ?")
+        filter_params.append(employee_id)
+    if search.strip():
+        conditions.append(search_clause)
+        filter_params.extend([pattern, pattern, pattern, pattern, pattern, pattern, pattern])
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params: tuple[Any, ...] = (current_date, current_date, current_date, current_date, current_date, *filter_params)
 
     with db_session() as connection:
         rows = connection.execute(
@@ -162,7 +162,7 @@ def list_employees(search: str = "", include_inactive: bool = False) -> list[dic
 
 
 def get_employee(employee_id: int) -> dict[str, Any] | None:
-    rows = [row for row in list_employees(include_inactive=True) if row["id_employe"] == employee_id]
+    rows = list_employees(include_inactive=True, employee_id=employee_id)
     return rows[0] if rows else None
 
 

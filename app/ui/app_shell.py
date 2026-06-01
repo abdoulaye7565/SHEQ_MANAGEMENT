@@ -9,8 +9,8 @@ from app.ui.pages.placeholders import placeholder_page
 from app.ui.pages.ppe import ppe_page
 from app.ui.pages.referentials import referentials_page
 from app.ui.pages.reports import reports_page
-from app.ui.pages.monthly_timesheet import monthly_timesheet_page
-from app.ui.pages.timesheet import timesheet_page
+from app.ui.pages.maintenance_actions import maintenance_actions_page
+from app.ui.pages.timesheet_management import timesheet_management_page
 from app.ui.pages.toolbox_talk import toolbox_talk_page
 from app.ui.pages.training_management import training_management_page
 from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_MUTED, SURFACE, TEXT
@@ -22,9 +22,9 @@ NAV_ITEMS = [
     ("EmployeeManagement", "Gestion employes", ft.Icons.PEOPLE_ALT_OUTLINED),
     ("TrainingManagement", "Gestion formation", ft.Icons.SCHOOL_OUTLINED),
     ("ToolboxTalk", "Toolbox Talk", ft.Icons.FORUM_OUTLINED),
-    ("TimeSheet", "TimeSheet", ft.Icons.CALENDAR_MONTH_OUTLINED),
-    ("MonthlyTimesheet", "TimeSheet 1-25", ft.Icons.EVENT_NOTE_OUTLINED),
+    ("TimeSheet", "TimeSheets", ft.Icons.CALENDAR_MONTH_OUTLINED),
     ("Ppe", "Gestion des EPI", ft.Icons.INVENTORY_2_OUTLINED),
+    ("MaintenanceActions", "Maintenance & Actions", ft.Icons.HANDYMAN_OUTLINED),
     ("Alerts", "Alertes", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
     ("Reports", "Rapports", ft.Icons.PICTURE_AS_PDF_OUTLINED),
     ("Admin", "Administration", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
@@ -67,6 +67,10 @@ def build_app(page: ft.Page) -> None:
 def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.Control:
     user = dict(session.get("user") or {})
     allowed_keys = set(get_role_modules(str(user.get("role") or "")))
+    if "MonthlyTimesheet" in allowed_keys:
+        allowed_keys.add("TimeSheet")
+    if str(user.get("role") or "") == "Administrateur":
+        allowed_keys.update({"Dashboard", "TimeSheet", "Admin"})
     visible_nav_items = [item for item in NAV_ITEMS if item[0] in allowed_keys]
     if not visible_nav_items:
         visible_nav_items = [NAV_ITEMS[0]]
@@ -298,9 +302,9 @@ def _module_subtitle(key: str) -> str:
         "EmployeeManagement": "RH, affectations, badges et statut operationnel.",
         "TrainingManagement": "Formations, conformite et matrice des competences.",
         "ToolboxTalk": "Themes securite journaliers et suivi HSE terrain.",
-        "TimeSheet": "Periode 21-20, heures drilling, repos et validation.",
-        "MonthlyTimesheet": "Periode 1-25, 10H par jour travaille et breaks colores.",
+        "TimeSheet": "TimeSheet 21-20 et TimeSheet 1-25 regroupes en onglets.",
         "Ppe": "Stock EPI, dotations, inspections et seuils critiques.",
+        "MaintenanceActions": "Maintenance equipements, action tracker, echeances et responsabilites.",
         "Alerts": "Signaux QHSE, stock, badges, formations et operations.",
         "Reports": "Exports operationnels Excel/PDF et rapports consolides.",
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
@@ -326,11 +330,11 @@ def _build_screen(
     if key == "ToolboxTalk":
         return toolbox_talk_page(page)
     if key == "TimeSheet":
-        return timesheet_page(page)
-    if key == "MonthlyTimesheet":
-        return monthly_timesheet_page(page)
+        return timesheet_management_page(page)
     if key == "Ppe":
         return ppe_page()
+    if key == "MaintenanceActions":
+        return maintenance_actions_page()
     if key == "Alerts":
         return alerts_page(navigate=render_key)
     if key == "Reports":

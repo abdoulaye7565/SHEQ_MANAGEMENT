@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.db import connection
@@ -129,6 +129,78 @@ class TimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(cell["hours"], 12)
         self.assertEqual(timesheet["rows"][0]["hours"], 12)
 
+    def test_holiday_counts_eight_hours_and_sundays_are_off_days(self) -> None:
+        set_day_activity("2026-05-01", False, "Fete du travail", day_type="holiday")
+
+        timesheet = get_timesheet("2026-04")
+        cells = {cell["date"]: cell for cell in timesheet["rows"][0]["cells"]}
+
+        self.assertEqual(cells["2026-05-01"]["status"], "holiday")
+        self.assertEqual(cells["2026-05-01"]["label"], "8")
+        self.assertEqual(cells["2026-05-01"]["hours"], 8)
+        self.assertEqual(cells["2026-04-26"]["status"], "rest")
+        self.assertEqual(cells["2026-04-26"]["label"], "R")
+        self.assertEqual(cells["2026-04-26"]["hours"], 0)
+        self.assertEqual(timesheet["summary"]["holiday_days"], 1)
+
+    def test_sunday_can_be_marked_as_worked(self) -> None:
+        set_day_activity("2026-04-26", True)
+        save_attendance_day(
+            "2026-04-26",
+            {
+                self.employee_id: {
+                    "statut_presence": "present",
+                    "heure_entree": "06:00",
+                    "heure_sortie": "18:00",
+                }
+            },
+        )
+
+        timesheet = get_timesheet("2026-04")
+        cells = {cell["date"]: cell for cell in timesheet["rows"][0]["cells"]}
+
+        self.assertEqual(cells["2026-04-26"]["status"], "worked_drilling")
+        self.assertEqual(cells["2026-04-26"]["label"], "12h")
+        self.assertEqual(cells["2026-04-26"]["hours"], 12)
+        self.assertEqual(timesheet["rows"][0]["hours"], 12)
+
+    def test_permission_after_three_days_becomes_absence_without_hours(self) -> None:
+        create_break(
+            {
+                "employe_id": self.employee_id,
+                "type_break": "permission",
+                "date_debut": "2026-04-21",
+                "date_fin": "2026-04-24",
+                "statut": "planifie",
+            }
+        )
+
+        timesheet = get_timesheet("2026-04")
+        row = timesheet["rows"][0]
+        cells = {cell["date"]: cell for cell in row["cells"]}
+
+        self.assertEqual(cells["2026-04-21"]["label"], "P")
+        self.assertEqual(cells["2026-04-22"]["label"], "P")
+        self.assertEqual(cells["2026-04-23"]["label"], "P")
+        self.assertEqual(cells["2026-04-24"]["status"], "absent")
+        self.assertEqual(cells["2026-04-24"]["label"], "A")
+        self.assertEqual(cells["2026-04-24"]["hours"], 0)
+        self.assertEqual(row["permission_days"], 3)
+        self.assertEqual(row["absent_days"], 1)
+        self.assertEqual(row["hours"], 24)
+
+    def test_annual_break_cannot_exceed_thirty_days(self) -> None:
+        with self.assertRaisesRegex(ValueError, "30 jours"):
+            create_break(
+                {
+                    "employe_id": self.employee_id,
+                    "type_break": "annual",
+                    "date_debut": "2026-04-01",
+                    "date_fin": "2026-05-01",
+                    "statut": "planifie",
+                }
+            )
+
     def test_expatriate_employee_is_excluded_from_timesheet(self) -> None:
         expatriate_id = self._create_employee("Expat Employee", employee_type="expatriate")
         set_day_activity("2026-04-21", True)
@@ -168,6 +240,15 @@ class TimeSheetServiceTest(unittest.TestCase):
             )
             second_site_id = int(cursor.lastrowid)
         second_employee_id = self._create_employee("Second Site Employee", site_id=second_site_id)
+        with connection.db_session() as db:
+            db.execute(
+                """
+                UPDATE employee_site_assignments
+                SET date_debut = '2026-04-21'
+                WHERE employe_id = ?
+                """,
+                (second_employee_id,),
+            )
         set_day_activity("2026-04-21", True)
         update_timesheet_day_status(self.employee_id, "2026-04-21", "present")
         update_timesheet_day_status(second_employee_id, "2026-04-21", "present")
@@ -239,11 +320,13 @@ class TimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(cell["label"], "P")
 
     def test_cannot_fill_future_timesheet_day(self) -> None:
+        future_day = date.today() + timedelta(days=1)
+        future_value = future_day.isoformat()
         with self.assertRaisesRegex(ValueError, "pas encore arrive"):
-            update_timesheet_day_status(self.employee_id, "2026-05-21", "present")
+            update_timesheet_day_status(self.employee_id, future_value, "present")
 
         with self.assertRaisesRegex(ValueError, "pas encore arrive"):
-            set_day_activity("2026-05-21", True)
+            set_day_activity(future_value, True)
 
     def test_bulk_activity_lock_and_audit(self) -> None:
         updated = set_day_activity_range("2026-04-21", "2026-04-23", True)

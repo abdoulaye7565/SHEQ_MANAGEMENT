@@ -10,7 +10,9 @@ from app.db.connection import db_session
 DRILLING_HOURS = 12
 STANDARD_HOURS = 8
 BREAK_HOURS = 8
-DAY_STATUSES = {"present", "rest", "absent", "break", "permission", "sick"}
+PERMISSION_DAYS = 3
+DAY_STATUSES = {"present", "rest", "absent", "break", "annual", "permission", "sick"}
+DAY_TYPES = {"work", "holiday"}
 
 
 def current_timesheet_month() -> str:
@@ -52,7 +54,7 @@ def get_day_activity(date_presence: str) -> dict[str, Any]:
     with db_session() as connection:
         row = connection.execute(
             """
-            SELECT date_presence, has_drilling, updated_at, commentaire
+            SELECT date_presence, has_drilling, day_type, updated_at, commentaire
             FROM timesheet_day_settings
             WHERE date_presence = ?
             """,
@@ -63,6 +65,7 @@ def get_day_activity(date_presence: str) -> dict[str, Any]:
     return {
         "date_presence": target_date,
         "has_drilling": 0,
+        "day_type": "holiday" if _is_sunday(target_date) else "work",
         "updated_at": None,
         "commentaire": None,
     }
@@ -72,8 +75,10 @@ def set_day_activity(
     date_presence: str,
     has_drilling: bool,
     commentaire: str | None = None,
+    day_type: str = "work",
 ) -> None:
     target_date = _parse_date(date_presence).isoformat()
+    day_type = _normalize_day_type(day_type)
     _ensure_not_future(target_date)
     month = _timesheet_month_for_date(target_date)
     with db_session() as connection:
@@ -83,14 +88,15 @@ def set_day_activity(
         connection.execute(
             """
             INSERT INTO timesheet_day_settings (
-                date_presence, has_drilling, updated_at, commentaire
-            ) VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                date_presence, has_drilling, day_type, updated_at, commentaire
+            ) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
             ON CONFLICT(date_presence) DO UPDATE SET
                 has_drilling = excluded.has_drilling,
+                day_type = excluded.day_type,
                 updated_at = CURRENT_TIMESTAMP,
                 commentaire = excluded.commentaire
             """,
-            (target_date, 1 if has_drilling else 0, str(commentaire or "").strip() or None),
+            (target_date, 1 if has_drilling else 0, day_type, str(commentaire or "").strip() or None),
         )
         _insert_audit(
             connection,
@@ -98,8 +104,8 @@ def set_day_activity(
             target_date,
             None,
             "activity",
-            "drilling" if previous.get("has_drilling") else "standard",
-            "drilling" if has_drilling else "standard",
+            _activity_audit_value(previous),
+            _activity_audit_value({"has_drilling": has_drilling, "day_type": day_type}),
             commentaire,
         )
 
@@ -109,6 +115,7 @@ def set_day_activity_range(
     end_date: str,
     has_drilling: bool,
     commentaire: str | None = None,
+    day_type: str = "work",
 ) -> int:
     start = _parse_date(start_date)
     end = _parse_date(end_date)
@@ -119,7 +126,7 @@ def set_day_activity_range(
     updated = 0
     current = start
     while current <= end:
-        set_day_activity(current.isoformat(), has_drilling, commentaire)
+        set_day_activity(current.isoformat(), has_drilling, commentaire, day_type=day_type)
         updated += 1
         current += timedelta(days=1)
     return updated
@@ -190,7 +197,10 @@ def update_timesheet_day_status(
                     """,
                     (employee_id, target_date, status),
                 )
-            has_drilling = bool(_settings_by_day(connection, target_date, target_date).get(target_date, False))
+            has_drilling = _setting_has_drilling(
+                _settings_by_day(connection, target_date, target_date),
+                target_date,
+            )
             entry_time, exit_time = _default_times_for_activity(has_drilling)
             hours = DRILLING_HOURS if has_drilling else STANDARD_HOURS
             connection.execute(
@@ -358,6 +368,7 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
                 COALESCE(e.nom, e.nom_complet) AS nom,
                 COALESCE(e.prenom, '') AS prenom,
                 e.nom_complet,
+                e.matricule,
                 b.numero_badge,
                 f.nom AS fonction,
                 s.nom AS site,
@@ -404,12 +415,6 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
             period["end"],
             selected_site_id,
         )
-        site_assignments = _site_assignments_by_employee(
-            connection,
-            period["start"],
-            period["end"],
-            selected_site_id,
-        )
 
     rows: list[dict[str, Any]] = []
     summary = {
@@ -425,8 +430,15 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
         "standard_hours": 0,
         "hours": 0,
         "actual_hours": 0,
-        "drilling_days": sum(1 for item in settings.values() if item),
-        "standard_days": sum(1 for item in days if not settings.get(item, False)),
+        "drilling_days": sum(1 for item in days if _setting_has_drilling(settings, item)),
+        "standard_days": sum(
+            1
+            for item in days
+            if not _setting_has_drilling(settings, item)
+            and _setting_day_type(settings, item) == "work"
+            and not _is_sunday(item)
+        ),
+        "holiday_days": sum(1 for item in days if _setting_day_type(settings, item) == "holiday"),
     }
 
     for employee in employees:
@@ -445,7 +457,8 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
         actual_hours = 0.0
         weekly_hours: dict[str, int] = {}
         for day_index, day in enumerate(days):
-            has_drilling = settings.get(day, False)
+            has_drilling = _setting_has_drilling(settings, day)
+            day_type = _setting_day_type(settings, day)
             week_key = f"S{_period_week_index(day_index)}"
             weekly_hours.setdefault(week_key, 0)
             if selected_site_id is not None and not _assigned_to_site_on_day(
@@ -462,6 +475,7 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
                         "hours": 0,
                         "actual_hours": 0,
                         "has_drilling": has_drilling,
+                        "day_type": day_type,
                         "week_index": _period_week_index(day_index),
                         "week_start": day_index % 7 == 0,
                     }
@@ -471,18 +485,24 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
             presence = attendance.get((employee_id, day))
             override = overrides.get((employee_id, day))
             if break_record:
-                status = "break"
                 label = _break_label(str(break_record.get("type_break") or "break"))
-                hours = BREAK_HOURS
-                total_hours += hours
-                weekly_hours[week_key] += hours
-                standard_hours += hours
-                if label == "P":
-                    permission_days += 1
-                elif label == "S":
-                    sick_days += 1
+                if _permission_exceeds_allowed_days(break_record, day):
+                    status = "absent"
+                    label = "A"
+                    hours = 0
+                    absent_days += 1
                 else:
-                    break_days += 1
+                    status = "break"
+                    hours = BREAK_HOURS
+                    total_hours += hours
+                    weekly_hours[week_key] += hours
+                    standard_hours += hours
+                    if label == "P":
+                        permission_days += 1
+                    elif label == "S":
+                        sick_days += 1
+                    else:
+                        break_days += 1
             elif override:
                 status = str(override.get("status") or "rest")
                 label = "R" if status == "rest" else "A"
@@ -508,6 +528,19 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
                 label = "A"
                 hours = 0
                 absent_days += 1
+            elif day_type == "holiday":
+                status = "holiday"
+                label = "8"
+                hours = STANDARD_HOURS
+                worked_days += 1
+                total_hours += hours
+                weekly_hours[week_key] += hours
+                standard_hours += hours
+            elif _is_sunday(day):
+                status = "rest"
+                label = "R"
+                hours = 0
+                rest_days += 1
             else:
                 status = "unfilled"
                 label = "NR"
@@ -522,6 +555,7 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
                     "hours": hours,
                     "actual_hours": float(presence.get("heures_travaillees") or 0) if presence else 0,
                     "has_drilling": has_drilling,
+                    "day_type": day_type,
                     "week_index": _period_week_index(day_index),
                     "week_start": day_index % 7 == 0,
                 }
@@ -570,8 +604,11 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
                 "date": day,
                 "day": int(day[-2:]),
                 "weekday": _weekday_label(day),
-                "has_drilling": settings.get(day, False),
-                "planned_hours": DRILLING_HOURS if settings.get(day, False) else STANDARD_HOURS,
+                "has_drilling": _setting_has_drilling(settings, day),
+                "day_type": _setting_day_type(settings, day),
+                "planned_hours": 0
+                if _is_sunday(day)
+                else (DRILLING_HOURS if _setting_has_drilling(settings, day) else STANDARD_HOURS),
                 "week_index": _period_week_index(index),
                 "week_start": index % 7 == 0,
             }
@@ -665,7 +702,7 @@ def validate_timesheet_month(month: str, site_id: int | None = None) -> dict[str
         settings = _settings_by_day(connection, period["start"], period["end"])
         for day in days:
             parsed = _parse_date(day)
-            if parsed > today:
+            if parsed > today or (_is_sunday(day) and day not in settings):
                 continue
             if day not in settings:
                 issues.append(
@@ -727,7 +764,9 @@ def validate_timesheet_month(month: str, site_id: int | None = None) -> dict[str
             employee_breaks = breaks.get(employee_id, [])
             for day in days:
                 parsed = _parse_date(day)
-                if parsed > today:
+                if _setting_day_type(settings, day) == "holiday":
+                    continue
+                if parsed > today or (_is_sunday(day) and day not in settings):
                     continue
                 if selected_site_id is not None and not _assigned_to_site_on_day(
                     site_assignments.get(employee_id, []),
@@ -806,16 +845,44 @@ def _site_context(site_id: int | None) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
-def _settings_by_day(connection: Any, start: str, end: str) -> dict[str, bool]:
+def _settings_by_day(connection: Any, start: str, end: str) -> dict[str, dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT date_presence, has_drilling
+        SELECT date_presence, has_drilling, day_type
         FROM timesheet_day_settings
         WHERE date_presence BETWEEN ? AND ?
         """,
         (start, end),
     ).fetchall()
-    return {str(row["date_presence"]): bool(row["has_drilling"]) for row in rows}
+    return {
+        str(row["date_presence"]): {
+            "has_drilling": bool(row["has_drilling"]),
+            "day_type": str(row["day_type"] or "work"),
+        }
+        for row in rows
+    }
+
+
+def _setting_has_drilling(settings: dict[str, dict[str, Any]], day: str) -> bool:
+    return bool(settings.get(day, {}).get("has_drilling", False))
+
+
+def _setting_day_type(settings: dict[str, dict[str, Any]], day: str) -> str:
+    value = str(settings.get(day, {}).get("day_type") or "work")
+    return value if value in DAY_TYPES else "work"
+
+
+def _normalize_day_type(day_type: str) -> str:
+    normalized = str(day_type or "work").strip().lower()
+    if normalized not in DAY_TYPES:
+        raise ValueError("Type de jour invalide. Choisis travail ou jour chome.")
+    return normalized
+
+
+def _activity_audit_value(activity: dict[str, Any]) -> str:
+    if str(activity.get("day_type") or "work") == "holiday":
+        return "holiday"
+    return "drilling" if activity.get("has_drilling") else "standard"
 
 
 def _ensure_month_unlocked(connection: Any, month: str) -> None:
@@ -999,6 +1066,14 @@ def _break_for_day(records: list[dict[str, Any]], day: str) -> dict[str, Any] | 
     return None
 
 
+def _permission_exceeds_allowed_days(record: dict[str, Any], day: str) -> bool:
+    if str(record.get("type_break") or "") != "permission":
+        return False
+    start = _parse_date(str(record.get("date_debut") or ""))
+    current = _parse_date(day)
+    return (current - start).days >= PERMISSION_DAYS
+
+
 def _ensure_no_blocking_break(connection: Any, employee_id: int, target_date: str) -> None:
     row = connection.execute(
         """
@@ -1044,12 +1119,17 @@ def _break_label(kind: str) -> str:
         "break": "B",
         "permission": "P",
         "sick": "S",
+        "annual": "AL",
     }.get(kind, "B")
 
 
 def _weekday_label(value: str) -> str:
     labels = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
     return labels[_parse_date(value).weekday()]
+
+
+def _is_sunday(value: str) -> bool:
+    return _parse_date(value).weekday() == 6
 
 
 def _period_week_index(day_index: int) -> int:

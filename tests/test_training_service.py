@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from app.db import connection
 from app.services.training_service import (
     create_training,
+    create_training_type,
     create_trainings_for_employees,
+    get_training_options,
     get_training_matrix,
+    list_trainings,
     update_training,
     update_trainings_bulk,
 )
@@ -210,6 +214,68 @@ class TrainingServiceTest(unittest.TestCase):
         self.assertEqual({row["date_debut"] for row in rows}, {"2024-05-10"})
         self.assertEqual({row["date_expiration"] for row in rows}, {"2026-05-10"})
         self.assertEqual({row["facilitateur"] for row in rows}, {"Equipe HSE"})
+
+    def test_training_type_is_linked_to_department_and_available_for_bulk_selection(self) -> None:
+        underground_id = create_training_type("Underground department test", "Operations")
+
+        options = get_training_options()
+        underground_option = next(item for item in options["training_types"] if item["value"] == underground_id)
+
+        self.assertEqual(underground_option["department"], "Operations")
+
+        create_training(
+            {
+                "employe_id": self.employee_id,
+                "type_training_id": underground_id,
+                "date_formation": "2024-05-10",
+                "facilitateur": "Equipe HSE",
+                "structure_responsable": "Operations",
+            }
+        )
+        row = next(item for item in list_trainings("Underground department test") if item["type_training_id"] == underground_id)
+
+        self.assertEqual(row["training_department"], "Operations")
+        self.assertEqual(row["training_department_id"], underground_option["department_id"])
+
+    def test_database_migration_adds_department_to_existing_training_types(self) -> None:
+        legacy_path = connection.DATABASE_PATH
+        connection.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if legacy_path.exists():
+            legacy_path.unlink()
+        legacy = sqlite3.connect(legacy_path)
+        try:
+            legacy.executescript(
+                """
+                CREATE TABLE training_types (
+                    id_training_type INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom TEXT NOT NULL UNIQUE,
+                    categorie TEXT,
+                    validite_mois INTEGER NOT NULL DEFAULT 24,
+                    actif INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT
+                );
+                INSERT INTO training_types(nom, categorie, validite_mois, actif)
+                VALUES ('Legacy HSE', 'obligatoire', 24, 1);
+                """
+            )
+            legacy.commit()
+        finally:
+            legacy.close()
+
+        connection.initialize_database()
+
+        with connection.db_session() as db:
+            row = db.execute(
+                """
+                SELECT tt.department_id, td.nom AS department
+                FROM training_types tt
+                LEFT JOIN training_departments td ON td.id_department = tt.department_id
+                WHERE tt.nom = 'Legacy HSE'
+                """
+            ).fetchone()
+
+        self.assertEqual(row["department"], "HSE")
 
     def test_training_matrix_exposes_expiration_statistics(self) -> None:
         create_training(

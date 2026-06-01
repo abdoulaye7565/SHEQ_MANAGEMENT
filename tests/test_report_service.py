@@ -65,7 +65,7 @@ class ReportServiceTest(unittest.TestCase):
         self.assertIn("timesheet_orezone_2026-04", global_output.name)
         self.assertIn("timesheet_orezone_2026-04", employee_output.name)
         self.assertTrue(selected_output.name.startswith("timesheets_selection_orezone_2026-04"))
-        self.assertEqual(len(list(selected_output.glob("*.xls"))), 2)
+        self.assertEqual(len(list(selected_output.glob("*.xlsx"))), 2)
 
     def test_generate_new_exportable_reports_create_files(self) -> None:
         self._create_employee()

@@ -9,7 +9,7 @@ def get_connection() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
+    _configure_connection(connection)
     return connection
 
 
@@ -37,6 +37,15 @@ def db_session() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+def _configure_connection(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = NORMAL")
+    connection.execute("PRAGMA temp_store = MEMORY")
+    connection.execute("PRAGMA cache_size = -20000")
+
+
 def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -56,7 +65,9 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "employes", "departure_type", "TEXT")
     _add_column_if_missing(connection, "employes", "departure_date", "TEXT")
     _add_column_if_missing(connection, "employes", "departure_comment", "TEXT")
+    _add_column_if_missing(connection, "timesheet_day_settings", "day_type", "TEXT NOT NULL DEFAULT 'work'")
     _add_column_if_missing(connection, "badges", "date_expiration", "TEXT")
+    _add_column_if_missing(connection, "training_types", "department_id", "INTEGER")
     _add_column_if_missing(
         connection,
         "presences",
@@ -137,6 +148,7 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         ON employee_breaks(employe_id, date_debut, date_fin)
         """
     )
+    _ensure_performance_indexes(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS attendance_day_locks (
@@ -225,8 +237,10 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS timesheet_day_settings (
             date_presence TEXT PRIMARY KEY,
             has_drilling INTEGER NOT NULL DEFAULT 0,
+            day_type TEXT NOT NULL DEFAULT 'work',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            commentaire TEXT
+            commentaire TEXT,
+            CHECK (day_type IN ('work', 'holiday'))
         )
         """
     )
@@ -302,6 +316,59 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS equipment_maintenance (
+            id_maintenance INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_code TEXT,
+            equipment_name TEXT NOT NULL,
+            category TEXT,
+            site_id INTEGER,
+            responsible_employee_id INTEGER,
+            maintenance_type TEXT NOT NULL DEFAULT 'preventive',
+            priority TEXT NOT NULL DEFAULT 'moyenne',
+            status TEXT NOT NULL DEFAULT 'planifiee',
+            planned_date TEXT NOT NULL,
+            completed_date TEXT,
+            next_due_date TEXT,
+            cost REAL NOT NULL DEFAULT 0,
+            observations TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (responsible_employee_id) REFERENCES employes(id_employe),
+            CHECK (maintenance_type IN ('preventive', 'corrective', 'inspection', 'calibration')),
+            CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
+            CHECK (status IN ('planifiee', 'en_cours', 'terminee', 'annulee', 'en_retard')),
+            CHECK (completed_date IS NULL OR completed_date >= planned_date)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_tracker (
+            id_action INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'HSE',
+            title TEXT NOT NULL,
+            description TEXT,
+            site_id INTEGER,
+            owner_employee_id INTEGER,
+            priority TEXT NOT NULL DEFAULT 'moyenne',
+            status TEXT NOT NULL DEFAULT 'ouverte',
+            due_date TEXT NOT NULL,
+            closed_date TEXT,
+            progress INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (owner_employee_id) REFERENCES employes(id_employe),
+            CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
+            CHECK (status IN ('ouverte', 'en_cours', 'terminee', 'annulee', 'en_retard')),
+            CHECK (progress >= 0 AND progress <= 100),
+            CHECK (closed_date IS NULL OR closed_date >= due_date)
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_epi_inspections_epi_date
         ON epi_inspections(epi_id, date_inspection)
         """
@@ -331,6 +398,30 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_admin_audit_changed_at
         ON admin_audit(changed_at, action)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_equipment_maintenance_status_date
+        ON equipment_maintenance(status, planned_date, priority)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_equipment_maintenance_site_date
+        ON equipment_maintenance(site_id, planned_date)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_action_tracker_status_due
+        ON action_tracker(status, due_date, priority)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_action_tracker_owner_due
+        ON action_tracker(owner_employee_id, due_date)
         """
     )
     connection.execute(
@@ -387,6 +478,14 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        UPDATE training_types
+        SET department_id = (SELECT id_department FROM training_departments WHERE nom = 'HSE'),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE department_id IS NULL
+        """
+    )
+    connection.execute(
+        """
         INSERT OR IGNORE INTO departments(nom, description, actif) VALUES
             ('Geologie', 'Departement geologie et operations terrain', 1)
         """
@@ -428,6 +527,8 @@ def _run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         WHERE nom IN ('Administrateur', 'Superviseur')
         """
     )
+    _ensure_default_role_permissions(connection)
+    connection.execute("PRAGMA optimize")
 
 
 def _add_column_if_missing(
@@ -521,3 +622,134 @@ def _deduplicate_daily_themes(connection: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _ensure_performance_indexes(connection: sqlite3.Connection) -> None:
+    indexes = [
+        """
+        CREATE INDEX IF NOT EXISTS idx_employes_statut_type_site
+        ON employes(statut, type_employe, site_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_employes_fonction
+        ON employes(fonction_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_badges_employe
+        ON badges(employe_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_badges_expiration
+        ON badges(date_expiration)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_presences_date_employe
+        ON presences(date_presence, employe_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_presences_statut_date
+        ON presences(statut_presence, date_presence)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_employee_breaks_dates_status
+        ON employee_breaks(date_debut, date_fin, statut)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_employee_breaks_status_employee_dates
+        ON employee_breaks(statut, employe_id, date_debut, date_fin)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_timesheet_day_overrides_employee_date
+        ON timesheet_day_overrides(employe_id, date_presence)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_timesheet_day_settings_date
+        ON timesheet_day_settings(date_presence)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_formations_type_expiration
+        ON formations(type_training_id, date_expiration)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_types_department
+        ON training_types(department_id, actif)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_active_required
+        ON toolbox_theme_catalog(actif, obligatoire, theme)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_themes_securite_site_date
+        ON themes_securite(site_id, date_theme)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_epi_type_etat
+        ON epi(type_epi_id, etat, actif)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_stock_epi_epi
+        ON stock_epi(epi_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_mouvements_stock_epi_date
+        ON mouvements_stock_epi(epi_id, date_mouvement)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_affectations_epi_active_employee
+        ON affectations_epi(employe_id, date_retour)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_utilisateurs_role_status
+        ON utilisateurs(role_id, statut)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_role_module_permissions_module
+        ON role_module_permissions(module_key)
+        """,
+    ]
+    for statement in indexes:
+        connection.execute(statement)
+
+
+def _ensure_default_role_permissions(connection: sqlite3.Connection) -> None:
+    role_modules = {
+        "Administrateur": [
+            "Dashboard",
+            "Referentials",
+            "EmployeeManagement",
+            "TrainingManagement",
+            "ToolboxTalk",
+            "TimeSheet",
+            "MonthlyTimesheet",
+            "Ppe",
+            "MaintenanceActions",
+            "Alerts",
+            "Reports",
+            "Admin",
+        ],
+        "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "Reports"],
+        "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts", "Reports"],
+        "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts", "Reports"],
+        "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "Reports"],
+    }
+    for role_name, modules in role_modules.items():
+        role = connection.execute(
+            "SELECT id_role FROM roles WHERE nom = ?",
+            (role_name,),
+        ).fetchone()
+        if role is None:
+            continue
+        existing = connection.execute(
+            "SELECT COUNT(*) AS total FROM role_module_permissions WHERE role_id = ?",
+            (role["id_role"],),
+        ).fetchone()
+        if role_name != "Administrateur" and int(existing["total"] or 0):
+            continue
+        for module in modules:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO role_module_permissions(role_id, module_key)
+                VALUES (?, ?)
+                """,
+                (role["id_role"], module),
+            )

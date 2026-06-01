@@ -10,6 +10,9 @@ else:
     PACKAGE_DIR = BASE_DIR
 
 DATA_DIR = BASE_DIR / "data"
-EXPORTS_DIR = BASE_DIR / "exports"
+if getattr(sys, "frozen", False):
+    EXPORTS_DIR = Path.home() / "Documents" / "OREZONE_QHSE" / "exports"
+else:
+    EXPORTS_DIR = BASE_DIR / "exports"
 DATABASE_PATH = DATA_DIR / "orezone.db"
 SCHEMA_PATH = PACKAGE_DIR / "app" / "db" / "schema.sql"

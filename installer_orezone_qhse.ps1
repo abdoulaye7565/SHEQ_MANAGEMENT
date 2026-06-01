@@ -18,6 +18,8 @@ $DesktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "OREZONE 
 $StartMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\OREZONE QHSE"
 $StartMenuShortcut = Join-Path $StartMenuDir "OREZONE QHSE.lnk"
 $IconPath = Join-Path $InstallRoot "assets\orezone_qhse.ico"
+$UserDocuments = [Environment]::GetFolderPath("MyDocuments")
+$UserExportDir = Join-Path $UserDocuments "OREZONE_QHSE\exports"
 
 Write-Host "Installation OREZONE QHSE Desktop" -ForegroundColor Blue
 Write-Host "Source: $SourceDir"
@@ -51,6 +53,7 @@ if ($TempData) {
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "data") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "exports") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "backups") | Out-Null
+New-Item -ItemType Directory -Force -Path $UserExportDir | Out-Null
 Write-Ok "Application installee"
 
 Write-Step "Creation des raccourcis"
@@ -70,3 +73,4 @@ Write-Ok "Raccourcis crees"
 
 Write-Host ""
 Write-Host "Installation terminee. Lance OREZONE QHSE depuis le Bureau ou le menu Demarrer." -ForegroundColor Green
+Write-Host "Exports Excel: $UserExportDir" -ForegroundColor Yellow

@@ -8,12 +8,15 @@ from pathlib import Path
 from app.db import connection
 from app.services import attendance_export_service
 from app.services.toolbox_talk_service import (
+    DEFAULT_TOOLBOX_FACILITATOR,
+    apply_monthly_toolbox_facilitator,
     assign_monthly_topics,
     assign_topic_to_dates,
     clear_monthly_toolbox_topics,
     delete_toolbox_topic,
     generate_toolbox_theme_catalog,
     list_theme_catalog,
+    list_toolbox_facilitators,
     list_toolbox_topics,
     save_toolbox_topic,
 )
@@ -67,6 +70,35 @@ class ToolboxTalkServiceTest(unittest.TestCase):
         self.assertEqual(row["theme"], "Circulation sur site")
         self.assertEqual(row["status"], "done")
         self.assertEqual(data["summary"]["completed"], 1)
+
+    def test_default_facilitator_is_abou_diarra(self) -> None:
+        save_toolbox_topic({"date_theme": "2026-05-14", "theme": "Fatigue management"})
+
+        row = next(item for item in list_toolbox_topics("2026-05")["rows"] if item["date_theme"] == "2026-05-14")
+
+        self.assertEqual(row["facilitateur"], DEFAULT_TOOLBOX_FACILITATOR)
+        self.assertEqual(list_toolbox_facilitators()[0]["label"], DEFAULT_TOOLBOX_FACILITATOR)
+
+    def test_apply_facilitator_to_full_month(self) -> None:
+        count = apply_monthly_toolbox_facilitator("2026-05", "Superviseur HSE")
+
+        data = list_toolbox_topics("2026-05")
+
+        self.assertEqual(count, 31)
+        self.assertEqual(data["summary"]["completed"], 0)
+        self.assertTrue(all(row["facilitateur"] == "Superviseur HSE" for row in data["rows"]))
+
+    def test_month_assignment_still_fills_days_after_facilitator_was_applied(self) -> None:
+        generate_toolbox_theme_catalog(31)
+        apply_monthly_toolbox_facilitator("2026-05", "Superviseur HSE")
+
+        count = assign_monthly_topics("2026-05")
+        data = list_toolbox_topics("2026-05")
+
+        self.assertEqual(count, 31)
+        self.assertEqual(data["summary"]["completed"], 31)
+        self.assertTrue(all(row["facilitateur"] == "Superviseur HSE" for row in data["rows"]))
+        self.assertTrue(all(str(row["theme"] or "").strip() for row in data["rows"]))
 
     def test_delete_topic_marks_day_missing(self) -> None:
         save_toolbox_topic({"date_theme": "2026-05-14", "theme": "Fatigue management"})
@@ -152,9 +184,10 @@ class ToolboxTalkServiceTest(unittest.TestCase):
         with zipfile.ZipFile(output) as workbook:
             sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
         self.assertIn("Port des EPI", sheet)
-        self.assertIn("Renseigne", sheet)
-        self.assertIn("OREZONE QHSE - TOOLBOX TALK MEETING", sheet)
+        self.assertIn("OREZONE QHSE - TOOLBOX TALK MONTHLY MEETING", sheet)
+        self.assertIn("Monthly meeting", sheet)
         self.assertIn("Description OREZONE", sheet)
+        self.assertNotIn("Signature / Comments", sheet)
 
 
 if __name__ == "__main__":

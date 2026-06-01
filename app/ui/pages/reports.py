@@ -18,6 +18,8 @@ CATEGORY_COLORS = {
     "TimeSheet": PRIMARY,
     "Toolbox": "#0F766E",
     "EPI": SUCCESS,
+    "Maintenance": "#475569",
+    "Actions": "#EA580C",
     "Alertes": DANGER,
 }
 
@@ -403,6 +405,8 @@ def _category_icon(category: str) -> str:
         "TimeSheet": ft.Icons.CALENDAR_MONTH_OUTLINED,
         "Toolbox": ft.Icons.FACT_CHECK_OUTLINED,
         "EPI": ft.Icons.INVENTORY_2_OUTLINED,
+        "Maintenance": ft.Icons.HANDYMAN_OUTLINED,
+        "Actions": ft.Icons.TASK_ALT_OUTLINED,
         "Alertes": ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED,
     }.get(category, ft.Icons.DESCRIPTION_OUTLINED)
 
@@ -421,4 +425,6 @@ def _soft_color(color: str) -> str:
         WARNING: "#FEF3C7",
         "#8B5CF6": "#EDE9FE",
         "#0F766E": "#CCFBF1",
+        "#475569": "#E2E8F0",
+        "#EA580C": "#FFEDD5",
     }.get(color, "#E2E8F0")
