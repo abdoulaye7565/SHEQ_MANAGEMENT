@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services.monthly_timesheet_service import (
     current_monthly_timesheet_month,
@@ -146,7 +148,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=columns,
                         rows=[
                             ft.DataRow(
@@ -296,3 +298,4 @@ def _legend(label: str, color: str, text_color: str) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=9, vertical=5),
         content=ft.Text(label, color=text_color, size=11, weight=ft.FontWeight.BOLD),
     )
+

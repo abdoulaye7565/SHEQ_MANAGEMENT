@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_training,
@@ -214,7 +216,7 @@ def training_matrix_page() -> ft.Control:
             training_stats_area,
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=columns,
                         rows=[
                             ft.DataRow(
@@ -304,7 +306,7 @@ def training_matrix_page() -> ft.Control:
             ft.Text("Statistiques par formation", color=TEXT, weight=ft.FontWeight.BOLD),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Formation")),
                             ft.DataColumn(ft.Text("Valides")),
@@ -491,3 +493,4 @@ def _legend(label: str, color: str) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=8, vertical=5),
         content=ft.Text(label, size=12, color=text_color),
     )
+

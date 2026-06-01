@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_database_backup,
@@ -39,6 +41,7 @@ MODULE_LABELS = {
     "MaintenanceActions": "Maintenance & Actions",
     "Alerts": "Alertes",
     "Reports": "Rapports",
+    "Settings": "Parametres",
     "Admin": "Administration",
 }
 
@@ -234,7 +237,7 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Utilisateur")),
                             ft.DataColumn(ft.Text("Role")),
@@ -606,3 +609,4 @@ def _role_permissions_panel(row: dict[str, Any], save_callback: object, state: d
             ),
         ],
     )
+

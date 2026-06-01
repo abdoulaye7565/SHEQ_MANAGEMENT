@@ -9,6 +9,7 @@ from app.ui.pages.placeholders import placeholder_page
 from app.ui.pages.ppe import ppe_page
 from app.ui.pages.referentials import referentials_page
 from app.ui.pages.reports import reports_page
+from app.ui.pages.settings import settings_page
 from app.ui.pages.maintenance_actions import maintenance_actions_page
 from app.ui.pages.timesheet_management import timesheet_management_page
 from app.ui.pages.toolbox_talk import toolbox_talk_page
@@ -27,6 +28,7 @@ NAV_ITEMS = [
     ("MaintenanceActions", "Maintenance & Actions", ft.Icons.HANDYMAN_OUTLINED),
     ("Alerts", "Alertes", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
     ("Reports", "Rapports", ft.Icons.PICTURE_AS_PDF_OUTLINED),
+    ("Settings", "Parametres", ft.Icons.SETTINGS_OUTLINED),
     ("Admin", "Administration", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
 ]
 
@@ -70,7 +72,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     if "MonthlyTimesheet" in allowed_keys:
         allowed_keys.add("TimeSheet")
     if str(user.get("role") or "") == "Administrateur":
-        allowed_keys.update({"Dashboard", "TimeSheet", "Admin"})
+        allowed_keys.update({"Dashboard", "TimeSheet", "Settings", "Admin"})
     visible_nav_items = [item for item in NAV_ITEMS if item[0] in allowed_keys]
     if not visible_nav_items:
         visible_nav_items = [NAV_ITEMS[0]]
@@ -307,6 +309,7 @@ def _module_subtitle(key: str) -> str:
         "MaintenanceActions": "Maintenance equipements, action tracker, echeances et responsabilites.",
         "Alerts": "Signaux QHSE, stock, badges, formations et operations.",
         "Reports": "Exports operationnels Excel/PDF et rapports consolides.",
+        "Settings": "Chemins, exports, base SQLite, sauvegardes et installation.",
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
     }
     return subtitles.get(key, "Module OREZONE QHSE.")
@@ -339,6 +342,8 @@ def _build_screen(
         return alerts_page(navigate=render_key)
     if key == "Reports":
         return reports_page()
+    if key == "Settings":
+        return settings_page(user, page)
     if key == "Admin":
         return admin_page(user, page)
     return placeholder_page(label)

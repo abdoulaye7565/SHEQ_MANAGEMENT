@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_action,
@@ -320,7 +322,7 @@ def maintenance_actions_page() -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Equipement")),
                             ft.DataColumn(ft.Text("Site")),
@@ -370,7 +372,7 @@ def maintenance_actions_page() -> ft.Control:
             ft.Text(f"Action tracker ({len(rows)})", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Source")),
                             ft.DataColumn(ft.Text("Action")),
@@ -626,3 +628,4 @@ def _row_color(status: Any, priority: Any) -> str | None:
     if priority == "critique":
         return "#FFF7ED"
     return None
+

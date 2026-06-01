@@ -1,9 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     export_attendance_pdf,
@@ -687,7 +689,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             ]
             return
 
-        table = ft.DataTable(
+        table = professional_data_table(
             columns=[
                 ft.DataColumn(ft.Text("Sel.")),
                 ft.DataColumn(ft.Text("Employe")),
@@ -1050,3 +1052,4 @@ def _valid_time(value: str) -> bool:
     except ValueError:
         return False
     return True
+

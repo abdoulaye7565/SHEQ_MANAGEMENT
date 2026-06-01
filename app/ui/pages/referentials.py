@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_record,
@@ -225,7 +227,7 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=columns,
                         rows=[
                             ft.DataRow(
@@ -366,3 +368,4 @@ def _format_cell(key: str, field: dict[str, Any], value: Any) -> str:
         labels = {int(option["value"]): str(option["label"]) for option in options}
         return labels.get(int(value), str(value))
     return str(value or "-")
+

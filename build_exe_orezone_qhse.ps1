@@ -155,10 +155,13 @@ OREZONE QHSE - Installation Windows
 Donnees:
 - La base SQLite est creee automatiquement au premier lancement.
 - Lors d'une mise a jour, les dossiers data, exports et backups deja installes sont conserves.
+- En version installee, les exports Excel sont crees dans:
+  Documents\OREZONE_QHSE\exports
 - Pour remplacer une ancienne base par la base prechargee du paquet, lancer reinitialiser_base_orezone_qhse.bat.
   Une sauvegarde est creee avant remplacement dans le dossier backups.
 - Pour sauvegarder avant une mise a jour, copier le dossier:
   %LOCALAPPDATA%\Programs\OREZONE_QHSE\data
+- Le module Parametres affiche les chemins runtime, la base active et le dossier exports.
 
 Lancement portable:
 - Il est aussi possible de lancer directement OREZONE_QHSE.exe depuis ce dossier.

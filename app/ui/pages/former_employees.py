@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import export_rows_xlsx, list_former_employees, restore_employee
 from app.ui.components.module_header import module_header
@@ -79,7 +81,7 @@ def former_employees_page() -> ft.Control:
             ft.Text(f"{len(rows)} ancien(s) employe(s)", size=12, color=MUTED),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Employe")),
                             ft.DataColumn(ft.Text("Badge")),
@@ -175,3 +177,4 @@ def _departure_badge(value: Any) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Text(_departure_label(value), size=12, color=color),
     )
+

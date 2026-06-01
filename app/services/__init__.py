@@ -97,6 +97,12 @@ from app.services.report_service import (
     get_report_summary,
     list_report_definitions,
 )
+from app.services.settings_service import (
+    APP_VERSION,
+    create_settings_backup,
+    ensure_runtime_directories,
+    get_application_settings,
+)
 from app.services.ppe_service import (
     assign_ppe,
     create_ppe_item,
@@ -196,6 +202,7 @@ __all__ = [
     "create_action",
     "create_equipment_maintenance",
     "create_user",
+    "create_settings_backup",
     "assign_ppe",
     "assign_monthly_topics",
     "assign_topic_to_dates",
@@ -255,6 +262,7 @@ __all__ = [
     "get_maintenance_action_options",
     "get_maintenance_action_summary",
     "get_report_summary",
+    "get_application_settings",
     "get_training_matrix",
     "get_training_options",
     "get_training",
@@ -266,6 +274,7 @@ __all__ = [
     "get_timesheet_lock",
     "get_timesheet_period",
     "import_employees_from_file",
+    "ensure_runtime_directories",
     "is_timesheet_locked",
     "is_attendance_day_locked",
     "list_attendance_audit",
@@ -311,6 +320,7 @@ __all__ = [
     "list_toolbox_facilitators",
     "list_theme_catalog",
     "list_users",
+    "APP_VERSION",
     "lock_timesheet_month",
     "generate_report",
     "save_attendance_day",

@@ -1,9 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.config import EXPORTS_DIR
 from app.services import import_employees_from_file
@@ -155,7 +157,7 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
             result_area.controls.append(
                 ft.Row(
                     controls=[
-                        ft.DataTable(
+                        professional_data_table(
                             columns=[
                                 ft.DataColumn(ft.Text("Nom")),
                                 ft.DataColumn(ft.Text("Matricule")),
@@ -390,3 +392,4 @@ def _small_badge(label: str, color: str) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Text(label, color=color, size=11, weight=ft.FontWeight.BOLD),
     )
+

@@ -31,6 +31,7 @@ ALL_MODULES = [
     "MaintenanceActions",
     "Alerts",
     "Reports",
+    "Settings",
     "Admin",
 ]
 
@@ -47,6 +48,7 @@ ROLE_MODULES = {
         "MaintenanceActions",
         "Alerts",
         "Reports",
+        "Settings",
         "Admin",
     ],
     "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "Reports"],
@@ -102,7 +104,7 @@ def get_role_modules(role: str) -> list[str]:
     if rows:
         configured = [str(row["module_key"]) for row in rows if str(row["module_key"]) in ALL_MODULES]
         if role_name == ADMIN_ROLE_NAME:
-            for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Admin"):
+            for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Settings", "Admin"):
                 if mandatory_module not in configured:
                     configured.append(mandatory_module)
         return _ordered_modules(configured)

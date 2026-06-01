@@ -1,9 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import create_break, delete_break, export_rows_xlsx, list_break_alerts, list_breaks, list_employees
 from app.services.break_service import BREAK_STATUSES, BREAK_TYPES
@@ -227,7 +229,7 @@ def breaks_page() -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Employe")),
                             ft.DataColumn(ft.Text("Badge")),
@@ -389,3 +391,4 @@ def _alert_detail(row: dict[str, Any]) -> str:
 def _break_type_label(kind: str) -> str:
     labels = {"break": "Break", "annual": "Break annuel", "permission": "Permission", "sick": "Malade"}
     return labels.get(kind, kind)
+

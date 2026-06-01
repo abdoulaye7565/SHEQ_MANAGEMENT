@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_manual_alert,
@@ -182,7 +184,7 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Niveau")),
                             ft.DataColumn(ft.Text("Source")),
@@ -391,3 +393,4 @@ def _target_key(source_key: str) -> str | None:
         "maintenance": "MaintenanceActions",
         "training": "TrainingManagement",
     }.get(source_key)
+

@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_training,
@@ -506,7 +508,7 @@ def training_page() -> ft.Control:
             summary_row,
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("")),
                             ft.DataColumn(ft.Text("Employe")),
@@ -679,3 +681,4 @@ def _state_text(state: str | None) -> str:
 
 def _excel_state(state: str | None) -> str:
     return {"valide": "done", "bientot_expiree": "soon", "expiree": "expired"}.get(str(state), "expired")
+

@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     export_rows_xlsx,
@@ -139,7 +141,7 @@ def active_breaks_page() -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Employe")),
                             ft.DataColumn(ft.Text("Badge")),
@@ -268,3 +270,4 @@ def _state_text(state: str | None) -> str:
         "permission": "Permission",
         "sick": "Maladie",
     }.get(str(state or "break"), "En break")
+

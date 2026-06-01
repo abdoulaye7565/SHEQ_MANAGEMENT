@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     assign_ppe,
@@ -346,7 +348,7 @@ def ppe_page() -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Type")),
                             ft.DataColumn(ft.Text("EPI")),
@@ -820,3 +822,4 @@ def _recommendation_card(title: str, description: str, icon: str) -> ft.Control:
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
     )
+

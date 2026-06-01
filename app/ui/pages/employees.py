@@ -1,9 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     create_break,
@@ -449,7 +451,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         else:
             table_content = ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("")),
                             ft.DataColumn(ft.Text("Employe")),
@@ -777,3 +779,4 @@ def _break_due_color(record: dict[str, Any]) -> str:
     if int(days) <= 3:
         return WARNING
     return TEXT
+

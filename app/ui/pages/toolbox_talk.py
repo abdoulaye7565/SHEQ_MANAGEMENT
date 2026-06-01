@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
 import flet as ft
+
+from app.ui.components.tables import professional_data_table
 
 from app.services import (
     DEFAULT_TOOLBOX_FACILITATOR,
@@ -288,7 +290,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    ft.DataTable(
+                    professional_data_table(
                         columns=[
                             ft.DataColumn(ft.Text("Sel.")),
                             ft.DataColumn(ft.Text("Date")),
@@ -505,3 +507,4 @@ def _theme_chip(row: dict[str, Any]) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Text(label, size=12, color=color),
     )
+
