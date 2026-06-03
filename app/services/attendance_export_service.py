@@ -383,7 +383,11 @@ def export_monthly_10h_timesheet_xlsx(month: str, site_id: int | None = None) ->
         "Jours travailles",
         "Repos",
         "Break normal",
+        "Permission",
+        "Sick",
         "Break annuel",
+        "Absents",
+        "Non renseignes",
         "Heures",
     ]
     rows = []
@@ -422,7 +426,11 @@ def _monthly_10h_export_row(row: dict[str, Any]) -> list[Any]:
         row["worked_days"],
         row["rest_days"],
         row["normal_break_days"],
+        row.get("permission_days", 0),
+        row.get("sick_days", 0),
         row["annual_break_days"],
+        row.get("absent_days", 0),
+        row.get("unfilled_days", 0),
         row["hours"],
     ]
 
@@ -434,6 +442,10 @@ def _monthly_10h_export_style(row: dict[str, Any]) -> list[str | None]:
         None,
         None,
         *[_monthly_10h_cell_style(cell) for cell in row["cells"]],
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -646,6 +658,10 @@ def _monthly_10h_cell_style(cell: dict[str, Any]) -> str | None:
         return "holiday"
     if status == "normal_break":
         return "missing"
+    if status == "permission":
+        return "permission"
+    if status == "sick":
+        return "sick"
     if status == "annual_break":
         return "annual"
     if status == "absent":

@@ -21,6 +21,10 @@ WORK = "#16A34A"
 REST = "#CBD5E1"
 NORMAL_BREAK = "#F59E0B"
 ANNUAL_BREAK = "#A855F7"
+PERMISSION = "#F97316"
+SICK = "#DC2626"
+ABSENT = "#EF4444"
+UNFILLED = "#E5E7EB"
 NOT_ASSIGNED = "#F8FAFC"
 PAGE_SIZE = 10
 MONTHLY_DAY_WIDTH = 28
@@ -126,7 +130,9 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             _summary_chip("Jours travailles", summary["worked_days"], SUCCESS, ft.Icons.WORK_OUTLINE),
             _summary_chip("Repos dimanche", summary["rest_days"], MUTED, ft.Icons.WEEKEND_OUTLINED),
             _summary_chip("Break normal", summary["normal_break_days"], WARNING, ft.Icons.BEACH_ACCESS_OUTLINED),
+            _summary_chip("Permission", summary.get("permission_days", 0), WARNING, ft.Icons.EVENT_NOTE_OUTLINED),
             _summary_chip("Break annuel", summary["annual_break_days"], PRIMARY, ft.Icons.EVENT_AVAILABLE_OUTLINED),
+            _summary_chip("Absents", summary.get("absent_days", 0), DANGER, ft.Icons.PERSON_OFF_OUTLINED),
             _summary_chip("Heures", summary["hours"], SUCCESS, ft.Icons.ACCESS_TIME_OUTLINED),
         ]
         rows = filtered_rows()
@@ -157,7 +163,11 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                     _legend("10h", WORK, "#FFFFFF"),
                     _legend("R dimanche", REST, TEXT),
                     _legend("Break normal", NORMAL_BREAK, TEXT),
-                    _legend("Break annuel", ANNUAL_BREAK, "#FFFFFF"),
+                    _legend("Permission", PERMISSION, "#FFFFFF"),
+                    _legend("Sick", SICK, "#FFFFFF"),
+                    _legend("Annual leave", ANNUAL_BREAK, "#FFFFFF"),
+                    _legend("Absent", ABSENT, "#FFFFFF"),
+                    _legend("NR", UNFILLED, TEXT),
                     _legend("N/A site", NOT_ASSIGNED, MUTED),
                     ft.Text(
                         f"{start + 1 if rows else 0}-{start + len(page_rows)} / {len(rows)} employe(s)",
@@ -298,8 +308,16 @@ def _cell_style(cell: dict[str, Any]) -> tuple[str, str, str]:
         return WORK, "#FFFFFF", "Jour travaille: 10H"
     if status == "normal_break":
         return NORMAL_BREAK, TEXT, f"Break normal{break_period}"
+    if status == "permission":
+        return PERMISSION, "#FFFFFF", f"Permission{break_period}"
+    if status == "sick":
+        return SICK, "#FFFFFF", f"Sick leave{break_period}"
     if status == "annual_break":
         return ANNUAL_BREAK, "#FFFFFF", f"Break annuel / leave{break_period}"
+    if status == "absent":
+        return ABSENT, "#FFFFFF", "Absent"
+    if status == "unfilled":
+        return UNFILLED, TEXT, "Non renseigne"
     if status == "not_assigned":
         return NOT_ASSIGNED, MUTED, "Non affecte a ce site"
     return REST, TEXT, "Repos dimanche"

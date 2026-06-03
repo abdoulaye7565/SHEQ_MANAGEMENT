@@ -102,15 +102,46 @@ def get_monthly_10h_timesheet(
             LEFT JOIN departments d ON d.id_department = s.department_id
             LEFT JOIN groupes g ON g.id_groupe = e.groupe_id
             LEFT JOIN badges b ON b.employe_id = e.id_employe
-            WHERE e.statut = 'actif'
-              AND e.type_employe = ?
+            WHERE e.type_employe = ?
+              AND (
+                e.statut = 'actif'
+                OR EXISTS (
+                    SELECT 1
+                    FROM presences p
+                    WHERE p.employe_id = e.id_employe
+                      AND p.date_presence BETWEEN ? AND ?
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM employee_breaks eb
+                    WHERE eb.employe_id = e.id_employe
+                      AND eb.date_debut <= ?
+                      AND eb.date_fin >= ?
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM timesheet_day_overrides tdo
+                    WHERE tdo.employe_id = e.id_employe
+                      AND tdo.date_presence BETWEEN ? AND ?
+                )
+              )
               {site_filter}
             ORDER BY nom, prenom, e.nom_complet
             """,
-            (selected_employee_type, *site_params),
+            (
+                selected_employee_type,
+                period["start"],
+                period["end"],
+                period["end"],
+                period["start"],
+                period["start"],
+                period["end"],
+                *site_params,
+            ),
         ).fetchall()
         breaks = _breaks_by_employee(connection, period["start"], period["end"])
         presences = _presences_by_employee(connection, period["start"], period["end"])
+        overrides = _overrides_by_employee(connection, period["start"], period["end"])
         settings = _settings_by_day(connection, period["start"], period["end"])
         assignments = _site_assignments_by_employee(connection, period["start"], period["end"], selected_site_id)
         site = _site_context(connection, selected_site_id)
@@ -121,7 +152,11 @@ def get_monthly_10h_timesheet(
         "worked_days": 0,
         "rest_days": 0,
         "normal_break_days": 0,
+        "permission_days": 0,
+        "sick_days": 0,
         "annual_break_days": 0,
+        "absent_days": 0,
+        "unfilled_days": 0,
         "hours": 0,
     }
     for employee in employees:
@@ -131,7 +166,11 @@ def get_monthly_10h_timesheet(
         worked_days = 0
         rest_days = 0
         normal_break_days = 0
+        permission_days = 0
+        sick_days = 0
         annual_break_days = 0
+        absent_days = 0
+        unfilled_days = 0
         for day in days:
             parsed = date.fromisoformat(day)
             if selected_site_id is not None and not _assigned_to_site_on_day(
@@ -148,21 +187,41 @@ def get_monthly_10h_timesheet(
             else:
                 break_record = _break_for_day(breaks.get(employee_id, []), day)
                 presence = presences.get((employee_id, day))
+                override = overrides.get((employee_id, day))
                 day_type = str(settings.get(day, {}).get("day_type") or "work")
                 if break_record and _permission_exceeds_allowed_days(break_record, day):
                     status = "absent"
                     label = "A"
                     hours = 0
+                    absent_days += 1
                 elif break_record and str(break_record.get("type_break")) == "annual":
                     status = "annual_break"
-                    label = "BA"
+                    label = "AL"
                     hours = 0
                     annual_break_days += 1
+                elif break_record and str(break_record.get("type_break")) == "permission":
+                    status = "permission"
+                    label = "P"
+                    hours = 0
+                    permission_days += 1
+                elif break_record and str(break_record.get("type_break")) == "sick":
+                    status = "sick"
+                    label = "S"
+                    hours = 0
+                    sick_days += 1
                 elif break_record:
                     status = "normal_break"
                     label = "B"
                     hours = 0
                     normal_break_days += 1
+                elif override:
+                    status = str(override.get("status") or "rest")
+                    label = "R" if status == "rest" else "A"
+                    hours = 0
+                    if status == "rest":
+                        rest_days += 1
+                    else:
+                        absent_days += 1
                 elif day_type == "holiday":
                     status = "holiday"
                     label = "8H"
@@ -190,10 +249,12 @@ def get_monthly_10h_timesheet(
                     status = "absent"
                     label = "A"
                     hours = 0
+                    absent_days += 1
                 else:
                     status = "unfilled"
-                    label = ""
+                    label = "NR"
                     hours = 0
+                    unfilled_days += 1
                 break_type = str(break_record.get("type_break")) if break_record else None
                 break_start = str(break_record.get("date_debut")) if break_record else None
                 break_end = str(break_record.get("date_fin")) if break_record else None
@@ -217,7 +278,11 @@ def get_monthly_10h_timesheet(
                 "worked_days": worked_days,
                 "rest_days": rest_days,
                 "normal_break_days": normal_break_days,
+                "permission_days": permission_days,
+                "sick_days": sick_days,
                 "annual_break_days": annual_break_days,
+                "absent_days": absent_days,
+                "unfilled_days": unfilled_days,
                 "hours": employee_hours,
             }
         )
@@ -225,7 +290,11 @@ def get_monthly_10h_timesheet(
         summary["worked_days"] += worked_days
         summary["rest_days"] += rest_days
         summary["normal_break_days"] += normal_break_days
+        summary["permission_days"] += permission_days
+        summary["sick_days"] += sick_days
         summary["annual_break_days"] += annual_break_days
+        summary["absent_days"] += absent_days
+        summary["unfilled_days"] += unfilled_days
         summary["hours"] += employee_hours
     return {
         "period": period,
@@ -275,6 +344,21 @@ def _presences_by_employee(connection: Any, start: str, end: str) -> dict[tuple[
         """
         SELECT employe_id, date_presence, statut_presence, heures_travaillees
         FROM presences
+        WHERE date_presence BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchall()
+    return {
+        (int(row["employe_id"]), str(row["date_presence"])): dict(row)
+        for row in rows
+    }
+
+
+def _overrides_by_employee(connection: Any, start: str, end: str) -> dict[tuple[int, str], dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT employe_id, date_presence, status
+        FROM timesheet_day_overrides
         WHERE date_presence BETWEEN ? AND ?
         """,
         (start, end),

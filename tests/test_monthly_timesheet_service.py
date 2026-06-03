@@ -11,7 +11,7 @@ from app.services.break_service import create_break
 from app.services.employee_service import create_employee
 from app.services.monthly_timesheet_service import get_monthly_10h_timesheet, list_monthly_timesheet_days
 from app.services.attendance_service import save_attendance_day
-from app.services.timesheet_service import set_day_activity
+from app.services.timesheet_service import set_day_activity, update_timesheet_day_status
 
 
 class MonthlyTimeSheetServiceTest(unittest.TestCase):
@@ -92,7 +92,7 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(cells["2026-05-04"]["status"], "normal_break")
         self.assertEqual(cells["2026-05-04"]["label"], "B")
         self.assertEqual(cells["2026-05-05"]["status"], "annual_break")
-        self.assertEqual(cells["2026-05-05"]["label"], "BA")
+        self.assertEqual(cells["2026-05-05"]["label"], "AL")
         self.assertEqual(timesheet["summary"]["normal_break_days"], 1)
         self.assertEqual(timesheet["summary"]["annual_break_days"], 1)
 
@@ -135,13 +135,52 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         row = timesheet["rows"][0]
         cells = {cell["date"]: cell for cell in row["cells"]}
 
-        self.assertEqual(cells["2026-05-01"]["status"], "normal_break")
-        self.assertEqual(cells["2026-05-02"]["status"], "normal_break")
-        self.assertEqual(cells["2026-05-03"]["status"], "normal_break")
+        self.assertEqual(cells["2026-05-01"]["status"], "permission")
+        self.assertEqual(cells["2026-05-01"]["label"], "P")
+        self.assertEqual(cells["2026-05-02"]["status"], "permission")
+        self.assertEqual(cells["2026-05-03"]["status"], "permission")
         self.assertEqual(cells["2026-05-04"]["status"], "absent")
         self.assertEqual(cells["2026-05-04"]["label"], "A")
-        self.assertEqual(row["normal_break_days"], 3)
+        self.assertEqual(row["permission_days"], 3)
+        self.assertEqual(row["absent_days"], 1)
         self.assertEqual(row["hours"], 0)
+
+    def test_monthly_timesheet_syncs_absences_and_timesheet_overrides(self) -> None:
+        save_attendance_day(
+            "2026-05-01",
+            {self.employee_id: {"statut_presence": "absent"}},
+        )
+        update_timesheet_day_status(self.employee_id, "2026-05-02", "rest")
+
+        timesheet = get_monthly_10h_timesheet("2026-05")
+        row = timesheet["rows"][0]
+        cells = {cell["date"]: cell for cell in row["cells"]}
+
+        self.assertEqual(cells["2026-05-01"]["status"], "absent")
+        self.assertEqual(cells["2026-05-01"]["label"], "A")
+        self.assertEqual(cells["2026-05-02"]["status"], "rest")
+        self.assertEqual(cells["2026-05-02"]["label"], "R")
+        self.assertEqual(row["absent_days"], 1)
+        self.assertEqual(row["rest_days"], 5)
+
+    def test_monthly_timesheet_syncs_sick_breaks(self) -> None:
+        create_break(
+            {
+                "employe_id": self.employee_id,
+                "type_break": "sick",
+                "date_debut": "2026-05-06",
+                "date_fin": "2026-05-06",
+                "statut": "planifie",
+            }
+        )
+
+        timesheet = get_monthly_10h_timesheet("2026-05")
+        row = timesheet["rows"][0]
+        cells = {cell["date"]: cell for cell in row["cells"]}
+
+        self.assertEqual(cells["2026-05-06"]["status"], "sick")
+        self.assertEqual(cells["2026-05-06"]["label"], "S")
+        self.assertEqual(row["sick_days"], 1)
 
     def test_export_monthly_timesheet_xlsx_contains_status_labels(self) -> None:
         self._create_employee("Expat Employee", employee_type="expatriate")
@@ -168,7 +207,7 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertIn("10h", sheet)
         self.assertIn("MONTHLY TIMESHEET", sheet)
         self.assertIn(">R<", sheet)
-        self.assertIn(">BA<", sheet)
+        self.assertIn(">AL<", sheet)
         self.assertIn("EXPATRIES - RESERVE", sheet)
         self.assertIn("Expat Employee", sheet)
         self.assertIn('width="6.5"', sheet)
