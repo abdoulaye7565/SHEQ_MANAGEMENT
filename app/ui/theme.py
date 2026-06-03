@@ -20,5 +20,13 @@ def page_theme() -> ft.Theme:
     return ft.Theme(
         color_scheme_seed=PRIMARY,
         visual_density=ft.VisualDensity.COMFORTABLE,
+        scrollbar_theme=ft.ScrollbarTheme(
+            thumb_color=PRIMARY,
+            thumb_visibility=True,
+            track_color="#1F2937",
+            track_visibility=True,
+            thickness=8,
+            radius=4,
+        ),
         use_material3=True,
     )
