@@ -139,20 +139,34 @@ class AdminServiceTest(unittest.TestCase):
     def test_role_permissions_can_be_updated_and_audited(self) -> None:
         stock_role_id = self._role_id("Responsable stock")
 
-        update_role_modules(stock_role_id, ["Dashboard", "Reports"], changed_by="tester")
+        update_role_modules(stock_role_id, ["Dashboard", "Alerts"], changed_by="tester")
 
-        self.assertEqual(get_role_modules("Responsable stock"), ["Dashboard", "Reports"])
+        self.assertEqual(get_role_modules("Responsable stock"), ["Dashboard", "Alerts"])
         stock = next(row for row in list_role_permissions() if row["nom"] == "Responsable stock")
-        self.assertEqual(stock["modules"], ["Dashboard", "Reports"])
+        self.assertEqual(stock["modules"], ["Dashboard", "Alerts"])
         self.assertTrue(
             any(row["action"] == "role_modules" and row["changed_by"] == "tester" for row in list_admin_audit())
         )
+
+    def test_legacy_reports_permission_maps_to_alerts_reports(self) -> None:
+        stock_role_id = self._role_id("Responsable stock")
+        with connection.db_session() as db:
+            db.execute("DELETE FROM role_module_permissions WHERE role_id = ?", (stock_role_id,))
+            db.execute(
+                """
+                INSERT INTO role_module_permissions(role_id, module_key)
+                VALUES (?, ?)
+                """,
+                (stock_role_id, "Reports"),
+            )
+
+        self.assertEqual(get_role_modules("Responsable stock"), ["Alerts"])
 
     def test_admin_role_keeps_admin_module(self) -> None:
         admin_role_id = self._role_id("Administrateur")
 
         with self.assertRaisesRegex(ValueError, "Administration"):
-            update_role_modules(admin_role_id, ["Dashboard", "Reports"])
+            update_role_modules(admin_role_id, ["Dashboard", "Alerts"])
 
     def test_last_active_admin_cannot_be_disabled_or_demoted(self) -> None:
         admin_role_id = self._role_id("Administrateur")

@@ -2,19 +2,12 @@ from __future__ import annotations
 
 import html
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-COMPANY_DESCRIPTION_EN = (
-    "Orezone Gold Corporation is a mining company operating the Bombore gold mine. "
-    "The QHSE management system supports field supervision, compliance, workforce control, "
-    "equipment safety and operational reporting."
-)
-COMPANY_DESCRIPTION_FR = (
-    "Orezone Gold Corporation est une societe miniere exploitant la mine d'or de Bombore. "
-    "Le systeme QHSE soutient la supervision terrain, la conformite, le suivi des travailleurs, "
-    "la securite des equipements et le reporting operationnel."
-)
+OREZONE_HEADER_NOTE = "Industrial QHSE management document | Controlled export"
+SIGNATURE_LABELS = ["Prepared by", "Checked by", "Approved by"]
 
 
 def write_simple_xlsx(path: Path, sheet_name: str, headers: list[str], rows: list[list[Any]]) -> None:
@@ -51,7 +44,7 @@ def write_styled_xlsx(
   <fills count="12"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2563EB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF22C55E"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFBBF24"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDC2626"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B3DB6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF00A6D6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFC0392B"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4A261"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5E7EB"/><bgColor indexed="64"/></patternFill></fill></fills>
   <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFCBD5E1"/></left><right style="thin"><color rgb="FFCBD5E1"/></right><top style="thin"><color rgb="FFCBD5E1"/></top><bottom style="thin"><color rgb="FFCBD5E1"/></bottom><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="12"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="11" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/></cellXfs>
+  <cellXfs count="13"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="11" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" textRotation="45"/></xf></cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>"""
     content_types_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -160,22 +153,7 @@ def write_attendance_list_xlsx(
         "Heures",
         "Controle",
     ]
-    data_rows = [
-        [
-            index,
-            row.get("nom") or row.get("nom_complet") or "",
-            row.get("prenom") or "",
-            row.get("numero_badge") or "",
-            row.get("fonction") or "",
-            row.get("shift") or "",
-            row.get("statut") or "",
-            row.get("heure_entree") or "",
-            row.get("heure_sortie") or "",
-            row.get("heures") or 0,
-            row.get("controle") or "",
-        ]
-        for index, row in enumerate(rows, start=1)
-    ]
+    data_rows = _attendance_grouped_rows(rows)
     sheet_xml = _attendance_worksheet_xml(headers, data_rows, date_presence, generated_at, summary)
     workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -262,56 +240,256 @@ def _worksheet_xml(
     include_company_description: bool = False,
     document_title: str | None = None,
 ) -> str:
-    header_row_index = 5 if include_company_description else 1
-    all_rows = []
-    if include_company_description:
-        all_rows.extend(
-            [
-                ["OREZONE", document_title or "OREZONE QHSE EXPORT"],
-                ["OREZONE DESCRIPTION", COMPANY_DESCRIPTION_EN],
-                ["Description OREZONE", COMPANY_DESCRIPTION_FR],
-                [],
-            ]
-        )
-    all_rows.extend([headers, *rows])
+    header_row_index = 7
+    title = document_title or "OREZONE QHSE EXPORT"
+    if "RISK REGISTER" in str(title).upper():
+        return _risk_register_worksheet_xml(headers, rows, styles, title)
+    day_start, day_end = _timesheet_day_bounds(headers, title)
+    is_timesheet = day_end >= day_start
+    training_start, training_end = _training_matrix_bounds(headers, title)
+    is_training_matrix = training_end >= training_start
+    all_rows = [
+        ["OREZONE", "", title],
+        ["", "", "Controlled QHSE document | Document QHSE controle"],
+        ["", "", OREZONE_HEADER_NOTE],
+        [],
+        ["Summary", f"Rows: {len(rows)}"],
+        [],
+        headers,
+        *rows,
+        [],
+        ["Prepared by", "", "Checked by", "", "Approved by", ""],
+        ["Name / Date / Signature", "", "Name / Date / Signature", "", "Name / Date / Signature", ""],
+    ]
     xml_rows = []
     for row_index, row in enumerate(all_rows, start=1):
         cells = []
         for col_index, value in enumerate(row, start=1):
             ref = f"{_column_name(col_index)}{row_index}"
-            style_id = _style_id(row_index, col_index, styles, header_row_index)
+            style_id = _style_id(row_index, col_index, styles, header_row_index, headers, title)
             style = f' s="{style_id}"' if style_id else ""
             if isinstance(value, (int, float)):
                 cells.append(f'<c r="{ref}"{style}><v>{value}</v></c>')
             else:
                 text = html.escape(str(value or ""))
                 cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>')
-        xml_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
-    col_count = max(len(headers), 2)
+        header_height = is_timesheet or is_training_matrix
+        height_attr = ' ht="46" customHeight="1"' if header_height and row_index == header_row_index else ""
+        xml_rows.append(f'<row r="{row_index}"{height_attr}>{"".join(cells)}</row>')
+    col_count = max(len(headers), 6)
     last_row = max(len(all_rows), 1)
     dimension = f"A1:{_column_name(col_count)}{last_row}"
     header_filter_ref = f"A{header_row_index}:{_column_name(len(headers))}{last_row}"
-    merge_xml = ""
-    if include_company_description:
-        title_ref = f"B1:{_column_name(col_count)}1"
-        desc_en_ref = f"B2:{_column_name(col_count)}2"
-        desc_fr_ref = f"B3:{_column_name(col_count)}3"
-        merge_xml = (
-            '<mergeCells count="3">'
-            f'<mergeCell ref="{title_ref}"/>'
-            f'<mergeCell ref="{desc_en_ref}"/>'
-            f'<mergeCell ref="{desc_fr_ref}"/>'
-            "</mergeCells>"
-        )
+    footer_start = len(all_rows) - 1
+    merge_xml = (
+        '<mergeCells count="8">'
+        '<mergeCell ref="A1:B3"/>'
+        f'<mergeCell ref="C1:{_column_name(col_count)}1"/>'
+        f'<mergeCell ref="C2:{_column_name(col_count)}2"/>'
+        f'<mergeCell ref="C3:{_column_name(col_count)}3"/>'
+        f'<mergeCell ref="B5:{_column_name(col_count)}5"/>'
+        f'<mergeCell ref="A{footer_start}:B{footer_start}"/>'
+        f'<mergeCell ref="C{footer_start}:D{footer_start}"/>'
+        f'<mergeCell ref="E{footer_start}:{_column_name(col_count)}{footer_start}"/>'
+        "</mergeCells>"
+    )
+    cols_xml = _worksheet_cols_xml(headers, title)
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="{dimension}"/>
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="{header_row_index}" topLeftCell="A{header_row_index + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
-  <cols><col min="1" max="{col_count}" width="18" customWidth="1"/></cols>
+  {cols_xml}
   <sheetData>{"".join(xml_rows)}</sheetData>
   <autoFilter ref="{header_filter_ref}"/>
   {merge_xml}
 </worksheet>"""
+
+
+def _risk_register_worksheet_xml(
+    headers: list[str],
+    rows: list[list[Any]],
+    styles: list[list[str | None]] | None,
+    document_title: str,
+) -> str:
+    table_start = 10
+    pre_rows = rows[:4]
+    pre_styles = (styles or [])[:4]
+    data_rows = rows[4:]
+    data_styles = (styles or [])[4:]
+    col_count = max(len(headers), 21)
+    table_end = table_start + len(data_rows)
+    signature_start = table_end + 2
+    xml_rows = [
+        _xml_sparse_row(1, [(1, "OREZONE", 1), (3, document_title, 1)], height=34),
+        _xml_sparse_row(2, [(3, "ISO 31000 / ISO 45001 risk register | Hazard identification, controls and residual risk tracking", 6)]),
+        _xml_sparse_row(3, [(3, OREZONE_HEADER_NOTE, 11)]),
+        _xml_row(5, _styled_row_values(pre_rows[0] if len(pre_rows) > 0 else [], pre_styles[0] if len(pre_styles) > 0 else [])),
+        _xml_row(6, _styled_row_values(pre_rows[2] if len(pre_rows) > 2 else [], pre_styles[2] if len(pre_styles) > 2 else [])),
+        _xml_sparse_row(
+            8,
+            [(1, "Method: initial risk = probability x severity. Apply control hierarchy, then reassess residual risk before approval.", 6)],
+            height=28,
+        ),
+        _xml_row(table_start, [(header, 1) for header in headers], height=42),
+    ]
+    for offset, row in enumerate(data_rows, start=1):
+        style_row = data_styles[offset - 1] if offset - 1 < len(data_styles) else []
+        xml_rows.append(_xml_row(table_start + offset, _styled_row_values(row, style_row), height=36))
+    xml_rows.extend(_signature_rows(signature_start, col_count))
+
+    dimension = f"A1:{_column_name(col_count)}{signature_start + 1}"
+    cols_xml = _risk_register_cols_xml()
+    merge_xml = (
+        '<mergeCells count="12">'
+        '<mergeCell ref="A1:B3"/>'
+        f'<mergeCell ref="C1:{_column_name(col_count)}1"/>'
+        f'<mergeCell ref="C2:{_column_name(col_count)}2"/>'
+        f'<mergeCell ref="C3:{_column_name(col_count)}3"/>'
+        f'<mergeCell ref="G6:{_column_name(col_count)}6"/>'
+        f'<mergeCell ref="A8:{_column_name(col_count)}8"/>'
+        f'<mergeCell ref="A{signature_start}:C{signature_start}"/>'
+        f'<mergeCell ref="D{signature_start}:G{signature_start}"/>'
+        f'<mergeCell ref="H{signature_start}:K{signature_start}"/>'
+        f'<mergeCell ref="A{signature_start + 1}:C{signature_start + 1}"/>'
+        f'<mergeCell ref="D{signature_start + 1}:G{signature_start + 1}"/>'
+        f'<mergeCell ref="H{signature_start + 1}:K{signature_start + 1}"/>'
+        '</mergeCells>'
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="{dimension}"/>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="{table_start}" topLeftCell="A{table_start + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  {cols_xml}
+  <sheetData>{"".join(xml_rows)}</sheetData>
+  <autoFilter ref="A{table_start}:{_column_name(len(headers))}{max(table_end, table_start)}"/>
+  {merge_xml}
+  <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/>
+  <pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/>
+</worksheet>"""
+
+
+def _risk_register_cols_xml() -> str:
+    widths = [
+        (1, 1, 20),
+        (2, 2, 20),
+        (3, 3, 22),
+        (4, 4, 30),
+        (5, 6, 32),
+        (7, 7, 16),
+        (8, 8, 24),
+        (9, 12, 11),
+        (13, 13, 22),
+        (14, 14, 34),
+        (15, 18, 11),
+        (19, 19, 17),
+        (20, 21, 15),
+    ]
+    return "<cols>" + "".join(
+        f'<col min="{start}" max="{end}" width="{width}" customWidth="1"/>'
+        for start, end, width in widths
+    ) + "</cols>"
+
+
+def _styled_row_values(row: list[Any], style_row: list[str | None]) -> list[tuple[Any, int]]:
+    return [
+        (value, _style_key_to_id(style_row[index] if index < len(style_row) else None))
+        for index, value in enumerate(row)
+    ]
+
+
+def _style_key_to_id(style_key: str | None) -> int:
+    return {
+        "done": 2,
+        "soon": 3,
+        "missing": 4,
+        "expired": 4,
+        "danger": 4,
+        "annual": 5,
+        "section": 1,
+        "drilling": 7,
+        "standard": 8,
+        "rest": 9,
+        "break": 3,
+        "permission": 10,
+        "sick": 2,
+        "holiday": 2,
+        "unfilled": 11,
+    }.get(str(style_key or ""), 6)
+
+
+def _worksheet_cols_xml(headers: list[str], document_title: str) -> str:
+    col_count = max(len(headers), 6)
+    title = str(document_title or "").upper()
+    is_timesheet = "TIMESHEET" in title and len(headers) > 15
+    is_training_matrix = "TRAINING MATRIX" in title and len(headers) > 4
+    if is_training_matrix:
+        cols = [
+            '<col min="1" max="1" width="7" customWidth="1"/>',
+            '<col min="2" max="2" width="28" customWidth="1"/>',
+            '<col min="3" max="3" width="14" customWidth="1"/>',
+            '<col min="4" max="4" width="28" customWidth="1"/>',
+        ]
+        if col_count >= 5:
+            cols.append(f'<col min="5" max="{col_count}" width="12" customWidth="1"/>')
+        return f"<cols>{''.join(cols)}</cols>"
+    if not is_timesheet:
+        return f'<cols><col min="1" max="{col_count}" width="20" customWidth="1"/></cols>'
+    day_start, day_end = _timesheet_day_bounds(headers, title)
+    totals_start = day_end + 1
+    if headers[:4] == ["MLE", "NOM", "PRENOMS", "FONCTION"]:
+        cols = [
+            '<col min="1" max="1" width="12" customWidth="1"/>',
+            '<col min="2" max="3" width="22" customWidth="1"/>',
+            '<col min="4" max="4" width="30" customWidth="1"/>',
+        ]
+    else:
+        cols = [
+            '<col min="1" max="1" width="28" customWidth="1"/>',
+            '<col min="2" max="2" width="14" customWidth="1"/>',
+            '<col min="3" max="3" width="26" customWidth="1"/>',
+            '<col min="4" max="4" width="18" customWidth="1"/>',
+        ]
+    if day_end >= day_start:
+        cols.append(f'<col min="{day_start}" max="{day_end}" width="6.5" customWidth="1"/>')
+    if totals_start <= col_count:
+        cols.append(f'<col min="{totals_start}" max="{col_count}" width="9" customWidth="1"/>')
+    return f"<cols>{''.join(cols)}</cols>"
+
+
+def _timesheet_day_bounds(headers: list[str], document_title: str) -> tuple[int, int]:
+    title = str(document_title or "").upper()
+    if "TIMESHEET" not in title or len(headers) <= 15:
+        return 1, 0
+    day_start = 5
+    total_labels = {
+        "TOTAL",
+        "12H",
+        "8H",
+        "R",
+        "A",
+        "B",
+        "P",
+        "S",
+        "H",
+        "Jours travailles",
+        "Repos",
+        "Break normal",
+        "Break annuel",
+        "Heures",
+    }
+    day_end = day_start - 1
+    for index, header in enumerate(headers[day_start - 1 :], start=day_start):
+        if str(header) in total_labels:
+            break
+        day_end = index
+    return day_start, day_end
+
+
+def _training_matrix_bounds(headers: list[str], document_title: str) -> tuple[int, int]:
+    title = str(document_title or "").upper()
+    if "TRAINING MATRIX" not in title or len(headers) <= 4:
+        return 1, 0
+    return 5, len(headers)
 
 
 def _toolbox_talk_worksheet_xml(
@@ -322,18 +500,16 @@ def _toolbox_talk_worksheet_xml(
     summary: dict[str, Any],
     generated_at: str,
 ) -> str:
-    table_start = 11
+    table_start = 7
     col_count = len(headers)
     table_end = table_start + len(rows)
+    signature_start = table_end + 2
     xml_rows = [
         _xml_sparse_row(1, [(1, "OREZONE", 16), (3, "OREZONE QHSE - TOOLBOX TALK MONTHLY MEETING", 1)], height=34),
         _xml_sparse_row(2, [(3, f"Monthly meeting | Planning mensuel bilingue: {month_label} ({month_value})", 2)]),
         _xml_sparse_row(3, [(3, f"Generated: {generated_at} | Controlled QHSE document | English / French topics", 3)]),
-        _xml_sparse_row(5, [(1, "OREZONE DESCRIPTION", 4), (3, COMPANY_DESCRIPTION_EN, 2)]),
-        _xml_sparse_row(6, [(1, "Description OREZONE", 4), (3, COMPANY_DESCRIPTION_FR, 2)]),
-        _xml_sparse_row(7, [(1, "OBJECTIVE", 5), (3, "Confirm the daily topic, collect signatures and track missing Toolbox Talk days.", 2)]),
         _xml_row(
-            9,
+            5,
             [
                 (f"Days: {summary.get('days', 0)}", 4),
                 (f"Completed: {summary.get('completed', 0)}", 5),
@@ -359,8 +535,10 @@ def _toolbox_talk_worksheet_xml(
                 ],
             )
         )
+    xml_rows.extend(_signature_rows(signature_start, col_count))
 
-    dimension = f"A1:{_column_name(col_count)}{max(table_end, table_start)}"
+    last_row = signature_start + 1
+    dimension = f"A1:{_column_name(col_count)}{max(last_row, table_start)}"
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="{dimension}"/>
@@ -380,12 +558,12 @@ def _toolbox_talk_worksheet_xml(
     <mergeCell ref="C1:{_column_name(col_count)}1"/>
     <mergeCell ref="C2:{_column_name(col_count)}2"/>
     <mergeCell ref="C3:{_column_name(col_count)}3"/>
-    <mergeCell ref="A5:B5"/>
-    <mergeCell ref="C5:{_column_name(col_count)}5"/>
-    <mergeCell ref="A6:B6"/>
-    <mergeCell ref="C6:{_column_name(col_count)}6"/>
-    <mergeCell ref="A7:B7"/>
-    <mergeCell ref="C7:{_column_name(col_count)}7"/>
+    <mergeCell ref="A{signature_start}:B{signature_start}"/>
+    <mergeCell ref="C{signature_start}:D{signature_start}"/>
+    <mergeCell ref="E{signature_start}:F{signature_start}"/>
+    <mergeCell ref="A{signature_start + 1}:B{signature_start + 1}"/>
+    <mergeCell ref="C{signature_start + 1}:D{signature_start + 1}"/>
+    <mergeCell ref="E{signature_start + 1}:F{signature_start + 1}"/>
   </mergeCells>
   <pageMargins left="0.35" right="0.35" top="0.55" bottom="0.55" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/>
@@ -397,12 +575,21 @@ def _style_id(
     col_index: int,
     styles: list[list[str | None]] | None,
     header_row_index: int = 1,
+    headers: list[str] | None = None,
+    document_title: str | None = None,
 ) -> int:
     if row_index == 1 and header_row_index > 1:
-        return 1 if col_index == 1 else 11
+        return 1 if col_index in (1, 3) else 11
     if row_index in (2, 3) and header_row_index > 1:
         return 11 if col_index == 1 else 6
     if row_index == header_row_index:
+        if headers is not None and document_title is not None:
+            day_start, day_end = _timesheet_day_bounds(headers, document_title)
+            if day_start <= col_index <= day_end:
+                return 12
+            training_start, training_end = _training_matrix_bounds(headers, document_title)
+            if training_start <= col_index <= training_end:
+                return 12
         return 1
     if not styles:
         return 6
@@ -441,17 +628,16 @@ def _daily_lineup_worksheet_xml(
     generated_at: str,
     summary: dict[str, int],
 ) -> str:
-    table_start = 11
+    table_start = 9
     table_end = table_start + len(rows)
     col_count = len(headers)
+    signature_start = table_end + 2
     xml_rows = [
         _xml_sparse_row(1, [(1, "OREZONE", 16), (3, "LIST OF OREZONE EMPLOYEE", 1)], height=34),
         _xml_sparse_row(2, [(3, "Employee master list, operational status, shift allocation and break planning.", 2)]),
-        _xml_sparse_row(3, [(3, f"Generated: {generated_at}", 3)]),
-        _xml_sparse_row(4, [(1, "OREZONE DESCRIPTION", 4), (3, COMPANY_DESCRIPTION_EN, 2)]),
-        _xml_sparse_row(5, [(1, "Description OREZONE", 4), (3, COMPANY_DESCRIPTION_FR, 2)]),
+        _xml_sparse_row(3, [(3, f"Generated: {generated_at} | Controlled QHSE document | Document QHSE controle", 3)]),
         _xml_row(
-            8,
+            6,
             [
                 (f"Total: {summary.get('total', 0)}", 4),
                 (f"Day: {summary.get('day', 0)}", 5),
@@ -471,14 +657,14 @@ def _daily_lineup_worksheet_xml(
             cell_style = _lineup_status_style(value, col_index, style)
             cells.append((value, cell_style))
         xml_rows.append(_xml_row(row_index, cells))
+    xml_rows.extend(_signature_rows(signature_start, col_count))
 
-    dimension = f"A1:{_column_name(col_count)}{max(table_end, table_start)}"
+    last_row = signature_start + 1
+    dimension = f"A1:{_column_name(col_count)}{max(last_row, table_start)}"
     logo_ref = "A1:B3"
     title_ref = f"C1:{_column_name(col_count)}1"
     description_ref = f"C2:{_column_name(col_count)}2"
     generated_ref = f"C3:{_column_name(col_count)}3"
-    company_en_ref = f"C4:{_column_name(col_count)}4"
-    company_fr_ref = f"C5:{_column_name(col_count)}5"
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="{dimension}"/>
@@ -497,7 +683,7 @@ def _daily_lineup_worksheet_xml(
   </cols>
   <sheetData>{"".join(xml_rows)}</sheetData>
   <autoFilter ref="A{table_start}:{_column_name(col_count)}{max(table_end, table_start)}"/>
-  <mergeCells count="8"><mergeCell ref="{logo_ref}"/><mergeCell ref="{title_ref}"/><mergeCell ref="{description_ref}"/><mergeCell ref="{generated_ref}"/><mergeCell ref="A4:B4"/><mergeCell ref="{company_en_ref}"/><mergeCell ref="A5:B5"/><mergeCell ref="{company_fr_ref}"/></mergeCells>
+  <mergeCells count="10"><mergeCell ref="{logo_ref}"/><mergeCell ref="{title_ref}"/><mergeCell ref="{description_ref}"/><mergeCell ref="{generated_ref}"/><mergeCell ref="A{signature_start}:C{signature_start}"/><mergeCell ref="D{signature_start}:G{signature_start}"/><mergeCell ref="H{signature_start}:K{signature_start}"/><mergeCell ref="A{signature_start + 1}:C{signature_start + 1}"/><mergeCell ref="D{signature_start + 1}:G{signature_start + 1}"/><mergeCell ref="H{signature_start + 1}:K{signature_start + 1}"/></mergeCells>
   <pageMargins left="0.35" right="0.35" top="0.55" bottom="0.55" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/>
 </worksheet>"""
@@ -510,15 +696,17 @@ def _attendance_worksheet_xml(
     generated_at: str,
     summary: dict[str, int | float],
 ) -> str:
-    table_start = 11
+    table_start = 12
     table_end = table_start + len(rows)
     col_count = len(headers)
+    signature_start = table_end + 2
+    full_date = _complete_date_label(date_presence)
     xml_rows = [
         _xml_sparse_row(1, [(1, "OREZONE", 16), (3, "LISTE DE PRESENCE OREZONE", 1)], height=34),
-        _xml_sparse_row(2, [(3, f"Date de presence: {date_presence}", 2)]),
-        _xml_sparse_row(3, [(3, f"Generated: {generated_at}", 3)]),
-        _xml_sparse_row(4, [(1, "OREZONE DESCRIPTION", 4), (3, COMPANY_DESCRIPTION_EN, 2)]),
-        _xml_sparse_row(5, [(1, "Description OREZONE", 4), (3, COMPANY_DESCRIPTION_FR, 2)]),
+        _xml_sparse_row(2, [(3, "Daily field meeting attendance | Presence journaliere terrain | Controlled QHSE document", 2)]),
+        _xml_sparse_row(3, [(3, f"Generated: {generated_at} | Orezone operational supervision and QHSE compliance", 3)]),
+        _xml_sparse_row(5, [(1, "Complete date / Date complete", 4), (4, full_date, 6), (7, "Meeting facilitator / Animateur", 4), (9, "", 6)], height=24),
+        _xml_sparse_row(6, [(1, "Daily meeting topic / Topic du meeting journalier", 4), (4, "", 6)], height=28),
         _xml_row(
             8,
             [
@@ -533,14 +721,19 @@ def _attendance_worksheet_xml(
     ]
     for offset, row in enumerate(rows, start=1):
         row_index = table_start + offset
+        if _attendance_is_section_row(row):
+            xml_rows.append(_xml_sparse_row(row_index, [(1, row[0], 17)], height=24))
+            continue
         default_style = 10 if offset % 2 else 11
         cells = []
         for col_index, value in enumerate(row, start=1):
             cell_style = _attendance_status_style(value, col_index, default_style)
             cells.append((value, cell_style))
         xml_rows.append(_xml_row(row_index, cells))
+    xml_rows.extend(_signature_rows(signature_start, col_count))
 
-    dimension = f"A1:{_column_name(col_count)}{max(table_end, table_start)}"
+    last_row = signature_start + 1
+    dimension = f"A1:{_column_name(col_count)}{max(last_row, table_start)}"
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="{dimension}"/>
@@ -558,10 +751,83 @@ def _attendance_worksheet_xml(
   </cols>
   <sheetData>{"".join(xml_rows)}</sheetData>
   <autoFilter ref="A{table_start}:{_column_name(col_count)}{max(table_end, table_start)}"/>
-  <mergeCells count="8"><mergeCell ref="A1:B3"/><mergeCell ref="C1:K1"/><mergeCell ref="C2:K2"/><mergeCell ref="C3:K3"/><mergeCell ref="A4:B4"/><mergeCell ref="C4:K4"/><mergeCell ref="A5:B5"/><mergeCell ref="C5:K5"/></mergeCells>
+  {_attendance_merge_cells_xml(rows, signature_start, col_count)}
   <pageMargins left="0.35" right="0.35" top="0.55" bottom="0.55" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/>
 </worksheet>"""
+
+
+def _attendance_grouped_rows(rows: list[dict[str, Any]]) -> list[list[Any]]:
+    groups = [
+        ("EXPATRIATE EMPLOYEES", [row for row in rows if str(row.get("type_employe") or "").lower() == "expatriate"]),
+        ("NATIONAL EMPLOYEES", [row for row in rows if str(row.get("type_employe") or "national").lower() != "expatriate"]),
+    ]
+    data_rows: list[list[Any]] = []
+    index = 1
+    for label, group_rows in groups:
+        data_rows.append([label, *["" for _ in range(10)]])
+        if not group_rows:
+            data_rows.append(["No employee in this section", *["" for _ in range(10)]])
+            continue
+        for row in group_rows:
+            data_rows.append(
+                [
+                    index,
+                    row.get("nom") or row.get("nom_complet") or "",
+                    row.get("prenom") or "",
+                    row.get("numero_badge") or "",
+                    row.get("fonction") or "",
+                    row.get("shift") or "",
+                    row.get("statut") or "",
+                    row.get("heure_entree") or "",
+                    row.get("heure_sortie") or "",
+                    row.get("heures") or 0,
+                    row.get("controle") or "",
+                ]
+            )
+            index += 1
+    return data_rows
+
+
+def _attendance_is_section_row(row: list[Any]) -> bool:
+    first = str(row[0] if row else "").strip().upper()
+    return first in {"EXPATRIATE EMPLOYEES", "NATIONAL EMPLOYEES"}
+
+
+def _attendance_merge_cells_xml(rows: list[list[Any]], signature_start: int, col_count: int) -> str:
+    table_start = 12
+    merges = [
+        "A1:B3",
+        "C1:K1",
+        "C2:K2",
+        "C3:K3",
+        "A5:C5",
+        "D5:F5",
+        "G5:H5",
+        "I5:K5",
+        "A6:C6",
+        "D6:K6",
+        f"A{signature_start}:C{signature_start}",
+        f"D{signature_start}:G{signature_start}",
+        f"H{signature_start}:K{signature_start}",
+        f"A{signature_start + 1}:C{signature_start + 1}",
+        f"D{signature_start + 1}:G{signature_start + 1}",
+        f"H{signature_start + 1}:K{signature_start + 1}",
+    ]
+    for offset, row in enumerate(rows, start=1):
+        if _attendance_is_section_row(row):
+            row_index = table_start + offset
+            merges.append(f"A{row_index}:{_column_name(col_count)}{row_index}")
+    merge_xml = "".join(f'<mergeCell ref="{ref}"/>' for ref in merges)
+    return f'<mergeCells count="{len(merges)}">{merge_xml}</mergeCells>'
+
+
+def _complete_date_label(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(str(value or ""))
+    except ValueError:
+        return str(value or "")
+    return parsed.strftime("%A, %d %B %Y")
 
 
 def _xml_row(
@@ -583,6 +849,26 @@ def _xml_row(
             text = html.escape(str(value or ""))
             cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>')
     return f'<row r="{row_index}"{height_attr}>{"".join(cells)}</row>'
+
+
+def _signature_rows(row_index: int, col_count: int) -> list[str]:
+    if col_count >= 11:
+        return [
+            _xml_sparse_row(row_index, [(1, "Prepared by", 9), (4, "Checked by", 9), (8, "Approved by", 9)]),
+            _xml_sparse_row(
+                row_index + 1,
+                [(1, "Name / Date / Signature", 10), (4, "Name / Date / Signature", 10), (8, "Name / Date / Signature", 10)],
+                height=28,
+            ),
+        ]
+    return [
+        _xml_sparse_row(row_index, [(1, "Prepared by", 9), (3, "Checked by", 9), (5, "Approved by", 9)]),
+        _xml_sparse_row(
+            row_index + 1,
+            [(1, "Name / Date / Signature", 10), (3, "Name / Date / Signature", 10), (5, "Name / Date / Signature", 10)],
+            height=28,
+        ),
+    ]
 
 
 def _xml_sparse_row(

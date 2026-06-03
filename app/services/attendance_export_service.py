@@ -62,34 +62,21 @@ def export_attendance_xlsx(date_presence: str) -> Path:
         "Heure sortie",
         "Heures travaillees",
     ]
-    data = [
-        [
-            date_presence,
-            row.get("nom") or "",
-            row.get("prenom") or "",
-            row.get("numero_badge") or "",
-            row.get("fonction") or "",
-            "Present" if row.get("statut_presence") == "present" else "Absent",
-            row.get("heure_entree") or "",
-            row.get("heure_sortie") or "",
-            row.get("heures_travaillees") or 0,
-        ]
-        for row in rows
-    ]
     return export_attendance_records_xlsx(date_presence, [
         {
-            "nom": row[1],
-            "prenom": row[2],
-            "numero_badge": row[3],
-            "fonction": row[4],
-            "shift": "",
-            "statut": row[5],
-            "heure_entree": row[6],
-            "heure_sortie": row[7],
-            "heures": row[8],
+            "nom": row.get("nom") or "",
+            "prenom": row.get("prenom") or "",
+            "numero_badge": row.get("numero_badge") or "",
+            "fonction": row.get("fonction") or "",
+            "type_employe": row.get("type_employe") or "national",
+            "shift": row.get("shift") or "",
+            "statut": "Present" if row.get("statut_presence") == "present" else "Absent",
+            "heure_entree": row.get("heure_entree") or "",
+            "heure_sortie": row.get("heure_sortie") or "",
+            "heures": row.get("heures_travaillees") or 0,
             "controle": "",
         }
-        for row in data
+        for row in rows
     ])
 
 
@@ -120,32 +107,39 @@ def export_attendance_pdf(date_presence: str) -> Path:
     rows = get_attendance_list(date_presence)
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = _unique_export_path(f"liste_presence_{date_presence}.pdf")
-
-    lines = [
-        "OREZONE QHSE",
-        f"Liste de presence - {date_presence}",
-        "",
-        "Nom | Badge | Fonction | Statut | Entree | Sortie | Heures",
-        "-" * 92,
+    records = [
+        {
+            "nom": row.get("nom") or "",
+            "prenom": row.get("prenom") or "",
+            "nom_complet": row.get("nom_complet") or "",
+            "numero_badge": row.get("numero_badge") or "",
+            "fonction": row.get("fonction") or "",
+            "type_employe": row.get("type_employe") or "national",
+            "shift": row.get("shift") or "",
+            "statut": "Present" if row.get("statut_presence") == "present" else "Absent",
+            "heure_entree": row.get("heure_entree") or "",
+            "heure_sortie": row.get("heure_sortie") or "",
+            "heures": row.get("heures_travaillees") or 0,
+            "controle": "",
+        }
+        for row in rows
     ]
-    for row in rows:
-        name = f"{row.get('nom') or ''} {row.get('prenom') or ''}".strip() or str(row.get("nom_complet") or "-")
-        status = "Present" if row.get("statut_presence") == "present" else "Absent"
-        lines.append(
-            " | ".join(
-                [
-                    _clip(name, 24),
-                    _clip(row.get("numero_badge") or "-", 12),
-                    _clip(row.get("fonction") or "-", 18),
-                    status,
-                    row.get("heure_entree") or "-",
-                    row.get("heure_sortie") or "-",
-                    str(row.get("heures_travaillees") or 0),
-                ]
-            )
-        )
-    _write_simple_pdf(output_path, lines)
-    return output_path
+    summary = {
+        "total": len(records),
+        "present": sum(1 for row in records if str(row.get("statut") or "").lower() == "present"),
+        "absent": sum(1 for row in records if str(row.get("statut") or "").lower() == "absent"),
+        "hours": round(sum(float(row.get("heures") or 0) for row in records), 2),
+        "day": sum(1 for row in records if "day" in str(row.get("shift") or "").lower()),
+        "night": sum(1 for row in records if "night" in str(row.get("shift") or "").lower()),
+        "missing_badge": sum(1 for row in records if not row.get("numero_badge")),
+    }
+    try:
+        _write_attendance_pdf(output_path, date_presence, records, summary)
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path(f"liste_presence_{date_presence}_nouveau.pdf")
+        _write_attendance_pdf(fallback, date_presence, records, summary)
+        return fallback
 
 
 def export_employees_xlsx() -> Path:
@@ -170,6 +164,30 @@ def export_employees_xlsx() -> Path:
 def export_daily_lineup_xlsx(records: list[dict[str, Any]]) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = _unique_export_path("list_of_orezone_employee.xlsx")
+    rows, summary = _daily_lineup_export_payload(records)
+    try:
+        write_daily_lineup_workbook(output_path, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path("list_of_orezone_employee_nouveau.xlsx")
+        write_daily_lineup_workbook(fallback, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
+        return fallback
+
+
+def export_daily_lineup_pdf(records: list[dict[str, Any]]) -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_export_path("list_of_orezone_employee.pdf")
+    rows, summary = _daily_lineup_export_payload(records)
+    try:
+        _write_employee_list_pdf(output_path, rows, summary)
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path("list_of_orezone_employee_nouveau.pdf")
+        _write_employee_list_pdf(fallback, rows, summary)
+        return fallback
+
+
+def _daily_lineup_export_payload(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows = [
         {
             "matricule": row.get("matricule") or "",
@@ -198,13 +216,7 @@ def export_daily_lineup_xlsx(records: list[dict[str, Any]]) -> Path:
             and not row.get("next_planned_break_start")
         ),
     }
-    try:
-        write_daily_lineup_workbook(output_path, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
-        return output_path
-    except PermissionError:
-        fallback = _unique_export_path("list_of_orezone_employee_nouveau.xlsx")
-        write_daily_lineup_workbook(fallback, rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
-        return fallback
+    return rows, summary
 
 
 def export_training_matrix_xls(
@@ -392,7 +404,7 @@ def export_monthly_10h_timesheet_xlsx(month: str, site_id: int | None = None) ->
         styles.append([None for _ in headers])
     return export_styled_rows_xlsx(
         f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}.xlsx",
-        "TimeSheet 1-25",
+        "MONTHLY TIMESHEET 1-25",
         headers,
         rows,
         styles,
@@ -466,20 +478,94 @@ def _split_bilingual_toolbox_topic(value: str) -> tuple[str, str]:
     text = str(value or "").strip()
     if not text:
         return "", ""
+    labeled = _split_labeled_toolbox_topic(text)
+    if labeled is not None:
+        return labeled
     for separator in (" / ", " | ", " - FR: "):
         if separator in text:
             left, right = text.split(separator, 1)
-            return _clean_topic_label(left), _clean_topic_label(right)
-    if text.lower().startswith("en:") and "fr:" in text.lower():
-        _, rest = text.split(":", 1)
-        marker = rest.lower().find("fr:")
-        return _clean_topic_label(rest[:marker]), _clean_topic_label(rest[marker + 3 :])
+            return _ordered_bilingual_topic(left, right)
     return text, text
+
+
+def _split_labeled_toolbox_topic(value: str) -> tuple[str, str] | None:
+    text = str(value or "").strip()
+    lowered = text.lower()
+    markers = {
+        "en:": "en",
+        "english:": "en",
+        "fr:": "fr",
+        "french:": "fr",
+        "francais:": "fr",
+        "fran\u00e7ais:": "fr",
+    }
+    positions: list[tuple[int, str, str]] = []
+    for marker, language in markers.items():
+        position = lowered.find(marker)
+        if position >= 0:
+            positions.append((position, marker, language))
+    if len(positions) < 2:
+        return None
+    positions.sort(key=lambda item: item[0])
+    values: dict[str, str] = {}
+    for index, (position, marker, language) in enumerate(positions):
+        start = position + len(marker)
+        end = positions[index + 1][0] if index + 1 < len(positions) else len(text)
+        values[language] = _clean_topic_label(text[start:end])
+    if values.get("en") or values.get("fr"):
+        return values.get("en", ""), values.get("fr", "")
+    return None
+
+
+def _ordered_bilingual_topic(left: str, right: str) -> tuple[str, str]:
+    left_clean = _clean_topic_label(left)
+    right_clean = _clean_topic_label(right)
+    left_language = _detect_topic_language(left_clean)
+    right_language = _detect_topic_language(right_clean)
+    if left_language == "fr" and right_language != "fr":
+        return right_clean, left_clean
+    if right_language == "en" and left_language != "en":
+        return right_clean, left_clean
+    return left_clean, right_clean
+
+
+def _detect_topic_language(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return "unknown"
+    french_words = {
+        "accidents", "alerte", "analyse", "avant", "balisage", "chaleur",
+        "circulation", "controle", "de", "des", "du", "echelles", "engins",
+        "epi", "et", "forage", "gestion", "hauteur", "hydratation",
+        "incendie", "interdiction", "la", "le", "les", "manutention",
+        "obligatoire", "pietons", "port", "prevention", "procedure",
+        "produits", "protections", "risques", "securite", "travail",
+        "travaux", "utilisation", "vehicules", "verification",
+    }
+    english_words = {
+        "and", "before", "blind", "chemical", "communication", "control",
+        "defensive", "driving", "emergency", "equipment", "fall", "fire",
+        "for", "hazards", "height", "inspection", "job", "lifting",
+        "management", "mandatory", "mobile", "near", "ppe", "prevention",
+        "procedure", "protection", "reporting", "response", "risk",
+        "safety", "site", "traffic", "use", "work", "working",
+    }
+    normalized = "".join(char if char.isalnum() else " " for char in text)
+    tokens = normalized.split()
+    french_score = sum(1 for token in tokens if token in french_words)
+    english_score = sum(1 for token in tokens if token in english_words)
+    if any(char in text for char in "\u00e0\u00e2\u00e7\u00e9\u00e8\u00ea\u00eb\u00ee\u00ef\u00f4\u00f9\u00fb\u00fc"):
+        french_score += 2
+    if french_score > english_score:
+        return "fr"
+    if english_score > french_score:
+        return "en"
+    return "unknown"
 
 
 def _clean_topic_label(value: str) -> str:
     text = str(value or "").strip()
-    for prefix in ("EN:", "FR:", "English:", "French:", "Francais:", "Français:"):
+    for prefix in ("EN:", "FR:", "English:", "French:", "Francais:", "Fran\u00e7ais:"):
         if text.lower().startswith(prefix.lower()):
             return text[len(prefix) :].strip()
     return text
@@ -555,11 +641,17 @@ def _monthly_10h_cell_style(cell: dict[str, Any]) -> str | None:
     if status == "worked":
         return "done"
     if status == "rest":
-        return "soon"
+        return "rest"
+    if status == "holiday":
+        return "holiday"
     if status == "normal_break":
         return "missing"
     if status == "annual_break":
         return "annual"
+    if status == "absent":
+        return "danger"
+    if status == "unfilled":
+        return "unfilled"
     return None
 
 
@@ -1012,7 +1104,7 @@ def _write_timesheet_xlsx(path: Path, timesheet: dict[str, Any]) -> None:
             ["section", None, "section", None, "section", None],
         ]
     )
-    title = "TimeSheet"
+    title = "MONTHLY TIMESHEET"
     if timesheet.get("site"):
         title += f" {timesheet['site'].get('nom') or ''}"
     sheet_name = f"{title} {period['month']}"[:31]
@@ -1090,7 +1182,7 @@ def _write_timesheet_xls(path: Path, timesheet: dict[str, Any]) -> None:
 
     col_count = len(headers)
     day_count = len(days)
-    title = "OREZONE TIMESHEET"
+    title = "OREZONE MONTHLY TIMESHEET"
     if timesheet.get("site"):
         title += f" - {timesheet['site'].get('nom') or ''}"
     content = f"""<!DOCTYPE html>
@@ -1109,11 +1201,11 @@ th {{ background: #e5e7eb; color: #111827; font-weight: bold; text-align: center
 .metric-ok {{ background: #dcfce7; font-weight: bold; text-align: center; }}
 .metric-warn {{ background: #fef3c7; font-weight: bold; text-align: center; }}
 .employee-id {{ width: 62px; font-weight: bold; text-align: center; }}
-.employee-name {{ width: 110px; font-weight: bold; }}
-.function {{ width: 155px; font-weight: bold; }}
+.employee-name {{ width: 145px; font-weight: bold; white-space: normal; mso-wrap-style: square; }}
+.function {{ width: 180px; font-weight: bold; white-space: normal; mso-wrap-style: square; }}
 .weekday {{ background: #f8fafc; color: #475569; text-align: center; font-size: 7pt; }}
 .sunday {{ background: #d1d5db; color: #111827; font-weight: bold; }}
-.day-cell {{ text-align: center; font-weight: bold; width: 26px; min-width: 26px; max-width: 26px; }}
+.day-cell {{ text-align: center; vertical-align: middle; font-weight: bold; width: 32px; min-width: 32px; max-width: 32px; }}
 .week-start {{ border-left: 2px solid #111827; }}
 .worked-drilling {{ background: #00a6d6; color: #111827; }}
 .worked-standard {{ background: #ffffff; color: #111827; }}
@@ -1802,6 +1894,12 @@ def _write_training_matrix_xlsx(
     headers = ["N", "Employee", "Badge", "Function", *[str(item.get("nom") or "") for item in training_types]]
     data_rows: list[list[Any]] = []
     styles: list[list[str | None]] = []
+    total_cells = len(rows) * len(training_types)
+    done = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "done")
+    soon = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "soon")
+    expired = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "expired")
+    missing = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "missing")
+    compliance = round((done / total_cells) * 100) if total_cells else 0
     for index, row in enumerate(rows, start=1):
         employee = row["employee"]
         cells = row.get("cells", [])
@@ -1825,6 +1923,21 @@ def _write_training_matrix_xlsx(
         )
     data_rows.append([])
     styles.append([])
+    data_rows.append(
+        [
+            "Summary",
+            f"Employees: {len(rows)}",
+            f"Training types: {len(training_types)}",
+            f"Compliance: {compliance}%",
+            f"Valid: {done}",
+            f"Soon: {soon}",
+            f"Expired: {expired}",
+            f"Missing: {missing}",
+        ]
+    )
+    styles.append(["section", "done", "section", "section", "done", "soon", "danger", "danger"])
+    data_rows.append([])
+    styles.append([])
     data_rows.append(["Legend", "Green = compliant", "Yellow = renewal soon", "Red = missing or expired"])
     styles.append(["section", "done", "soon", "danger"])
     write_styled_xlsx(
@@ -1834,7 +1947,7 @@ def _write_training_matrix_xlsx(
         data_rows,
         styles,
         include_company_description=True,
-        document_title="OREZONE QHSE - Training Matrix",
+        document_title="OREZONE QHSE - TRAINING MATRIX",
     )
 
 
@@ -1967,6 +2080,530 @@ def _lineup_observation(record: dict[str, Any]) -> str:
 def _clip(value: Any, length: int) -> str:
     text = str(value)
     return text if len(text) <= length else text[: length - 1] + "."
+
+
+def _write_attendance_pdf(
+    path: Path,
+    date_presence: str,
+    rows: list[dict[str, Any]],
+    summary: dict[str, int | float],
+) -> None:
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        lines = [
+            "OREZONE QHSE",
+            "OREZONE DAILY ATTENDANCE LIST",
+            f"Complete date: {_pdf_date_label(date_presence)}",
+            "Daily meeting topic: ____________________",
+            "Meeting facilitator: ____________________",
+            "",
+            "Section | Name | Badge | Function | Shift | Entry | Exit | Hours | Signature",
+        ]
+        for section, group_rows in _attendance_pdf_groups(rows):
+            lines.append(section)
+            for row in group_rows:
+                name = f"{row.get('nom') or ''} {row.get('prenom') or ''}".strip() or str(row.get("nom_complet") or "-")
+                lines.append(
+                    " | ".join(
+                        [
+                            section,
+                            _clip(name, 22),
+                            _clip(row.get("numero_badge") or "-", 10),
+                            _clip(row.get("fonction") or "-", 18),
+                            _clip(row.get("shift") or "-", 10),
+                            row.get("heure_entree") or "-",
+                            row.get("heure_sortie") or "-",
+                            str(row.get("heures") or 0),
+                            "__________",
+                        ]
+                    )
+                )
+        lines.extend(["", "Prepared by: ______ Checked by: ______ Approved by: ______"])
+        _write_minimal_pdf(path, lines)
+        return
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "AttendanceTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        leading=20,
+        textColor=colors.white,
+        alignment=TA_CENTER,
+    )
+    subtitle_style = ParagraphStyle(
+        "AttendanceSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.4,
+        leading=10.5,
+        textColor=colors.HexColor("#475569"),
+        alignment=TA_CENTER,
+    )
+    small_style = ParagraphStyle(
+        "AttendanceSmall",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8.3,
+        alignment=TA_LEFT,
+    )
+    header_style = ParagraphStyle(
+        "AttendanceHeaderCell",
+        parent=small_style,
+        fontName="Helvetica-Bold",
+        textColor=colors.white,
+        alignment=TA_CENTER,
+    )
+    section_style = ParagraphStyle(
+        "AttendanceSection",
+        parent=small_style,
+        fontName="Helvetica-Bold",
+        fontSize=8,
+        textColor=colors.white,
+        alignment=TA_LEFT,
+    )
+
+    document = SimpleDocTemplate(
+        str(path),
+        pagesize=landscape(A4),
+        leftMargin=9 * mm,
+        rightMargin=9 * mm,
+        topMargin=9 * mm,
+        bottomMargin=10 * mm,
+    )
+    story: list[Any] = []
+    header = Table(
+        [
+            [Paragraph("OREZONE", title_style), Paragraph("OREZONE DAILY ATTENDANCE LIST", title_style)],
+            ["", Paragraph("Daily field meeting attendance | Controlled QHSE document", subtitle_style)],
+            ["", Paragraph(f"Generated: {generated_at} | Orezone operational supervision and QHSE compliance", subtitle_style)],
+        ],
+        colWidths=[38 * mm, 239 * mm],
+    )
+    header.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+                ("BACKGROUND", (0, 1), (0, 2), colors.HexColor("#1E3A8A")),
+                ("SPAN", (0, 0), (0, 2)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (1, 1), (1, 2), colors.HexColor("#EFF6FF")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1E3A8A")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#BFDBFE")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.extend([header, Spacer(1, 4 * mm)])
+
+    meeting = Table(
+        [
+            ["Complete date", _pdf_date_label(date_presence), "Meeting facilitator", ""],
+            ["Daily meeting topic", "", "", ""],
+        ],
+        colWidths=[54 * mm, 74 * mm, 54 * mm, 95 * mm],
+        rowHeights=[9 * mm, 13 * mm],
+    )
+    meeting.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 1), colors.HexColor("#EFF6FF")),
+                ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#EFF6FF")),
+                ("SPAN", (1, 1), (3, 1)),
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTNAME", (0, 0), (0, 1), "Helvetica-Bold"),
+                ("FONTNAME", (2, 0), (2, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.extend([meeting, Spacer(1, 4 * mm)])
+
+    metrics = Table(
+        [
+            [
+                Paragraph(f"<b>Total</b><br/>{summary.get('total', 0)}", subtitle_style),
+                Paragraph(f"<b>Presents</b><br/>{summary.get('present', 0)}", subtitle_style),
+                Paragraph(f"<b>Absents</b><br/>{summary.get('absent', 0)}", subtitle_style),
+                Paragraph(f"<b>Hours</b><br/>{summary.get('hours', 0)}", subtitle_style),
+                Paragraph(f"<b>Missing badges</b><br/>{summary.get('missing_badge', 0)}", subtitle_style),
+            ]
+        ],
+        colWidths=[55.4 * mm] * 5,
+    )
+    metrics.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#DBEAFE")),
+                ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#DCFCE7")),
+                ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FEE2E2")),
+                ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#EFF6FF")),
+                ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#FEF3C7")),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CBD5E1")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.extend([metrics, Spacer(1, 4 * mm)])
+
+    table_data: list[list[Any]] = [
+        [Paragraph(label, header_style) for label in ["N", "Name", "First name", "Badge", "Function", "Shift", "Entry", "Exit", "Hours", "Signature"]]
+    ]
+    index = 1
+    section_row_indexes: list[int] = []
+    for section, group_rows in _attendance_pdf_groups(rows):
+        section_row_indexes.append(len(table_data))
+        table_data.append([Paragraph(section, section_style), "", "", "", "", "", "", "", "", ""])
+        if not group_rows:
+            table_data.append(["", Paragraph("No employee in this section", small_style), "", "", "", "", "", "", "", ""])
+            continue
+        for row in group_rows:
+            table_data.append(
+                [
+                    index,
+                    Paragraph(_clip(row.get("nom") or row.get("nom_complet") or "-", 22), small_style),
+                    Paragraph(_clip(row.get("prenom") or "-", 18), small_style),
+                    _clip(row.get("numero_badge") or "-", 11),
+                    Paragraph(_clip(row.get("fonction") or "-", 28), small_style),
+                    _clip(row.get("shift") or "-", 11),
+                    row.get("heure_entree") or "-",
+                    row.get("heure_sortie") or "-",
+                    row.get("heures") or 0,
+                    "",
+                ]
+            )
+            index += 1
+
+    attendance_table = Table(
+        table_data,
+        colWidths=[8 * mm, 34 * mm, 30 * mm, 20 * mm, 52 * mm, 24 * mm, 20 * mm, 20 * mm, 18 * mm, 48 * mm],
+        repeatRows=1,
+    )
+    table_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (3, 1), (3, -1), "CENTER"),
+            ("ALIGN", (5, 1), (8, -1), "CENTER"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+    )
+    for row_index in section_row_indexes:
+        table_style.add("SPAN", (0, row_index), (-1, row_index))
+        table_style.add("BACKGROUND", (0, row_index), (-1, row_index), colors.HexColor("#1E3A8A"))
+        table_style.add("TEXTCOLOR", (0, row_index), (-1, row_index), colors.white)
+    for row_index, row in enumerate(table_data[1:], start=1):
+        if row_index in section_row_indexes:
+            continue
+        if row and str(row[0]).isdigit():
+            table_style.add("BACKGROUND", (9, row_index), (9, row_index), colors.HexColor("#FFFFFF"))
+    attendance_table.setStyle(table_style)
+    story.append(attendance_table)
+
+    story.extend([Spacer(1, 5 * mm)])
+    signature = Table(
+        [
+            ["Prepared by", "Checked by", "Approved by", "QHSE comments"],
+            ["Name / Date / Signature", "Name / Date / Signature", "Name / Date / Signature", ""],
+        ],
+        colWidths=[55 * mm, 55 * mm, 55 * mm, 112 * mm],
+        rowHeights=[8 * mm, 17 * mm],
+    )
+    signature.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EFF6FF")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+            ]
+        )
+    )
+    story.append(signature)
+
+    def add_page_footer(canvas: Any, doc: Any) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#64748B"))
+        canvas.drawString(9 * mm, 6 * mm, "OREZONE QHSE - Controlled attendance document")
+        canvas.drawRightString(288 * mm, 6 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=add_page_footer, onLaterPages=add_page_footer)
+
+
+def _attendance_pdf_groups(rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    return [
+        ("EXPATRIATE EMPLOYEES", [row for row in rows if str(row.get("type_employe") or "").lower() == "expatriate"]),
+        ("NATIONAL EMPLOYEES", [row for row in rows if str(row.get("type_employe") or "national").lower() != "expatriate"]),
+    ]
+
+
+def _pdf_date_label(value: str) -> str:
+    try:
+        return datetime.fromisoformat(str(value or "")).strftime("%A, %d %B %Y")
+    except ValueError:
+        return str(value or "")
+
+
+def _write_employee_list_pdf(path: Path, rows: list[dict[str, Any]], summary: dict[str, int]) -> None:
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        lines = [
+            "OREZONE QHSE",
+            "LIST OF OREZONE EMPLOYEE",
+            f"Generated: {generated_at}",
+            f"Total: {summary.get('total', 0)} | Day: {summary.get('day', 0)} | Night: {summary.get('night', 0)} | Break due: {summary.get('due', 0)}",
+            "",
+            "N | Matricule | Nom | Prenom | Badge | Fonction | Site | Shift | Situation | Prochain break",
+        ]
+        for index, row in enumerate(rows, start=1):
+            lines.append(
+                " | ".join(
+                    [
+                        str(index),
+                        _clip(row.get("matricule") or "-", 10),
+                        _clip(row.get("nom") or "-", 18),
+                        _clip(row.get("prenom") or "-", 18),
+                        _clip(row.get("numero_badge") or "-", 10),
+                        _clip(row.get("fonction") or "-", 22),
+                        _clip(row.get("site") or "-", 14),
+                        _clip(row.get("shift") or "-", 8),
+                        _clip(row.get("situation") or "-", 14),
+                        _clip(row.get("prochain_break") or "-", 18),
+                    ]
+                )
+            )
+        _write_minimal_pdf(path, lines)
+        return
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "OrezoneTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=21,
+        textColor=colors.white,
+        alignment=TA_CENTER,
+    )
+    subtitle_style = ParagraphStyle(
+        "OrezoneSubtitle",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor("#475569"),
+        alignment=TA_CENTER,
+    )
+    small_style = ParagraphStyle(
+        "OrezoneSmall",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8.5,
+        alignment=TA_LEFT,
+    )
+    header_style = ParagraphStyle(
+        "OrezoneHeaderCell",
+        parent=small_style,
+        fontName="Helvetica-Bold",
+        textColor=colors.white,
+        alignment=TA_CENTER,
+    )
+
+    document = SimpleDocTemplate(
+        str(path),
+        pagesize=landscape(A4),
+        leftMargin=9 * mm,
+        rightMargin=9 * mm,
+        topMargin=9 * mm,
+        bottomMargin=10 * mm,
+    )
+    story: list[Any] = []
+
+    header = Table(
+        [
+            [
+                Paragraph("OREZONE", title_style),
+                Paragraph("LIST OF OREZONE EMPLOYEE", title_style),
+            ],
+            [
+                "",
+                Paragraph("Operational employee list, shift allocation, status follow-up and break readiness.", subtitle_style),
+            ],
+            [
+                "",
+                Paragraph(f"Generated: {generated_at} | Controlled QHSE document | Professional field use", subtitle_style),
+            ],
+        ],
+        colWidths=[38 * mm, 239 * mm],
+    )
+    header.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+                ("BACKGROUND", (0, 1), (0, 2), colors.HexColor("#1E3A8A")),
+                ("SPAN", (0, 0), (0, 2)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (1, 1), (1, 2), colors.HexColor("#EFF6FF")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1E3A8A")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#BFDBFE")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.extend([header, Spacer(1, 5 * mm)])
+
+    metric_data = [
+        ["Total", summary.get("total", 0)],
+        ["Day shift", summary.get("day", 0)],
+        ["Night shift", summary.get("night", 0)],
+        ["Break / Absence", summary.get("off", 0)],
+        ["Break due", summary.get("due", 0)],
+    ]
+    metrics = Table([[Paragraph(f"<b>{label}</b><br/>{value}", subtitle_style) for label, value in metric_data]], colWidths=[55.4 * mm] * 5)
+    metrics.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (1, 0), colors.HexColor("#DCFCE7")),
+                ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#DBEAFE")),
+                ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#FEF3C7")),
+                ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#FEE2E2")),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CBD5E1")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.extend([metrics, Spacer(1, 4 * mm)])
+
+    table_data: list[list[Any]] = [
+        [Paragraph(label, header_style) for label in ["N", "Matricule", "Nom", "Prenom", "Badge", "Fonction", "Site", "Shift", "Situation", "Prochain break"]]
+    ]
+    for index, row in enumerate(rows, start=1):
+        table_data.append(
+            [
+                index,
+                _clip(row.get("matricule") or "-", 12),
+                Paragraph(_clip(row.get("nom") or "-", 22), small_style),
+                Paragraph(_clip(row.get("prenom") or "-", 22), small_style),
+                _clip(row.get("numero_badge") or "-", 12),
+                Paragraph(_clip(row.get("fonction") or "-", 30), small_style),
+                Paragraph(_clip(row.get("site") or "-", 18), small_style),
+                _clip(row.get("shift") or "-", 10),
+                _clip(row.get("situation") or "-", 16),
+                Paragraph(_clip(row.get("prochain_break") or "-", 24), small_style),
+            ]
+        )
+
+    employee_table = Table(
+        table_data,
+        colWidths=[8 * mm, 21 * mm, 29 * mm, 29 * mm, 20 * mm, 47 * mm, 28 * mm, 19 * mm, 25 * mm, 51 * mm],
+        repeatRows=1,
+    )
+    table_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (1, -1), "CENTER"),
+            ("ALIGN", (4, 1), (4, -1), "CENTER"),
+            ("ALIGN", (7, 1), (8, -1), "CENTER"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+    )
+    for row_index, row in enumerate(rows, start=1):
+        shift = str(row.get("shift") or "").lower()
+        situation = str(row.get("situation") or "").lower()
+        due = _break_text_is_due(row.get("prochain_break"))
+        if "night" in shift:
+            table_style.add("BACKGROUND", (7, row_index), (7, row_index), colors.HexColor("#DBEAFE"))
+        elif "day" in shift:
+            table_style.add("BACKGROUND", (7, row_index), (7, row_index), colors.HexColor("#DCFCE7"))
+        if situation and "travail" not in situation.lower() and "work" not in situation.lower():
+            table_style.add("BACKGROUND", (8, row_index), (8, row_index), colors.HexColor("#FEF3C7"))
+        if due:
+            table_style.add("BACKGROUND", (9, row_index), (9, row_index), colors.HexColor("#FEE2E2"))
+            table_style.add("TEXTCOLOR", (9, row_index), (9, row_index), colors.HexColor("#991B1B"))
+    employee_table.setStyle(table_style)
+    story.append(employee_table)
+
+    story.extend([Spacer(1, 5 * mm)])
+    signature = Table(
+        [
+            ["Prepared by", "Checked by", "Approved by", "QHSE comments"],
+            ["Name / Date / Signature", "Name / Date / Signature", "Name / Date / Signature", ""],
+        ],
+        colWidths=[55 * mm, 55 * mm, 55 * mm, 112 * mm],
+        rowHeights=[8 * mm, 17 * mm],
+    )
+    signature.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EFF6FF")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+            ]
+        )
+    )
+    story.append(signature)
+
+    def add_page_footer(canvas: Any, doc: Any) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#64748B"))
+        canvas.drawString(9 * mm, 6 * mm, "OREZONE QHSE - Controlled document")
+        canvas.drawRightString(288 * mm, 6 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=add_page_footer, onLaterPages=add_page_footer)
 
 
 def _write_simple_pdf(path: Path, lines: list[str]) -> None:

@@ -51,6 +51,11 @@ Bibliotheque prevue plus tard pour le module rapports:
 
 - `reportlab==4.4.9`: generation des rapports PDF.
 
+Bibliotheques utilisees pour fabriquer le paquet Windows:
+
+- `pyinstaller`: generation de l'executable.
+- `reportlab==4.4.9`: embarque pour les rapports PDF.
+
 Installation:
 
 ```powershell
@@ -64,6 +69,12 @@ Pour le module rapports PDF, on installera plus tard:
 
 ```powershell
 pip install -r requirements-reports.txt
+```
+
+Pour preparer une machine de build:
+
+```powershell
+pip install -r requirements-build.txt
 ```
 
 ### Demarrer l'application en developpement

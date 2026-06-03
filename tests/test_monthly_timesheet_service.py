@@ -10,6 +10,8 @@ from app.services import attendance_export_service
 from app.services.break_service import create_break
 from app.services.employee_service import create_employee
 from app.services.monthly_timesheet_service import get_monthly_10h_timesheet, list_monthly_timesheet_days
+from app.services.attendance_service import save_attendance_day
+from app.services.timesheet_service import set_day_activity
 
 
 class MonthlyTimeSheetServiceTest(unittest.TestCase):
@@ -38,15 +40,31 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(len(days), 25)
 
     def test_monthly_timesheet_counts_ten_hours_and_sunday_rest(self) -> None:
+        save_attendance_day(
+            "2026-05-01",
+            {self.employee_id: {"statut_presence": "present", "heure_entree": "07:00", "heure_sortie": "17:00"}},
+        )
         timesheet = get_monthly_10h_timesheet("2026-05")
         row = timesheet["rows"][0]
         cells = {cell["date"]: cell for cell in row["cells"]}
 
         self.assertEqual(cells["2026-05-01"]["status"], "worked")
         self.assertEqual(cells["2026-05-01"]["hours"], 10)
+        self.assertEqual(cells["2026-05-02"]["status"], "unfilled")
         self.assertEqual(cells["2026-05-03"]["status"], "rest")
         self.assertEqual(cells["2026-05-03"]["label"], "R")
-        self.assertEqual(row["hours"], 210)
+        self.assertEqual(row["hours"], 10)
+
+    def test_monthly_timesheet_marks_holidays_as_eight_hours(self) -> None:
+        set_day_activity("2026-05-04", has_drilling=False, day_type="holiday")
+
+        timesheet = get_monthly_10h_timesheet("2026-05")
+        row = timesheet["rows"][0]
+        cells = {cell["date"]: cell for cell in row["cells"]}
+
+        self.assertEqual(cells["2026-05-04"]["status"], "holiday")
+        self.assertEqual(cells["2026-05-04"]["label"], "8H")
+        self.assertEqual(cells["2026-05-04"]["hours"], 8)
 
     def test_break_normal_and_annual_have_separate_statuses(self) -> None:
         create_break(
@@ -99,7 +117,7 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
             self.assertEqual(cell["label"], "B")
             self.assertEqual(cell["break_start"], "2026-04-28")
             self.assertEqual(cell["break_end"], "2026-05-10")
-        self.assertEqual(cells["2026-05-11"]["status"], "worked")
+        self.assertEqual(cells["2026-05-11"]["status"], "unfilled")
         self.assertEqual(row["normal_break_days"], 10)
 
     def test_permission_after_three_days_becomes_absence_in_monthly_timesheet(self) -> None:
@@ -123,10 +141,14 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(cells["2026-05-04"]["status"], "absent")
         self.assertEqual(cells["2026-05-04"]["label"], "A")
         self.assertEqual(row["normal_break_days"], 3)
-        self.assertEqual(row["hours"], 180)
+        self.assertEqual(row["hours"], 0)
 
     def test_export_monthly_timesheet_xlsx_contains_status_labels(self) -> None:
         self._create_employee("Expat Employee", employee_type="expatriate")
+        save_attendance_day(
+            "2026-05-01",
+            {self.employee_id: {"statut_presence": "present", "heure_entree": "07:00", "heure_sortie": "17:00"}},
+        )
         create_break(
             {
                 "employe_id": self.employee_id,
@@ -144,10 +166,14 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
             sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
             styles = workbook.read("xl/styles.xml").decode("utf-8")
         self.assertIn("10h", sheet)
+        self.assertIn("MONTHLY TIMESHEET", sheet)
         self.assertIn(">R<", sheet)
         self.assertIn(">BA<", sheet)
         self.assertIn("EXPATRIES - RESERVE", sheet)
         self.assertIn("Expat Employee", sheet)
+        self.assertIn('width="6.5"', sheet)
+        self.assertIn('horizontal="center" vertical="center"', styles)
+        self.assertIn('textRotation="45"', styles)
         self.assertIn('left style="thin"', styles)
 
     def _create_employee(self, name: str, employee_type: str = "national") -> int:

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -26,6 +26,7 @@ from app.services import (
 from app.services.admin_service import ALL_MODULES
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -39,10 +40,9 @@ MODULE_LABELS = {
     "MonthlyTimesheet": "TimeSheet 1-25",
     "Ppe": "Gestion des EPI",
     "MaintenanceActions": "Maintenance & Actions",
-    "Alerts": "Alertes",
-    "Reports": "Rapports",
+    "Alerts": "Alertes & Rapports",
     "Settings": "Parametres",
-    "Admin": "Administration",
+    "Admin": "Administrateur",
 }
 
 
@@ -50,7 +50,7 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
     state: dict[str, Any] = {"editing_id": None, "role_checks": {}}
     actor = str((current_user or {}).get("username") or "system")
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     users_area = ft.Column(spacing=10)
     roles_area = ft.Column(spacing=8)
     backups_area = ft.Column(spacing=8)
@@ -497,19 +497,8 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=10, vertical=6),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=16),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=color, size=13, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=6,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -609,4 +598,3 @@ def _role_permissions_panel(row: dict[str, Any], save_callback: object, state: d
             ),
         ],
     )
-

@@ -8,6 +8,7 @@ from app.services.attendance_export_service import (
     export_active_breaks_xlsx,
     export_attendance_pdf,
     export_attendance_xlsx,
+    export_daily_lineup_pdf,
     export_daily_lineup_xlsx,
     export_monthly_10h_timesheet_xlsx,
     export_ppe_inventory_xls,
@@ -18,7 +19,7 @@ from app.services.attendance_export_service import (
     export_toolbox_talk_xlsx,
     export_training_matrix_xls,
 )
-from app.services.maintenance_action_service import export_action_tracker_xlsx, export_equipment_maintenance_xlsx
+from app.services.maintenance_action_service import export_action_tracker_xlsx, export_equipment_maintenance_xlsx, export_risk_assessments_xlsx
 from app.services.attendance_service import get_monthly_attendance_summary, today_iso
 from app.services.employee_service import list_employees, list_former_employees
 from app.services.timesheet_service import current_timesheet_month
@@ -53,9 +54,9 @@ def list_report_definitions() -> list[dict[str, Any]]:
         },
         {
             "key": "employees",
-            "title": "Liste employees operationnelle",
+            "title": "Liste employees operationnelle PDF",
             "category": "Employes",
-            "description": "Effectif actif avec badge, fonction, shift et prochain break.",
+            "description": "Effectif actif imprime avec badge, fonction, shift, prochain break et signatures.",
             "date_param": False,
             "month_param": False,
         },
@@ -149,6 +150,14 @@ def list_report_definitions() -> list[dict[str, Any]]:
             "month_param": False,
         },
         {
+            "key": "risk_assessments",
+            "title": "Evaluation des risques",
+            "category": "Maintenance",
+            "description": "Registre ISO des dangers, cotations initiales, controles et risques residuels.",
+            "date_param": False,
+            "month_param": False,
+        },
+        {
             "key": "alerts",
             "title": "Alertes QHSE",
             "category": "Alertes",
@@ -184,7 +193,7 @@ def generate_report(report_key: str, params: dict[str, Any] | None = None) -> Pa
     if key == "attendance_month":
         return _export_attendance_month(month_value)
     if key == "employees":
-        return export_daily_lineup_xlsx(list_employees())
+        return export_daily_lineup_pdf(list_employees())
     if key == "former_employees":
         return _export_former_employees()
     if key == "active_breaks":
@@ -209,6 +218,8 @@ def generate_report(report_key: str, params: dict[str, Any] | None = None) -> Pa
         return export_equipment_maintenance_xlsx()
     if key == "action_tracker":
         return export_action_tracker_xlsx()
+    if key == "risk_assessments":
+        return export_risk_assessments_xlsx()
     if key == "alerts":
         return _export_alerts()
     raise ValueError("Rapport inconnu.")

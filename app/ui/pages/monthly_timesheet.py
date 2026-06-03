@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -13,6 +13,7 @@ from app.services.monthly_timesheet_service import (
 )
 from app.services import export_monthly_10h_timesheet_xlsx
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -21,12 +22,15 @@ REST = "#CBD5E1"
 NORMAL_BREAK = "#F59E0B"
 ANNUAL_BREAK = "#A855F7"
 NOT_ASSIGNED = "#F8FAFC"
+PAGE_SIZE = 10
+MONTHLY_DAY_WIDTH = 28
+MONTHLY_DAY_HEIGHT = 24
 
 
 def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
-    state: dict[str, Any] = {"timesheet": None}
+    state: dict[str, Any] = {"timesheet": None, "page": 0}
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
 
     month_field = ft.TextField(
@@ -60,6 +64,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
     def refresh(event: ft.ControlEvent | None = None) -> None:
         try:
             load_site_options()
+            state["page"] = 0
             state["timesheet"] = get_monthly_10h_timesheet(
                 str(month_field.value or ""),
                 site_id=selected_site_id(),
@@ -102,6 +107,16 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             rows.append(row)
         return rows
 
+    def change_page(delta: int) -> None:
+        rows = filtered_rows()
+        max_page = max((len(rows) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"]) + delta))
+        render()
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
     def render() -> None:
         timesheet = state.get("timesheet") or get_monthly_10h_timesheet(current_monthly_timesheet_month())
         state["timesheet"] = timesheet
@@ -115,6 +130,10 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             _summary_chip("Heures", summary["hours"], SUCCESS, ft.Icons.ACCESS_TIME_OUTLINED),
         ]
         rows = filtered_rows()
+        max_page = max((len(rows) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"])))
+        start = int(state["page"]) * PAGE_SIZE
+        page_rows = rows[start : start + PAGE_SIZE]
         columns = [
             ft.DataColumn(ft.Text("Employe")),
             *[
@@ -140,6 +159,30 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                     _legend("Break normal", NORMAL_BREAK, TEXT),
                     _legend("Break annuel", ANNUAL_BREAK, "#FFFFFF"),
                     _legend("N/A site", NOT_ASSIGNED, MUTED),
+                    ft.Text(
+                        f"{start + 1 if rows else 0}-{start + len(page_rows)} / {len(rows)} employe(s)",
+                        size=12,
+                        color=MUTED,
+                    ),
+                    ft.OutlinedButton(
+                        "Precedent",
+                        icon=ft.Icons.ARROW_BACK,
+                        disabled=int(state["page"]) <= 0,
+                        on_click=lambda event: change_page(-1),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                        bgcolor="#EFF6FF",
+                        border=ft.border.all(1, "#BFDBFE"),
+                        border_radius=8,
+                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                    ),
+                    ft.OutlinedButton(
+                        "Suivant",
+                        icon=ft.Icons.ARROW_FORWARD,
+                        disabled=int(state["page"]) >= max_page,
+                        on_click=lambda event: change_page(1),
+                    ),
                     status,
                 ],
                 spacing=8,
@@ -173,11 +216,15 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                     ft.DataCell(ft.Text(str(row["hours"]), weight=ft.FontWeight.BOLD, color=TEXT)),
                                 ],
                             )
-                            for row in rows
+                            for row in page_rows
                         ],
                         border=ft.border.all(1, "#BFDBFE"),
                         border_radius=8,
                         heading_row_color="#DBEAFE",
+                        data_row_min_height=38,
+                        data_row_max_height=44,
+                        column_spacing=5,
+                        horizontal_margin=8,
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -234,13 +281,13 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
 def _day_cell(cell: dict[str, Any]) -> ft.Control:
     color, text_color, tooltip = _cell_style(cell)
     return ft.Container(
-        width=34,
-        height=28,
+        width=MONTHLY_DAY_WIDTH,
+        height=MONTHLY_DAY_HEIGHT,
         alignment=ft.Alignment(0, 0),
         bgcolor=color,
         border_radius=4,
         tooltip=tooltip,
-        content=ft.Text(str(cell["label"]), size=10, color=text_color, weight=ft.FontWeight.BOLD),
+        content=ft.Text(str(cell["label"]), size=10, color=text_color, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
     )
 
 
@@ -274,19 +321,8 @@ def _employee_name(employee: dict[str, Any]) -> str:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -298,4 +334,3 @@ def _legend(label: str, color: str, text_color: str) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=9, vertical=5),
         content=ft.Text(label, color=text_color, size=11, weight=ft.FontWeight.BOLD),
     )
-

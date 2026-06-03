@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from app.db import connection
@@ -9,13 +10,17 @@ from app.services.employee_service import create_employee
 from app.services.maintenance_action_service import (
     create_action,
     create_equipment_maintenance,
+    create_risk_assessment,
     export_action_tracker_xlsx,
     export_equipment_maintenance_xlsx,
+    export_risk_assessments_xlsx,
     get_maintenance_action_summary,
     list_action_tracker,
     list_equipment_maintenance,
+    list_risk_assessments,
     update_action,
     update_equipment_maintenance,
+    update_risk_assessment,
 )
 
 
@@ -107,6 +112,57 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertTrue(action_export.exists())
         self.assertGreater(maintenance_export.stat().st_size, 0)
         self.assertGreater(action_export.stat().st_size, 0)
+
+    def test_risk_assessment_calculates_levels_and_exports(self) -> None:
+        risk_id = create_risk_assessment(
+            {
+                "activity": "Drilling operations",
+                "task": "Rod handling",
+                "hazard": "Rotating equipment",
+                "risk_event": "Hand caught in rotation zone",
+                "consequences": "Serious injury",
+                "existing_controls": "Toolbox talk, guarding, supervision",
+                "site_id": self.site_id,
+                "owner_employee_id": self.employee_id,
+                "probability_initial": 4,
+                "severity_initial": 5,
+                "hierarchy_control": "engineering",
+                "additional_controls": "Improve guarding and exclusion zone",
+                "probability_residual": 2,
+                "severity_residual": 4,
+                "status": "in_progress",
+                "due_date": "2026-06-10",
+                "review_date": "2026-06-20",
+            }
+        )
+
+        row = list_risk_assessments()[0]
+        summary = get_maintenance_action_summary()
+
+        self.assertEqual(row["id_risk"], risk_id)
+        self.assertEqual(row["risk_initial"], 20)
+        self.assertEqual(row["level_initial"], "critical")
+        self.assertEqual(row["risk_residual"], 8)
+        self.assertEqual(row["level_residual"], "medium")
+        self.assertEqual(summary["risks_open"], 1)
+        self.assertEqual(summary["risks_high_initial"], 1)
+
+        update_risk_assessment(risk_id, {**row, "status": "controlled", "review_date": "2026-06-25"})
+        self.assertEqual(list_risk_assessments()[0]["status"], "controlled")
+
+        output = export_risk_assessments_xlsx()
+        self.assertTrue(output.exists())
+        self.assertGreater(output.stat().st_size, 0)
+        with zipfile.ZipFile(output) as workbook:
+            sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            styles = workbook.read("xl/styles.xml").decode("utf-8")
+        self.assertIn("Risk assessment summary", sheet)
+        self.assertIn("ISO hierarchy", sheet)
+        self.assertIn("Prepared by", sheet)
+        self.assertIn("Approved by", sheet)
+        self.assertIn("Critical", sheet)
+        self.assertIn("FFDC2626", styles)
+        self.assertIn("FFFBBF24", styles)
 
     def _first_site(self) -> int:
         with connection.db_session() as db:

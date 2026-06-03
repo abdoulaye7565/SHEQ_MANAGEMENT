@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -14,6 +14,7 @@ from app.services import (
     clear_monthly_toolbox_topics,
     current_toolbox_month,
     delete_toolbox_topic,
+    delete_theme_catalog,
     export_toolbox_talk_xlsx,
     generate_toolbox_theme_catalog,
     get_toolbox_options,
@@ -24,13 +25,21 @@ from app.services import (
 )
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
 def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
-    state: dict[str, Any] = {"data": None, "editing_date": None, "themes": [], "selected_dates": set()}
+    state: dict[str, Any] = {
+        "data": None,
+        "editing_date": None,
+        "themes": [],
+        "editing_topic_id": None,
+        "selected_dates": set(),
+        "show_bank": False,
+    }
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
     theme_area = ft.Column(spacing=10)
     options = get_toolbox_options()
@@ -151,18 +160,50 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         try:
             save_theme_catalog(
                 {
+                    "id_topic": state.get("editing_topic_id"),
                     "theme": catalog_theme_field.value,
                     "obligatoire": bool(mandatory_field.value),
                     "actif": True,
                 }
             )
+            state["editing_topic_id"] = None
             catalog_theme_field.value = ""
             mandatory_field.value = False
-            notify("Theme ajoute a la banque Toolbox Talk.", SUCCESS)
+            notify("Theme enregistre dans la banque Toolbox Talk.", SUCCESS)
             refresh()
         except ValueError as exc:
             notify(str(exc), DANGER)
             _update()
+
+    def edit_catalog_theme(row: dict[str, Any]) -> None:
+        state["editing_topic_id"] = int(row["id_topic"])
+        catalog_theme_field.value = str(row.get("theme") or "")
+        mandatory_field.value = bool(row.get("obligatoire"))
+        state["show_bank"] = True
+        notify("Theme de la banque charge pour modification.", PRIMARY)
+        render()
+        _update()
+
+    def delete_catalog_theme(row: dict[str, Any]) -> None:
+        try:
+            delete_theme_catalog(int(row["id_topic"]))
+            if state.get("editing_topic_id") == int(row["id_topic"]):
+                state["editing_topic_id"] = None
+                catalog_theme_field.value = ""
+                mandatory_field.value = False
+            notify("Theme supprime de la banque.", WARNING)
+            refresh()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+            _update()
+
+    def cancel_catalog_edit(event: ft.ControlEvent | None = None) -> None:
+        state["editing_topic_id"] = None
+        catalog_theme_field.value = ""
+        mandatory_field.value = False
+        notify("Edition de la banque annulee.", MUTED)
+        render_theme_catalog()
+        _update()
 
     def generate_catalog(event: ft.ControlEvent | None = None) -> None:
         try:
@@ -200,6 +241,11 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
         except ValueError as exc:
             notify(str(exc), DANGER)
             _update()
+
+    def toggle_bank_theme(event: ft.ControlEvent | None = None) -> None:
+        state["show_bank"] = not bool(state.get("show_bank"))
+        render()
+        _update()
 
     def assign_selected_dates(event: ft.ControlEvent | None = None) -> None:
         try:
@@ -281,6 +327,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                 controls=[
                     ft.OutlinedButton("Actualiser", icon=ft.Icons.REFRESH_OUTLINED, on_click=refresh),
                     ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_excel),
+                    ft.OutlinedButton("Bank Theme", icon=ft.Icons.ACCOUNT_BALANCE_OUTLINED, on_click=toggle_bank_theme),
                     ft.OutlinedButton("Effacer formulaire", icon=ft.Icons.CLEAR_OUTLINED, on_click=clear_form),
                     status,
                 ],
@@ -349,6 +396,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
             ),
         ]
         render_theme_catalog()
+        bank_container.visible = bool(state.get("show_bank"))
 
     def render_theme_catalog() -> None:
         themes = list(state.get("themes") or [])
@@ -357,7 +405,17 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                 controls=[
                     catalog_theme_field,
                     mandatory_field,
-                    ft.ElevatedButton("Ajouter theme", icon=ft.Icons.ADD_OUTLINED, on_click=add_catalog_theme),
+                    ft.ElevatedButton(
+                        "Modifier theme" if state.get("editing_topic_id") else "Ajouter theme",
+                        icon=ft.Icons.SAVE_OUTLINED if state.get("editing_topic_id") else ft.Icons.ADD_OUTLINED,
+                        on_click=add_catalog_theme,
+                    ),
+                    ft.OutlinedButton(
+                        "Annuler",
+                        icon=ft.Icons.CLOSE_OUTLINED,
+                        on_click=cancel_catalog_edit,
+                        visible=bool(state.get("editing_topic_id")),
+                    ),
                     generated_count_field,
                     ft.OutlinedButton("Generer themes", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=generate_catalog),
                     monthly_facilitator_field,
@@ -371,7 +429,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
             ),
             ft.Row(
                 controls=[
-                    _theme_chip(row)
+                    _theme_chip(row, edit_catalog_theme, delete_catalog_theme)
                     for row in themes
                 ],
                 wrap=True,
@@ -412,7 +470,8 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                     spacing=12,
                 ),
             ),
-            ft.Container(
+            bank_container := ft.Container(
+                visible=False,
                 bgcolor="#FFFFFF",
                 border=ft.border.all(1, "#BFDBFE"),
                 border_radius=8,
@@ -468,19 +527,8 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -496,7 +544,7 @@ def _state_badge(state: str) -> ft.Control:
     )
 
 
-def _theme_chip(row: dict[str, Any]) -> ft.Control:
+def _theme_chip(row: dict[str, Any], edit_action: Any, delete_action: Any) -> ft.Control:
     mandatory = bool(row.get("obligatoire"))
     color = WARNING if mandatory else PRIMARY
     label = f"{row.get('theme') or '-'}" + (" | obligatoire" if mandatory else "")
@@ -505,6 +553,24 @@ def _theme_chip(row: dict[str, Any]) -> ft.Control:
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
-        content=ft.Text(label, size=12, color=color),
+        content=ft.Row(
+            controls=[
+                ft.Text(label, size=12, color=color),
+                ft.IconButton(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    tooltip="Modifier le theme de la banque",
+                    icon_color=PRIMARY,
+                    on_click=lambda event, current=row: edit_action(current),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    tooltip="Supprimer le theme de la banque",
+                    icon_color=DANGER,
+                    on_click=lambda event, current=row: delete_action(current),
+                ),
+            ],
+            spacing=2,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        ),
     )
-

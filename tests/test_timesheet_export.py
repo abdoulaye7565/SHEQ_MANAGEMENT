@@ -8,6 +8,7 @@ from pathlib import Path
 from app.config import EXPORTS_DIR
 from app.db import connection
 from app.services.attendance_export_service import (
+    export_attendance_records_xlsx,
     export_timesheet_all_employees_xls,
     export_timesheet_employee_xls,
     export_timesheet_xls,
@@ -61,6 +62,7 @@ class TimeSheetExportTest(unittest.TestCase):
 
         self.assertTrue(output.name.startswith("timesheet_orezone_2026-04"))
         self.assertIn("Legende", content)
+        self.assertIn("MONTHLY TIMESHEET", content)
         self.assertIn("MLE", content)
         self.assertIn("NOM", content)
         self.assertIn("PRENOMS", content)
@@ -69,11 +71,60 @@ class TimeSheetExportTest(unittest.TestCase):
         self.assertIn("Jour ferie ou chome paye = 8H", content)
         self.assertIn("ANNUAL LEAVE", content)
         self.assertIn("FF00A6D6", styles)
+        self.assertIn('<col min="5" max="', content)
+        self.assertIn('width="6.5"', content)
+        self.assertIn('horizontal="center" vertical="center"', styles)
+        self.assertIn('textRotation="45"', styles)
         self.assertIn("Prepared by", content)
         self.assertIn("Checked by", content)
         self.assertIn("Approved by", content)
         self.assertIn("Export Employe", content)
         self.assertIn("Second Export Employe", content)
+
+    def test_attendance_export_contains_meeting_header_sections_and_signature(self) -> None:
+        output = export_attendance_records_xlsx(
+            "2026-06-02",
+            [
+                {
+                    "nom": "Expat",
+                    "prenom": "Employee",
+                    "numero_badge": "B-EXP",
+                    "fonction": "Manager",
+                    "type_employe": "expatriate",
+                    "shift": "Day Shift",
+                    "statut": "Present",
+                    "heure_entree": "07:00",
+                    "heure_sortie": "17:00",
+                    "heures": 10,
+                    "controle": "OK",
+                },
+                {
+                    "nom": "National",
+                    "prenom": "Employee",
+                    "numero_badge": "B-NAT",
+                    "fonction": "Operator",
+                    "type_employe": "national",
+                    "shift": "Night Shift",
+                    "statut": "Absent",
+                    "heure_entree": "",
+                    "heure_sortie": "",
+                    "heures": 0,
+                    "controle": "",
+                },
+            ],
+        )
+
+        with zipfile.ZipFile(output) as workbook:
+            content = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+        self.assertIn("LISTE DE PRESENCE OREZONE", content)
+        self.assertIn("Complete date / Date complete", content)
+        self.assertIn("Daily meeting topic / Topic du meeting journalier", content)
+        self.assertIn("Meeting facilitator / Animateur", content)
+        self.assertIn("EXPATRIATE EMPLOYEES", content)
+        self.assertIn("NATIONAL EMPLOYEES", content)
+        self.assertIn("Prepared by", content)
+        self.assertIn("Approved by", content)
 
     def test_export_timesheet_all_employees_creates_one_file_per_employee(self) -> None:
         output_dir = export_timesheet_all_employees_xls("2026-04")

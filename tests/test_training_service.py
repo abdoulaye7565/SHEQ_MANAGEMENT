@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sqlite3
+import zipfile
 from pathlib import Path
 
 from app.db import connection
@@ -16,6 +17,7 @@ from app.services.training_service import (
     update_training,
     update_trainings_bulk,
 )
+from app.services.attendance_export_service import export_training_matrix_xls
 
 
 class TrainingServiceTest(unittest.TestCase):
@@ -301,6 +303,31 @@ class TrainingServiceTest(unittest.TestCase):
         self.assertIn("summary", matrix)
         self.assertIn("training_stats", matrix)
         self.assertGreaterEqual(matrix["summary"]["expired"], 1)
+
+    def test_training_matrix_export_uses_professional_layout(self) -> None:
+        create_training(
+            {
+                "employe_id": self.employee_id,
+                "type_training_id": self.training_type_id,
+                "date_formation": "2026-01-31",
+                "facilitateur": "Initial",
+                "structure_responsable": "HSE",
+            }
+        )
+
+        matrix = get_training_matrix()
+        output = export_training_matrix_xls(matrix["training_types"], matrix["rows"])
+
+        self.assertTrue(output.exists())
+        with zipfile.ZipFile(output) as workbook:
+            sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            styles = workbook.read("xl/styles.xml").decode("utf-8")
+        self.assertIn("OREZONE QHSE - TRAINING MATRIX", sheet)
+        self.assertIn("Summary", sheet)
+        self.assertIn("Compliance", sheet)
+        self.assertIn("Prepared by", sheet)
+        self.assertIn("Approved by", sheet)
+        self.assertIn('textRotation="45"', styles)
 
     def _create_employee(self, name: str = "Test Employe") -> int:
         with connection.db_session() as db:

@@ -7,13 +7,23 @@ import flet as ft
 
 from app.ui.components.tables import professional_data_table
 
-from app.services import create_break, delete_break, export_rows_xlsx, list_break_alerts, list_breaks, list_employees
+from app.services import (
+    create_break,
+    delete_break,
+    export_rows_xlsx,
+    list_break_alerts,
+    list_breaks,
+    list_employees,
+    postpone_break,
+    update_break_status,
+)
 from app.services.break_service import BREAK_STATUSES, BREAK_TYPES
+from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
-def breaks_page() -> ft.Control:
+def breaks_page(page: ft.Page | None = None) -> ft.Control:
     employees = list_employees()
     state: dict[str, Any] = {"records": []}
     controls: dict[str, ft.Control] = {}
@@ -46,6 +56,12 @@ def breaks_page() -> ft.Control:
         status.value = message
         status.color = color
 
+    def _update() -> None:
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
     def default_values() -> dict[str, Any]:
         start = date.today()
         end = start + timedelta(days=7)
@@ -68,6 +84,86 @@ def breaks_page() -> ft.Control:
         except ValueError as exc:
             notify(str(exc), DANGER)
         root.update()
+
+    def confirm_break(break_id: int) -> None:
+        try:
+            update_break_status(break_id, "en_cours")
+            notify("Break confirme et passe en cours.", SUCCESS)
+            render_alerts()
+            render_history()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def cancel_break(break_id: int) -> None:
+        confirm_action(
+            page,
+            "Annuler le break",
+            "Ce break sera conserve dans l'historique avec le statut annule.",
+            lambda: _cancel_break(break_id),
+            confirm_label="Annuler le break",
+            danger=True,
+        )
+
+    def _cancel_break(break_id: int) -> None:
+        try:
+            update_break_status(break_id, "annule")
+            notify("Break annule.", WARNING)
+            render_alerts()
+            render_history()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def open_postpone_dialog(record: dict[str, Any]) -> None:
+        current_start = date.fromisoformat(str(record.get("date_debut") or date.today().isoformat()))
+        current_end = date.fromisoformat(str(record.get("date_fin") or current_start.isoformat()))
+        duration = max((current_end - current_start).days, 0)
+        next_start = current_start + timedelta(days=7)
+        next_end = next_start + timedelta(days=duration)
+        start_field = ft.TextField(label="Nouvelle date debut", value=next_start.isoformat(), hint_text="AAAA-MM-JJ")
+        end_field = ft.TextField(label="Nouvelle date fin", value=next_end.isoformat(), hint_text="AAAA-MM-JJ")
+        dialog_status = ft.Text("", size=12, color=MUTED)
+
+        def close(event: ft.ControlEvent | None = None) -> None:
+            if page is not None:
+                page.pop_dialog()
+                page.update()
+
+        def save_postpone(event: ft.ControlEvent | None = None) -> None:
+            try:
+                postpone_break(int(record["id_break"]), str(start_field.value or ""), str(end_field.value or ""))
+                close()
+                notify("Break reporte.", SUCCESS)
+                render_alerts()
+                render_history()
+                _update()
+            except ValueError as exc:
+                dialog_status.value = str(exc)
+                dialog_status.color = DANGER
+                if page is not None:
+                    page.update()
+
+        if page is None:
+            postpone_break(int(record["id_break"]), str(start_field.value or ""), str(end_field.value or ""))
+            notify("Break reporte.", SUCCESS)
+            render_alerts()
+            render_history()
+            _update()
+            return
+
+        page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Reporter le break", color=TEXT, weight=ft.FontWeight.BOLD),
+                content=ft.Column(controls=[start_field, end_field, dialog_status], spacing=10, width=360),
+                actions=[
+                    ft.TextButton("Fermer", on_click=close),
+                    ft.ElevatedButton("Reporter", icon=ft.Icons.EVENT_REPEAT_OUTLINED, on_click=save_postpone),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+        )
 
     def filtered_history() -> list[dict[str, Any]]:
         query = str(history_search.value or "").strip().lower()
@@ -123,6 +219,16 @@ def breaks_page() -> ft.Control:
         root.update()
 
     def remove(break_id: int) -> None:
+        confirm_action(
+            page,
+            "Supprimer le break/conge",
+            "Cette planification sera retiree de l'historique.",
+            lambda: _remove(break_id),
+            confirm_label="Supprimer",
+            danger=True,
+        )
+
+    def _remove(break_id: int) -> None:
         delete_break(break_id)
         notify("Break/conge supprime.", MUTED)
         render_alerts()
@@ -250,14 +356,7 @@ def breaks_page() -> ft.Control:
                                     ft.DataCell(ft.Text(str(record.get("date_debut") or "-"))),
                                     ft.DataCell(ft.Text(str(record.get("date_fin") or "-"))),
                                     ft.DataCell(ft.Text(str(record.get("statut") or "-"))),
-                                    ft.DataCell(
-                                        ft.IconButton(
-                                            icon=ft.Icons.DELETE_OUTLINE,
-                                            tooltip="Supprimer",
-                                            icon_color=DANGER,
-                                            on_click=lambda event, current=record: remove(current["id_break"]),
-                                        )
-                                    ),
+                                    ft.DataCell(_break_actions(record, confirm_break, cancel_break, open_postpone_dialog, remove)),
                                 ]
                             )
                             for record in records
@@ -330,6 +429,50 @@ def breaks_page() -> ft.Control:
     render_alerts()
     render_history()
     return root
+
+
+def _break_actions(
+    record: dict[str, Any],
+    confirm_action_handler: Any,
+    cancel_action_handler: Any,
+    postpone_action_handler: Any,
+    delete_action_handler: Any,
+) -> ft.Control:
+    break_id = int(record["id_break"])
+    statut = str(record.get("statut") or "")
+    return ft.Row(
+        controls=[
+            ft.IconButton(
+                icon=ft.Icons.CHECK_CIRCLE_OUTLINE,
+                tooltip="Confirmer le break",
+                icon_color=SUCCESS,
+                visible=statut == "planifie",
+                on_click=lambda event: confirm_action_handler(break_id),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.CANCEL_OUTLINED,
+                tooltip="Annuler le break",
+                icon_color=WARNING,
+                visible=statut in {"planifie", "en_cours"},
+                on_click=lambda event: cancel_action_handler(break_id),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.EVENT_REPEAT_OUTLINED,
+                tooltip="Reporter le break",
+                icon_color=PRIMARY,
+                visible=statut not in {"termine", "annule"},
+                on_click=lambda event, current=record: postpone_action_handler(current),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.DELETE_OUTLINE,
+                tooltip="Supprimer",
+                icon_color=DANGER,
+                on_click=lambda event: delete_action_handler(break_id),
+            ),
+        ],
+        spacing=2,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
 
 
 def _alert_block(

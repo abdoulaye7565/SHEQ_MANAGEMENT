@@ -154,4 +154,4 @@ def _build_view(
         return attendance_page(page)
     if view == "active_breaks":
         return active_breaks_page()
-    return breaks_page()
+    return breaks_page(page)

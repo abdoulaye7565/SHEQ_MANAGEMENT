@@ -7,6 +7,7 @@ import flet as ft
 from app.services import create_settings_backup, ensure_runtime_directories, get_application_settings
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.components.tables import professional_data_table
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
@@ -14,7 +15,7 @@ from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | None = None) -> ft.Control:
     actor = str((current_user or {}).get("username") or "system")
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
 
     def notify(message: str, color: str = MUTED) -> None:
@@ -137,17 +138,6 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )

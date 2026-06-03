@@ -516,6 +516,43 @@ CREATE TABLE IF NOT EXISTS action_tracker (
     CHECK (closed_date IS NULL OR closed_date >= due_date)
 );
 
+CREATE TABLE IF NOT EXISTS risk_assessments (
+    id_risk INTEGER PRIMARY KEY AUTOINCREMENT,
+    activity TEXT NOT NULL,
+    task TEXT,
+    hazard TEXT NOT NULL,
+    risk_event TEXT NOT NULL,
+    consequences TEXT NOT NULL,
+    existing_controls TEXT,
+    site_id INTEGER,
+    owner_employee_id INTEGER,
+    probability_initial INTEGER NOT NULL DEFAULT 1,
+    severity_initial INTEGER NOT NULL DEFAULT 1,
+    risk_initial INTEGER NOT NULL DEFAULT 1,
+    level_initial TEXT NOT NULL DEFAULT 'low',
+    hierarchy_control TEXT NOT NULL DEFAULT 'administrative',
+    additional_controls TEXT,
+    probability_residual INTEGER NOT NULL DEFAULT 1,
+    severity_residual INTEGER NOT NULL DEFAULT 1,
+    risk_residual INTEGER NOT NULL DEFAULT 1,
+    level_residual TEXT NOT NULL DEFAULT 'low',
+    status TEXT NOT NULL DEFAULT 'open',
+    due_date TEXT,
+    review_date TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (owner_employee_id) REFERENCES employes(id_employe),
+    CHECK (probability_initial BETWEEN 1 AND 5),
+    CHECK (severity_initial BETWEEN 1 AND 5),
+    CHECK (probability_residual BETWEEN 1 AND 5),
+    CHECK (severity_residual BETWEEN 1 AND 5),
+    CHECK (level_initial IN ('low', 'medium', 'high', 'critical')),
+    CHECK (level_residual IN ('low', 'medium', 'high', 'critical')),
+    CHECK (hierarchy_control IN ('elimination', 'substitution', 'engineering', 'administrative', 'ppe')),
+    CHECK (status IN ('open', 'in_progress', 'controlled', 'closed'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_equipment_maintenance_status_date
     ON equipment_maintenance(status, planned_date, priority);
 
@@ -527,6 +564,12 @@ CREATE INDEX IF NOT EXISTS idx_action_tracker_status_due
 
 CREATE INDEX IF NOT EXISTS idx_action_tracker_owner_due
     ON action_tracker(owner_employee_id, due_date);
+
+CREATE INDEX IF NOT EXISTS idx_risk_assessments_level_status
+    ON risk_assessments(level_initial, level_residual, status);
+
+CREATE INDEX IF NOT EXISTS idx_risk_assessments_site_review
+    ON risk_assessments(site_id, review_date);
 
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_date
     ON attendance_audit(date_presence, employe_id);

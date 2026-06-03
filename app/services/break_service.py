@@ -76,6 +76,12 @@ def create_break(values: dict[str, Any]) -> int:
     payload = _clean_payload(values)
     _validate_payload(payload)
     with db_session() as connection:
+        _ensure_no_overlapping_break(
+            connection,
+            int(payload["employe_id"]),
+            str(payload["date_debut"]),
+            str(payload["date_fin"]),
+        )
         cursor = connection.execute(
             """
             INSERT INTO employee_breaks (
@@ -105,6 +111,12 @@ def create_break_for_employees(values: dict[str, Any]) -> int:
         for employee_id in employee_ids:
             payload = _clean_payload({**values, "employe_id": employee_id})
             _validate_payload(payload)
+            _ensure_no_overlapping_break(
+                connection,
+                int(payload["employe_id"]),
+                str(payload["date_debut"]),
+                str(payload["date_fin"]),
+            )
             active = connection.execute(
                 """
                 SELECT id_break
@@ -162,13 +174,55 @@ def update_break_status(break_id: int, statut: str) -> None:
     if statut not in BREAK_STATUSES:
         raise ValueError("Statut de break invalide.")
     with db_session() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE employee_breaks
             SET statut = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id_break = ?
             """,
             (statut, break_id),
+        )
+        if not cursor.rowcount:
+            raise ValueError("Break introuvable.")
+
+
+def postpone_break(break_id: int, new_start: str, new_end: str | None = None) -> None:
+    start = _parse_date(str(new_start or "").strip())
+    with db_session() as connection:
+        row = connection.execute(
+            """
+            SELECT employe_id, date_debut, date_fin, type_break
+            FROM employee_breaks
+            WHERE id_break = ?
+            """,
+            (break_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Break introuvable.")
+        if new_end:
+            end = _parse_date(str(new_end).strip())
+        else:
+            current_start = _parse_date(row["date_debut"])
+            current_end = _parse_date(row["date_fin"])
+            end = start + timedelta(days=(current_end - current_start).days)
+        _validate_break_range(str(row["type_break"]), start, end)
+        _ensure_no_overlapping_break(
+            connection,
+            int(row["employe_id"]),
+            start.isoformat(),
+            end.isoformat(),
+            exclude_break_id=break_id,
+        )
+        connection.execute(
+            """
+            UPDATE employee_breaks
+            SET date_debut = ?,
+                date_fin = ?,
+                statut = 'planifie',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id_break = ?
+            """,
+            (start.isoformat(), end.isoformat(), break_id),
         )
 
 
@@ -284,11 +338,48 @@ def _validate_payload(payload: dict[str, Any]) -> None:
         raise ValueError("Statut invalide.")
     start = _parse_date(payload["date_debut"])
     end = _parse_date(payload["date_fin"])
+    _validate_break_range(payload["type_break"], start, end)
+
+
+def _validate_break_range(break_type: str, start: date, end: date) -> None:
     if end < start:
         raise ValueError("La date de fin doit etre apres la date de debut.")
     duration = (end - start).days + 1
-    if payload["type_break"] == "annual" and duration > ANNUAL_BREAK_DAYS:
+    if break_type == "annual" and duration > ANNUAL_BREAK_DAYS:
         raise ValueError("Break annuel invalide: la duree maximale est de 30 jours.")
+
+
+def _ensure_no_overlapping_break(
+    connection: Any,
+    employee_id: int,
+    start: str,
+    end: str,
+    *,
+    exclude_break_id: int | None = None,
+) -> None:
+    params: list[Any] = [employee_id, start, end]
+    exclusion = ""
+    if exclude_break_id is not None:
+        exclusion = "AND id_break <> ?"
+        params.append(exclude_break_id)
+    row = connection.execute(
+        f"""
+        SELECT id_break, date_debut, date_fin, statut
+        FROM employee_breaks
+        WHERE employe_id = ?
+          AND statut IN ('planifie', 'en_cours', 'termine')
+          AND NOT (date_fin < ? OR date_debut > ?)
+          {exclusion}
+        ORDER BY date_debut DESC, id_break DESC
+        LIMIT 1
+        """,
+        params,
+    ).fetchone()
+    if row:
+        raise ValueError(
+            "Cet employe a deja un break sur cette periode "
+            f"({row['date_debut']} au {row['date_fin']})."
+        )
 
 
 def _parse_date(value: str) -> date:

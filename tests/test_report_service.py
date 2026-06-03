@@ -34,6 +34,7 @@ class ReportServiceTest(unittest.TestCase):
         self.assertIn("monthly_10h_timesheet", keys)
         self.assertIn("toolbox_talk", keys)
         self.assertIn("ppe_inventory", keys)
+        self.assertIn("risk_assessments", keys)
         self.assertIn("alerts", keys)
         self.assertGreaterEqual(summary["reports"], 13)
 
@@ -44,6 +45,16 @@ class ReportServiceTest(unittest.TestCase):
 
         self.assertTrue(output.exists())
         self.assertIn("list_of_orezone_employee", output.name)
+        self.assertEqual(output.suffix, ".pdf")
+
+    def test_generate_attendance_pdf_creates_professional_pdf(self) -> None:
+        self._create_employee()
+
+        output = generate_report("attendance_pdf", {"date": "2026-06-02"})
+
+        self.assertTrue(output.exists())
+        self.assertEqual(output.suffix, ".pdf")
+        self.assertTrue(output.read_bytes().startswith(b"%PDF"))
 
     def test_generate_timesheet_reports_create_monthly_files(self) -> None:
         employee_id = self._create_employee()

@@ -23,6 +23,7 @@ def get_attendance_list(date_presence: str) -> list[dict[str, Any]]:
                 COALESCE(e.nom, e.nom_complet) AS nom,
                 COALESCE(e.prenom, '') AS prenom,
                 e.nom_complet,
+                e.type_employe,
                 b.numero_badge,
                 f.nom AS fonction,
                 sh.code AS shift_code,

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
@@ -6,10 +6,12 @@ from typing import Any
 import flet as ft
 
 from app.ui.components.tables import professional_data_table
+from app.ui.components.confirm import confirm_action
 
 from app.services import (
     create_break,
     create_break_for_employees,
+    export_daily_lineup_pdf,
     export_daily_lineup_xlsx,
     list_employees,
     mark_employee_departure,
@@ -17,14 +19,18 @@ from app.services import (
     update_employee_shift,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
+PAGE_SIZE = 10
+
+
 def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = None) -> ft.Control:
-    state: dict[str, Any] = {"records": [], "selected": set()}
+    state: dict[str, Any] = {"records": [], "selected": set(), "page": 0}
     status = ft.Text("", size=12, color=MUTED)
     table_area = ft.Column(spacing=10)
-    summary_row = ft.Row(spacing=12, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
 
     search_field = ft.TextField(
         label="Recherche",
@@ -77,6 +83,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             pass
 
     def refresh_table(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         state["records"] = list_employees(search_field.value or "")
         current_ids = {int(record["id_employe"]) for record in state["records"]}
         state["selected"] = state["selected"] & current_ids
@@ -157,6 +164,13 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         else:
             state["selected"].difference_update(visible_ids)
         render_summary()
+        render_table()
+        _update()
+
+    def change_page(delta: int) -> None:
+        rows = filtered_records()
+        max_page = max((len(rows) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"]) + delta))
         render_table()
         _update()
 
@@ -375,6 +389,15 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
 
     def bulk_return_to_service(record: dict[str, Any] | None = None) -> None:
         ids = [int(record["id_employe"])] if record else selected_ids()
+        confirm_action(
+            page,
+            "Remettre en service",
+            f"{len(ids)} employe(s) seront remis au statut de travail.",
+            lambda: _bulk_return_to_service(ids),
+            confirm_label="Remettre en service",
+        )
+
+    def _bulk_return_to_service(ids: list[int]) -> None:
         try:
             updated = return_employees_to_service(ids)
             state["selected"].clear()
@@ -390,8 +413,27 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         notify(f"List of OREZONE Employee cree: {output}", SUCCESS)
         _update()
 
+    def export_list_pdf(event: ft.ControlEvent | None = None) -> None:
+        records = filtered_records()
+        output = export_daily_lineup_pdf(records)
+        notify(f"PDF List of OREZONE Employee pret: {output}", SUCCESS)
+        _update()
+
     def change_shift(shift_code: str, record: dict[str, Any] | None = None) -> None:
         ids = [int(record["id_employe"])] if record else selected_ids()
+        if len(ids) > 1:
+            label = "Day Shift" if shift_code == "DAY" else "Night Shift"
+            confirm_action(
+                page,
+                "Changer le shift",
+                f"{len(ids)} employe(s) seront affectes a {label}.",
+                lambda: _change_shift(ids, shift_code),
+                confirm_label="Appliquer",
+            )
+            return
+        _change_shift(ids, shift_code)
+
+    def _change_shift(ids: list[int], shift_code: str) -> None:
         try:
             updated = update_employee_shift(ids, shift_code)
             state["selected"].clear()
@@ -440,6 +482,10 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
 
     def render_table() -> None:
         records = filtered_records()
+        max_page = max((len(records) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"])))
+        start = int(state["page"]) * PAGE_SIZE
+        page_records = records[start : start + PAGE_SIZE]
         if not records:
             table_content: ft.Control = ft.Container(
                 bgcolor="#F8FAFC",
@@ -541,7 +587,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                                     ),
                                 ],
                             )
-                            for record in records
+                            for record in page_records
                         ],
                         border=ft.border.all(1, "#BFDBFE"),
                         border_radius=8,
@@ -595,9 +641,14 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                         on_click=lambda event: open_exit_dialog(),
                     ),
                     ft.OutlinedButton(
-                        "List of OREZONE Employee",
+                        "Liste Excel",
                         icon=ft.Icons.DOWNLOAD_OUTLINED,
                         on_click=export_list,
+                    ),
+                    ft.OutlinedButton(
+                        "Liste PDF",
+                        icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
+                        on_click=export_list_pdf,
                     ),
                     status,
                 ],
@@ -605,7 +656,36 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                 wrap=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            ft.Text(f"{len(records)} ligne(s) | {len(state['selected'])} selectionne(s)", size=12, color=MUTED),
+            ft.Row(
+                controls=[
+                    ft.Text(
+                        f"{start + 1 if records else 0}-{start + len(page_records)} / {len(records)} ligne(s) | {len(state['selected'])} selectionne(s)",
+                        size=12,
+                        color=MUTED,
+                    ),
+                    ft.OutlinedButton(
+                        "Precedent",
+                        icon=ft.Icons.ARROW_BACK,
+                        disabled=int(state["page"]) <= 0,
+                        on_click=lambda event: change_page(-1),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                        bgcolor="#EFF6FF",
+                        border=ft.border.all(1, "#BFDBFE"),
+                        border_radius=8,
+                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                    ),
+                    ft.OutlinedButton(
+                        "Suivant",
+                        icon=ft.Icons.ARROW_FORWARD,
+                        disabled=int(state["page"]) >= max_page,
+                        on_click=lambda event: change_page(1),
+                    ),
+                ],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             table_content,
         ]
 
@@ -674,19 +754,8 @@ def _suggested_break_start(record: dict[str, Any] | None = None) -> date:
 
 def _summary_chip(label: str, value: int, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -779,4 +848,3 @@ def _break_due_color(record: dict[str, Any]) -> str:
     if int(days) <= 3:
         return WARNING
     return TEXT
-

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -15,6 +15,7 @@ from app.services import (
     today_iso,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -22,7 +23,7 @@ def training_matrix_page() -> ft.Control:
     state: dict[str, Any] = {"matrix": {"training_types": [], "rows": []}, "quick": None}
     status = ft.Text("", size=12, color=MUTED)
     matrix_area = ft.Column(spacing=10)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     training_stats_area = ft.Column(spacing=8)
     quick_area = ft.Container(visible=False)
 
@@ -469,19 +470,8 @@ def _legend_styles(training_count: int) -> list[list[str | None]]:
 
 def _summary_chip(label: str, value: int | str, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -493,4 +483,3 @@ def _legend(label: str, color: str) -> ft.Control:
         padding=ft.padding.symmetric(horizontal=8, vertical=5),
         content=ft.Text(label, size=12, color=text_color),
     )
-

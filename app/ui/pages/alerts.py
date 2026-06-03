@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -16,6 +16,7 @@ from app.services import (
     update_manual_alert_status,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -27,9 +28,9 @@ LEVEL_COLORS = {
 }
 
 
-def alerts_page(navigate: Any | None = None) -> ft.Control:
+def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Control:
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
     source_area = ft.Row(spacing=8, wrap=True)
 
@@ -87,9 +88,11 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
         )
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
-        render_summary()
-        render_sources()
-        render_table()
+        summary = get_alert_summary()
+        rows = current_rows()
+        render_summary(summary)
+        render_sources(summary)
+        render_table(rows)
         _update()
 
     def reset_filters(event: ft.ControlEvent | None = None) -> None:
@@ -155,8 +158,7 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
         notify(f"Export Excel cree: {output}", SUCCESS)
         _update()
 
-    def render_summary() -> None:
-        summary = get_alert_summary()
+    def render_summary(summary: dict[str, Any]) -> None:
         summary_row.controls = [
             _summary_chip("Ouvertes", summary["open"], DANGER if summary["open"] else SUCCESS, ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
             _summary_chip("Critiques", summary["critical"], DANGER if summary["critical"] else SUCCESS, ft.Icons.PRIORITY_HIGH_OUTLINED),
@@ -165,15 +167,13 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
             _summary_chip("Total", summary["total"], MUTED, ft.Icons.FORMAT_LIST_BULLETED_OUTLINED),
         ]
 
-    def render_sources() -> None:
-        summary = get_alert_summary()
+    def render_sources(summary: dict[str, Any]) -> None:
         source_area.controls = [
             _source_badge(label, value)
             for label, value in sorted(summary["by_source"].items())
         ] or [ft.Text("Aucune source en alerte.", size=12, color=SUCCESS)]
 
-    def render_table() -> None:
-        rows = current_rows()
+    def render_table(rows: list[dict[str, Any]]) -> None:
         table_area.controls = [
             ft.Row(
                 controls=[
@@ -216,12 +216,14 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
     for control in (search_field, source_filter, level_filter, status_filter):
         control.on_change = refresh
 
-    root = ft.Column(
-        controls=[
-            module_header(
-                "Alertes",
-                "Centralisation des signaux QHSE: formations, presence, breaks, badges, EPI et stock.",
-            ),
+    controls = [
+        module_header(
+            "Alertes",
+            "Centralisation des signaux QHSE: formations, presence, breaks, badges, EPI et stock.",
+        )
+    ] if show_header else []
+    controls.extend(
+        [
             ft.Container(
                 bgcolor="#EFF6FF",
                 border=ft.border.all(1, "#BFDBFE"),
@@ -282,7 +284,10 @@ def alerts_page(navigate: Any | None = None) -> ft.Control:
                 padding=16,
                 content=table_area,
             ),
-        ],
+        ]
+    )
+    root = ft.Column(
+        controls=controls,
         spacing=18,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
@@ -345,19 +350,8 @@ def _alert_row(row: dict[str, Any], close_action: Any, delete_action: Any, navig
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=10, vertical=6),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=16),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=color, size=13, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=6,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -393,4 +387,3 @@ def _target_key(source_key: str) -> str | None:
         "maintenance": "MaintenanceActions",
         "training": "TrainingManagement",
     }.get(source_key)
-

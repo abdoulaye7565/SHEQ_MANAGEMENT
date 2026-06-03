@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -12,13 +12,14 @@ from app.services import (
     return_employees_to_service,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
 def active_breaks_page() -> ft.Control:
     state: dict[str, Any] = {"records": []}
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=12, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=12)
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=280)
     type_filter = ft.Dropdown(
@@ -232,19 +233,8 @@ def _count_type(records: list[dict[str, Any]], break_type: str) -> int:
 
 def _summary_chip(label: str, value: int, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -270,4 +260,3 @@ def _state_text(state: str | None) -> str:
         "permission": "Permission",
         "sick": "Maladie",
     }.get(str(state or "break"), "En break")
-

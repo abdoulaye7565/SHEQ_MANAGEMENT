@@ -3,12 +3,11 @@ import flet as ft
 from app.services import authenticate_user, create_user, get_role_modules, has_users, list_roles
 from app.ui.pages.admin import admin_page
 from app.ui.pages.dashboard import dashboard_page
-from app.ui.pages.alerts import alerts_page
+from app.ui.pages.alerts_reports import alerts_reports_page
 from app.ui.pages.employee_management import employee_management_page
 from app.ui.pages.placeholders import placeholder_page
 from app.ui.pages.ppe import ppe_page
 from app.ui.pages.referentials import referentials_page
-from app.ui.pages.reports import reports_page
 from app.ui.pages.settings import settings_page
 from app.ui.pages.maintenance_actions import maintenance_actions_page
 from app.ui.pages.timesheet_management import timesheet_management_page
@@ -26,10 +25,9 @@ NAV_ITEMS = [
     ("TimeSheet", "TimeSheets", ft.Icons.CALENDAR_MONTH_OUTLINED),
     ("Ppe", "Gestion des EPI", ft.Icons.INVENTORY_2_OUTLINED),
     ("MaintenanceActions", "Maintenance & Actions", ft.Icons.HANDYMAN_OUTLINED),
-    ("Alerts", "Alertes", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
-    ("Reports", "Rapports", ft.Icons.PICTURE_AS_PDF_OUTLINED),
+    ("Alerts", "Alertes & Rapports", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
     ("Settings", "Parametres", ft.Icons.SETTINGS_OUTLINED),
-    ("Admin", "Administration", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
+    ("Admin", "Administrateur", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
 ]
 
 
@@ -71,28 +69,46 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     allowed_keys = set(get_role_modules(str(user.get("role") or "")))
     if "MonthlyTimesheet" in allowed_keys:
         allowed_keys.add("TimeSheet")
-    if str(user.get("role") or "") == "Administrateur":
-        allowed_keys.update({"Dashboard", "TimeSheet", "Settings", "Admin"})
+    if "Reports" in allowed_keys:
+        allowed_keys.add("Alerts")
+    if _is_admin_user(user):
+        allowed_keys.update(key for key, _, _ in NAV_ITEMS)
     visible_nav_items = [item for item in NAV_ITEMS if item[0] in allowed_keys]
+    if "Admin" in allowed_keys:
+        visible_nav_items = _promote_admin_nav_item(visible_nav_items)
     if not visible_nav_items:
         visible_nav_items = [NAV_ITEMS[0]]
 
-    content = ft.Container(expand=True, padding=24)
+    screen_switcher = ft.AnimatedSwitcher(
+        content=ft.Container(),
+        duration=260,
+        reverse_duration=160,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        expand=True,
+    )
+    content = ft.Container(expand=True, padding=24, content=screen_switcher)
     active_title = ft.Text("", size=18, weight=ft.FontWeight.BOLD, color=TEXT)
     active_subtitle = ft.Text("", size=12, color=MUTED)
     current_key: str | None = None
     nav_buttons: list[ft.TextButton] = []
+    screen_cache: dict[str, ft.Control] = {}
 
-    def render(index: int) -> None:
+    def render(index: int, force_reload: bool = False) -> None:
         nonlocal current_key
         key, label, _ = visible_nav_items[index]
         try:
-            content.content = _build_screen(key, label, page, user, render_key)
+            if force_reload:
+                screen_cache.pop(key, None)
+            if key not in screen_cache:
+                screen_cache[key] = _build_screen(key, label, page, user, render_key)
+            screen_switcher.content = screen_cache[key]
             active_title.value = label
             active_subtitle.value = _module_subtitle(key)
             current_key = key
         except Exception as exc:
-            content.content = _error_view(label, exc)
+            screen_switcher.content = _error_view(label, exc)
             active_title.value = label
             active_subtitle.value = "Erreur de chargement du module."
             current_key = key
@@ -111,7 +127,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
             return
         for index, item in enumerate(visible_nav_items):
             if item[0] == current_key:
-                render(index)
+                render(index, force_reload=True)
                 return
 
     def toggle_dark_mode(event: ft.ControlEvent) -> None:
@@ -307,8 +323,7 @@ def _module_subtitle(key: str) -> str:
         "TimeSheet": "TimeSheet 21-20 et TimeSheet 1-25 regroupes en onglets.",
         "Ppe": "Stock EPI, dotations, inspections et seuils critiques.",
         "MaintenanceActions": "Maintenance equipements, action tracker, echeances et responsabilites.",
-        "Alerts": "Signaux QHSE, stock, badges, formations et operations.",
-        "Reports": "Exports operationnels Excel/PDF et rapports consolides.",
+        "Alerts": "Signaux QHSE et rapports operationnels consolides.",
         "Settings": "Chemins, exports, base SQLite, sauvegardes et installation.",
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
     }
@@ -329,24 +344,37 @@ def _build_screen(
     if key == "EmployeeManagement":
         return employee_management_page(page)
     if key == "TrainingManagement":
-        return training_management_page()
+        return training_management_page(page)
     if key == "ToolboxTalk":
         return toolbox_talk_page(page)
     if key == "TimeSheet":
         return timesheet_management_page(page)
     if key == "Ppe":
-        return ppe_page()
+        return ppe_page(page)
     if key == "MaintenanceActions":
-        return maintenance_actions_page()
+        return maintenance_actions_page(page)
     if key == "Alerts":
-        return alerts_page(navigate=render_key)
-    if key == "Reports":
-        return reports_page()
+        return alerts_reports_page(navigate=render_key)
     if key == "Settings":
         return settings_page(user, page)
     if key == "Admin":
         return admin_page(user, page)
     return placeholder_page(label)
+
+
+def _is_admin_user(user: dict[str, object]) -> bool:
+    role = str(user.get("role") or "").strip().lower()
+    username = str(user.get("username") or "").strip().lower()
+    return role == "administrateur" or username == "admin"
+
+
+def _promote_admin_nav_item(items: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    admin_items = [item for item in items if item[0] == "Admin"]
+    other_items = [item for item in items if item[0] != "Admin"]
+    if not admin_items:
+        return items
+    insert_at = 1 if other_items and other_items[0][0] == "Dashboard" else 0
+    return other_items[:insert_at] + admin_items + other_items[insert_at:]
 
 
 def _login_view(

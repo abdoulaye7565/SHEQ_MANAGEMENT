@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -28,14 +28,16 @@ from app.services import (
     update_ppe_item,
     today_iso,
 )
+from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
-def ppe_page() -> ft.Control:
+def ppe_page(page: ft.Page | None = None) -> ft.Control:
     status = ft.Text("", size=12, color=MUTED)
     selected_item_id: int | None = None
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     catalog_area = ft.Column(spacing=10)
     movement_area = ft.Column(spacing=10)
     assignment_area = ft.Column(spacing=10)
@@ -226,6 +228,16 @@ def ppe_page() -> ft.Control:
         _update()
 
     def delete_item(item_id: int) -> None:
+        confirm_action(
+            page,
+            "Supprimer ou desactiver l'EPI",
+            "Le systeme supprimera l'EPI si possible, sinon il sera desactive pour conserver l'historique.",
+            lambda: _delete_item(item_id),
+            confirm_label="Continuer",
+            danger=True,
+        )
+
+    def _delete_item(item_id: int) -> None:
         try:
             result = delete_ppe_item(item_id)
             reset_item_form()
@@ -270,6 +282,15 @@ def ppe_page() -> ft.Control:
             _update()
 
     def close_assignment(assignment_id: int, close_status: str) -> None:
+        confirm_action(
+            page,
+            "Cloturer l'affectation EPI",
+            "Cette affectation sera marquee comme retournee ou cloturee.",
+            lambda: _close_assignment(assignment_id, close_status),
+            confirm_label="Cloturer",
+        )
+
+    def _close_assignment(assignment_id: int, close_status: str) -> None:
         try:
             return_ppe_assignment(assignment_id, status=close_status)
             notify("Affectation cloturee.", SUCCESS)
@@ -295,6 +316,16 @@ def ppe_page() -> ft.Control:
             _update()
 
     def remove_requirement(requirement_id: int) -> None:
+        confirm_action(
+            page,
+            "Supprimer la dotation obligatoire",
+            "Cette regle de dotation EPI sera supprimee.",
+            lambda: _remove_requirement(requirement_id),
+            confirm_label="Supprimer",
+            danger=True,
+        )
+
+    def _remove_requirement(requirement_id: int) -> None:
         try:
             delete_ppe_requirement(requirement_id)
             notify("Dotation obligatoire supprimee.", SUCCESS)
@@ -773,19 +804,8 @@ def ppe_page() -> ft.Control:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -822,4 +842,3 @@ def _recommendation_card(title: str, description: str, icon: str) -> ft.Control:
             vertical_alignment=ft.CrossAxisAlignment.START,
         ),
     )
-

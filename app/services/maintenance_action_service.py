@@ -5,13 +5,15 @@ from pathlib import Path
 from typing import Any
 
 from app.db.connection import db_session
-from app.services.attendance_export_service import export_rows_xlsx
+from app.services.attendance_export_service import export_rows_xlsx, export_styled_rows_xlsx
 
 
 MAINTENANCE_TYPES = {"preventive", "corrective", "inspection", "calibration"}
 MAINTENANCE_STATUSES = {"planifiee", "en_cours", "terminee", "annulee", "en_retard"}
 ACTION_STATUSES = {"ouverte", "en_cours", "terminee", "annulee", "en_retard"}
 PRIORITIES = {"basse", "moyenne", "haute", "critique"}
+RISK_STATUSES = {"open", "in_progress", "controlled", "closed"}
+CONTROL_HIERARCHY = {"elimination", "substitution", "engineering", "administrative", "ppe"}
 
 
 def get_maintenance_action_summary() -> dict[str, int | float]:
@@ -40,6 +42,18 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
             """,
             (today,),
         ).fetchone()
+        risks = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN status NOT IN ('controlled', 'closed') THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN level_initial IN ('high', 'critical') THEN 1 ELSE 0 END) AS high_initial,
+                SUM(CASE WHEN level_residual IN ('high', 'critical') AND status NOT IN ('closed') THEN 1 ELSE 0 END) AS high_residual,
+                SUM(CASE WHEN status NOT IN ('controlled', 'closed') AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END) AS late_count
+            FROM risk_assessments
+            """,
+            (today,),
+        ).fetchone()
     return {
         "maintenance_total": int(maintenance["total"] or 0),
         "maintenance_open": int(maintenance["open_count"] or 0),
@@ -50,6 +64,11 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
         "actions_open": int(actions["open_count"] or 0),
         "actions_late": int(actions["late_count"] or 0),
         "actions_critical": int(actions["critical_count"] or 0),
+        "risks_total": int(risks["total"] or 0),
+        "risks_open": int(risks["open_count"] or 0),
+        "risks_high_initial": int(risks["high_initial"] or 0),
+        "risks_high_residual": int(risks["high_residual"] or 0),
+        "risks_late": int(risks["late_count"] or 0),
     }
 
 
@@ -372,6 +391,93 @@ def delete_action(action_id: int) -> None:
             raise ValueError("Action introuvable.")
 
 
+def list_risk_assessments(search: str = "", status: str = "all", limit: int = 200) -> list[dict[str, Any]]:
+    where = []
+    params: list[Any] = []
+    if search.strip():
+        pattern = f"%{search.strip()}%"
+        where.append(
+            """
+            (ra.activity LIKE ? OR COALESCE(ra.task, '') LIKE ? OR ra.hazard LIKE ?
+             OR ra.risk_event LIKE ? OR ra.consequences LIKE ? OR COALESCE(ra.additional_controls, '') LIKE ?)
+            """
+        )
+        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+    if status != "all":
+        where.append("ra.status = ?")
+        params.append(status)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    params.append(limit)
+    with db_session() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                ra.*,
+                s.nom AS site,
+                COALESCE(e.nom, e.nom_complet) AS owner_nom,
+                COALESCE(e.prenom, '') AS owner_prenom
+            FROM risk_assessments ra
+            LEFT JOIN sites s ON s.id_site = ra.site_id
+            LEFT JOIN employes e ON e.id_employe = ra.owner_employee_id
+            {where_sql}
+            ORDER BY
+                CASE ra.level_residual WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                CASE ra.level_initial WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                COALESCE(ra.review_date, ra.due_date, ra.created_at),
+                ra.id_risk DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_risk_assessment(values: dict[str, Any]) -> int:
+    payload = _clean_risk_payload(values)
+    with db_session() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO risk_assessments (
+                activity, task, hazard, risk_event, consequences, existing_controls,
+                site_id, owner_employee_id, probability_initial, severity_initial,
+                risk_initial, level_initial, hierarchy_control, additional_controls,
+                probability_residual, severity_residual, risk_residual, level_residual,
+                status, due_date, review_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _risk_payload_tuple(payload),
+        )
+        return int(cursor.lastrowid)
+
+
+def update_risk_assessment(risk_id: int, values: dict[str, Any]) -> None:
+    payload = _clean_risk_payload(values)
+    with db_session() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE risk_assessments
+            SET activity = ?, task = ?, hazard = ?, risk_event = ?, consequences = ?,
+                existing_controls = ?, site_id = ?, owner_employee_id = ?,
+                probability_initial = ?, severity_initial = ?, risk_initial = ?,
+                level_initial = ?, hierarchy_control = ?, additional_controls = ?,
+                probability_residual = ?, severity_residual = ?, risk_residual = ?,
+                level_residual = ?, status = ?, due_date = ?, review_date = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id_risk = ?
+            """,
+            (*_risk_payload_tuple(payload), int(risk_id)),
+        )
+        if not cursor.rowcount:
+            raise ValueError("Evaluation des risques introuvable.")
+
+
+def delete_risk_assessment(risk_id: int) -> None:
+    with db_session() as connection:
+        cursor = connection.execute("DELETE FROM risk_assessments WHERE id_risk = ?", (int(risk_id),))
+        if not cursor.rowcount:
+            raise ValueError("Evaluation des risques introuvable.")
+
+
 def export_equipment_maintenance_xlsx() -> Path:
     rows = list_equipment_maintenance(limit=1000)
     return export_rows_xlsx(
@@ -437,6 +543,119 @@ def export_action_tracker_xlsx() -> Path:
     )
 
 
+def export_risk_assessments_xlsx() -> Path:
+    rows = list_risk_assessments(limit=1000)
+    headers = [
+        "Activite",
+        "Tache",
+        "Danger",
+        "Evenement redoute",
+        "Consequences",
+        "Controles existants",
+        "Site",
+        "Responsable",
+        "P init.",
+        "G init.",
+        "Score init.",
+        "Niveau init.",
+        "Hierarchie controle",
+        "Mesures complementaires",
+        "P resid.",
+        "G resid.",
+        "Score resid.",
+        "Niveau resid.",
+        "Statut",
+        "Echeance",
+        "Revue",
+    ]
+    data_rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    summary = _risk_export_summary(rows)
+    data_rows.extend(
+        [
+            [
+                "Risk assessment summary",
+                f"Total: {summary['total']}",
+                f"Critical initial: {summary['critical_initial']}",
+                f"High initial: {summary['high_initial']}",
+                f"Critical residual: {summary['critical_residual']}",
+                f"High residual: {summary['high_residual']}",
+                f"Open: {summary['open']}",
+                f"Controlled/closed: {summary['controlled']}",
+            ],
+            [],
+            ["Legend", "Low", "Medium", "High", "Critical", "Controlled", "ISO hierarchy: Elimination > Substitution > Engineering > Administrative > PPE"],
+            [],
+        ]
+    )
+    styles.extend(
+        [
+            ["section", "done", "danger", "soon", "danger", "soon", "section", "done"],
+            [],
+            ["section", "done", "standard", "soon", "danger", "done", "section"],
+            [],
+        ]
+    )
+    for row in rows:
+        data_rows.append(
+            [
+                row.get("activity") or "",
+                row.get("task") or "",
+                row.get("hazard") or "",
+                row.get("risk_event") or "",
+                row.get("consequences") or "",
+                row.get("existing_controls") or "",
+                row.get("site") or "",
+                _person_name(row, "owner_nom", "owner_prenom"),
+                row.get("probability_initial") or 0,
+                row.get("severity_initial") or 0,
+                row.get("risk_initial") or 0,
+                _risk_level_label(row.get("level_initial")),
+                _control_label(row.get("hierarchy_control")),
+                row.get("additional_controls") or "",
+                row.get("probability_residual") or 0,
+                row.get("severity_residual") or 0,
+                row.get("risk_residual") or 0,
+                _risk_level_label(row.get("level_residual")),
+                _risk_status_label(row.get("status")),
+                row.get("due_date") or "",
+                row.get("review_date") or "",
+            ]
+        )
+        styles.append(
+            [
+                None,
+                None,
+                _risk_level_style(row.get("level_initial")),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                _risk_level_style(row.get("level_initial")),
+                _risk_level_style(row.get("level_initial")),
+                _control_style(row.get("hierarchy_control")),
+                None,
+                None,
+                None,
+                _risk_level_style(row.get("level_residual")),
+                _risk_level_style(row.get("level_residual")),
+                _risk_status_style(row.get("status")),
+                None,
+                None,
+            ]
+        )
+    return export_styled_rows_xlsx(
+        "evaluation_risques_iso.xlsx",
+        "OREZONE Risk Register",
+        headers,
+        data_rows,
+        styles,
+    )
+
+
 def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
     maintenance_type = _required_text(values.get("maintenance_type") or "preventive", "Type maintenance")
     status = _required_text(values.get("status") or "planifiee", "Statut")
@@ -462,6 +681,70 @@ def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
         "cost": _optional_float(values.get("cost")) or 0,
         "observations": _optional_text(values.get("observations")),
     }
+
+
+def _clean_risk_payload(values: dict[str, Any]) -> dict[str, Any]:
+    probability_initial = _scale_value(values.get("probability_initial"), "Probabilite initiale")
+    severity_initial = _scale_value(values.get("severity_initial"), "Gravite initiale")
+    probability_residual = _scale_value(values.get("probability_residual"), "Probabilite residuelle")
+    severity_residual = _scale_value(values.get("severity_residual"), "Gravite residuelle")
+    risk_initial = probability_initial * severity_initial
+    risk_residual = probability_residual * severity_residual
+    hierarchy_control = _required_text(values.get("hierarchy_control") or "administrative", "Hierarchie de controle")
+    status = _required_text(values.get("status") or "open", "Statut")
+    if hierarchy_control not in CONTROL_HIERARCHY:
+        raise ValueError("Hierarchie de controle invalide.")
+    if status not in RISK_STATUSES:
+        raise ValueError("Statut risque invalide.")
+    return {
+        "activity": _required_text(values.get("activity"), "Activite"),
+        "task": _optional_text(values.get("task")),
+        "hazard": _required_text(values.get("hazard"), "Danger"),
+        "risk_event": _required_text(values.get("risk_event"), "Evenement redoute"),
+        "consequences": _required_text(values.get("consequences"), "Consequences"),
+        "existing_controls": _optional_text(values.get("existing_controls")),
+        "site_id": _optional_int(values.get("site_id")),
+        "owner_employee_id": _optional_int(values.get("owner_employee_id")),
+        "probability_initial": probability_initial,
+        "severity_initial": severity_initial,
+        "risk_initial": risk_initial,
+        "level_initial": _risk_level(risk_initial),
+        "hierarchy_control": hierarchy_control,
+        "additional_controls": _optional_text(values.get("additional_controls")),
+        "probability_residual": probability_residual,
+        "severity_residual": severity_residual,
+        "risk_residual": risk_residual,
+        "level_residual": _risk_level(risk_residual),
+        "status": status,
+        "due_date": _optional_date(values.get("due_date"), "Echeance"),
+        "review_date": _optional_date(values.get("review_date"), "Date de revue"),
+    }
+
+
+def _risk_payload_tuple(payload: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        payload["activity"],
+        payload["task"],
+        payload["hazard"],
+        payload["risk_event"],
+        payload["consequences"],
+        payload["existing_controls"],
+        payload["site_id"],
+        payload["owner_employee_id"],
+        payload["probability_initial"],
+        payload["severity_initial"],
+        payload["risk_initial"],
+        payload["level_initial"],
+        payload["hierarchy_control"],
+        payload["additional_controls"],
+        payload["probability_residual"],
+        payload["severity_residual"],
+        payload["risk_residual"],
+        payload["level_residual"],
+        payload["status"],
+        payload["due_date"],
+        payload["review_date"],
+    )
 
 
 def _clean_action_payload(values: dict[str, Any]) -> dict[str, Any]:
@@ -512,6 +795,94 @@ def _optional_float(value: Any) -> float | None:
     if value in ("", None):
         return None
     return float(value)
+
+
+def _scale_value(value: Any, label: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label}: utilise une valeur de 1 a 5.") from exc
+    if number < 1 or number > 5:
+        raise ValueError(f"{label}: utilise une valeur de 1 a 5.")
+    return number
+
+
+def _risk_level(score: int) -> str:
+    if score >= 17:
+        return "critical"
+    if score >= 10:
+        return "high"
+    if score >= 5:
+        return "medium"
+    return "low"
+
+
+def _risk_level_label(value: Any) -> str:
+    return {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "critical": "Critical",
+    }.get(str(value or ""), str(value or "-"))
+
+
+def _risk_export_summary(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "total": len(rows),
+        "critical_initial": sum(1 for row in rows if row.get("level_initial") == "critical"),
+        "high_initial": sum(1 for row in rows if row.get("level_initial") == "high"),
+        "critical_residual": sum(1 for row in rows if row.get("level_residual") == "critical"),
+        "high_residual": sum(1 for row in rows if row.get("level_residual") == "high"),
+        "open": sum(1 for row in rows if row.get("status") in ("open", "in_progress")),
+        "controlled": sum(1 for row in rows if row.get("status") in ("controlled", "closed")),
+    }
+
+
+def _risk_level_style(value: Any) -> str:
+    return {
+        "low": "done",
+        "medium": "standard",
+        "high": "soon",
+        "critical": "danger",
+    }.get(str(value or ""), "unfilled")
+
+
+def _risk_status_style(value: Any) -> str:
+    return {
+        "open": "soon",
+        "in_progress": "standard",
+        "controlled": "done",
+        "closed": "rest",
+    }.get(str(value or ""), "unfilled")
+
+
+def _control_style(value: Any) -> str:
+    return {
+        "elimination": "done",
+        "substitution": "done",
+        "engineering": "standard",
+        "administrative": "soon",
+        "ppe": "annual",
+    }.get(str(value or ""), "unfilled")
+
+
+def _risk_status_label(value: Any) -> str:
+    return {
+        "open": "Open",
+        "in_progress": "In progress",
+        "controlled": "Controlled",
+        "closed": "Closed",
+    }.get(str(value or ""), str(value or "-"))
+
+
+def _control_label(value: Any) -> str:
+    return {
+        "elimination": "Elimination",
+        "substitution": "Substitution",
+        "engineering": "Engineering control",
+        "administrative": "Administrative control",
+        "ppe": "PPE",
+    }.get(str(value or ""), str(value or "-"))
 
 
 def _date_text(value: Any, label: str) -> str:

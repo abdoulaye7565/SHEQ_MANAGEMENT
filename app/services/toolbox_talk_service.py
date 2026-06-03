@@ -52,6 +52,15 @@ DEFAULT_TOOLBOX_THEMES = [
     "Incident and near-miss lessons learned / Retour d'experience apres incident ou presqu'accident",
 ]
 
+TOOLBOX_SINGLE_LANGUAGE_TRANSLATIONS = {
+    "port des epi": "Mandatory PPE selection and use / Port des EPI",
+    "port obligatoire des epi": "Mandatory PPE selection and use / Port obligatoire des EPI",
+    "controle des epi": "PPE inspection and control / Controle des EPI",
+    "circulation sur site": "Site traffic management / Circulation sur site",
+    "fatigue management": "Fatigue management before starting work / Gestion de la fatigue",
+    "gestion de la fatigue": "Fatigue management before starting work / Gestion de la fatigue",
+}
+
 
 def current_toolbox_month() -> str:
     return date.today().strftime("%Y-%m")
@@ -64,6 +73,7 @@ def list_toolbox_topics(month: str | None = None) -> dict[str, Any]:
     start = f"{selected_month}-01"
     end = f"{selected_month}-{days_in_month:02d}"
     with db_session() as connection:
+        _normalize_existing_bilingual_topics(connection)
         rows = connection.execute(
             """
             SELECT
@@ -115,6 +125,7 @@ def list_toolbox_topics(month: str | None = None) -> dict[str, Any]:
 def save_toolbox_topic(values: dict[str, Any]) -> int:
     payload = _clean_payload(values)
     with db_session() as connection:
+        _ensure_theme_not_used_in_month(connection, payload["date_theme"], payload["theme"])
         cursor = connection.execute(
             """
             INSERT INTO themes_securite(date_theme, theme, facilitateur, site_id)
@@ -143,13 +154,19 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
     dates = [_parse_date(str(item)) for item in values.get("dates", []) if str(item or "").strip()]
     if not dates:
         raise ValueError("Selectionne au moins une date.")
-    theme = str(values.get("theme") or "").strip()
+    theme = _normalize_bilingual_theme(values.get("theme"))
     if not theme:
         raise ValueError("Theme / topic obligatoire.")
+    months = {target_date[:7] for target_date in dates}
+    for month in months:
+        if sum(1 for target_date in set(dates) if target_date.startswith(month)) > 1:
+            raise ValueError("Un theme ne peut pas etre affecte plusieurs fois dans le meme mois.")
     facilitator = _normalize_facilitator(values.get("facilitateur"))
     site_id = values.get("site_id")
     normalized_site_id = int(site_id) if site_id not in ("", None) else None
     with db_session() as connection:
+        for target_date in sorted(set(dates)):
+            _ensure_theme_not_used_in_month(connection, target_date, theme)
         for target_date in sorted(set(dates)):
             connection.execute(
                 """
@@ -169,6 +186,7 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
 def list_theme_catalog(include_inactive: bool = False) -> list[dict[str, Any]]:
     where = "" if include_inactive else "WHERE actif = 1"
     with db_session() as connection:
+        _normalize_existing_bilingual_topics(connection)
         rows = connection.execute(
             f"""
             SELECT id_topic, theme, obligatoire, actif, created_at, updated_at
@@ -181,7 +199,7 @@ def list_theme_catalog(include_inactive: bool = False) -> list[dict[str, Any]]:
 
 
 def save_theme_catalog(values: dict[str, Any]) -> int:
-    theme = str(values.get("theme") or "").strip()
+    theme = _normalize_bilingual_theme(values.get("theme"))
     if not theme:
         raise ValueError("Theme obligatoire.")
     topic_id = int(values.get("id_topic") or 0)
@@ -218,12 +236,22 @@ def save_theme_catalog(values: dict[str, Any]) -> int:
         return int(row["id_topic"] if row else cursor.lastrowid)
 
 
+def delete_theme_catalog(topic_id: int) -> None:
+    with db_session() as connection:
+        cursor = connection.execute(
+            "DELETE FROM toolbox_theme_catalog WHERE id_topic = ?",
+            (int(topic_id),),
+        )
+        if not cursor.rowcount:
+            raise ValueError("Theme introuvable dans la banque.")
+
+
 def generate_toolbox_theme_catalog(count: int = 31) -> int:
     selected_count = max(1, min(int(count or 31), len(DEFAULT_TOOLBOX_THEMES)))
-    existing = {str(row["theme"]).strip().lower() for row in list_theme_catalog(include_inactive=True)}
+    existing = {_theme_key(row["theme"]) for row in list_theme_catalog(include_inactive=True)}
     created = 0
     for index, theme in enumerate(DEFAULT_TOOLBOX_THEMES[:selected_count]):
-        if theme.lower() in existing:
+        if _theme_key(theme) in existing:
             continue
         save_theme_catalog(
             {
@@ -261,23 +289,24 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
         existing_theme_counts: dict[str, int] = {}
         if not overwrite:
             for row in existing_rows:
-                theme = str(row["theme"] or "").strip()
+                theme = _normalize_bilingual_theme(row["theme"])
                 if theme:
-                    existing_theme_counts[theme] = existing_theme_counts.get(theme, 0) + 1
+                    key = _theme_key(theme)
+                    existing_theme_counts[key] = existing_theme_counts.get(key, 0) + 1
         target_days = [day for day in days if overwrite or day not in existing_with_theme]
         theme_pool: list[str] = []
         for row in catalog:
-            theme = str(row["theme"] or "").strip()
+            theme = _normalize_bilingual_theme(row["theme"])
             if not theme:
                 continue
-            limit = 2 if int(row.get("obligatoire") or 0) else 1
-            remaining = limit - existing_theme_counts.get(theme, 0)
+            limit = 1
+            remaining = limit - existing_theme_counts.get(_theme_key(theme), 0)
             theme_pool.extend([theme] * max(0, remaining))
         random.shuffle(theme_pool)
         if len(theme_pool) < len(target_days):
             raise ValueError(
                 "Themes insuffisants pour remplir le mois avec cette regle: "
-                "un theme normal une seule fois, un theme obligatoire deux fois maximum."
+                "chaque theme doit etre utilise une seule fois maximum dans le mois."
             )
         for day in days:
             if day in existing_with_theme and not overwrite:
@@ -416,7 +445,7 @@ def list_toolbox_facilitators() -> list[dict[str, str]]:
 
 def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
     target_date = _parse_date(str(values.get("date_theme") or ""))
-    theme = str(values.get("theme") or "").strip()
+    theme = _normalize_bilingual_theme(values.get("theme"))
     facilitator = _normalize_facilitator(values.get("facilitateur"))
     site_id = values.get("site_id")
     if not theme:
@@ -427,6 +456,109 @@ def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
         "facilitateur": facilitator,
         "site_id": int(site_id) if site_id not in ("", None) else None,
     }
+
+
+def _normalize_existing_bilingual_topics(connection: Any) -> None:
+    for table, key_column in (("themes_securite", "id_theme"), ("toolbox_theme_catalog", "id_topic")):
+        rows = connection.execute(f"SELECT {key_column}, theme FROM {table}").fetchall()
+        for row in rows:
+            current = str(row["theme"] or "").strip()
+            normalized = _normalize_bilingual_theme(current)
+            if current and normalized != current:
+                connection.execute(
+                    f"UPDATE {table} SET theme = ?, updated_at = CURRENT_TIMESTAMP WHERE {key_column} = ?",
+                    (normalized, row[key_column]),
+                )
+
+
+def _normalize_bilingual_theme(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _has_bilingual_separator(text):
+        english, french = _split_theme_parts(text)
+        return f"{english} / {french}" if english and french else text
+    translated = TOOLBOX_SINGLE_LANGUAGE_TRANSLATIONS.get(_plain_key(text))
+    if translated:
+        return translated
+    language = _detect_theme_language(text)
+    if language == "fr":
+        return f"{text} / {text}"
+    if language == "en":
+        return f"{text} / {text}"
+    return f"{text} / {text}"
+
+
+def _ensure_theme_not_used_in_month(connection: Any, target_date: str, theme: str) -> None:
+    month = str(target_date)[:7]
+    start = f"{month}-01"
+    end = _month_days(month)[-1]
+    theme_key = _theme_key(theme)
+    rows = connection.execute(
+        """
+        SELECT date_theme, theme
+        FROM themes_securite
+        WHERE date_theme BETWEEN ? AND ?
+          AND date_theme <> ?
+          AND COALESCE(theme, '') <> ''
+        """,
+        (start, end, target_date),
+    ).fetchall()
+    for row in rows:
+        if _theme_key(row["theme"]) == theme_key:
+            raise ValueError("Ce theme est deja utilise dans ce mois. Choisis un autre theme.")
+
+
+def _has_bilingual_separator(value: str) -> bool:
+    return any(separator in str(value or "") for separator in (" / ", " | "))
+
+
+def _split_theme_parts(value: str) -> tuple[str, str]:
+    separator = " / " if " / " in value else " | "
+    left, right = [part.strip() for part in value.split(separator, 1)]
+    left_language = _detect_theme_language(left)
+    right_language = _detect_theme_language(right)
+    if left_language == "fr" and right_language != "fr":
+        return right, left
+    if right_language == "en" and left_language != "en":
+        return right, left
+    return left, right
+
+
+def _detect_theme_language(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return "unknown"
+    french_words = {
+        "analyse", "avant", "circulation", "controle", "de", "des", "du", "engins",
+        "epi", "et", "fatigue", "gestion", "hauteur", "la", "le", "les", "obligatoire",
+        "pietons", "port", "prevention", "risques", "securite", "site", "travail", "travaux",
+    }
+    english_words = {
+        "and", "before", "control", "equipment", "fatigue", "height", "inspection",
+        "job", "management", "mandatory", "mobile", "ppe", "prevention", "risk",
+        "safety", "site", "traffic", "use", "work", "working",
+    }
+    normalized = "".join(char if char.isalnum() else " " for char in text)
+    tokens = normalized.split()
+    french_score = sum(1 for token in tokens if token in french_words)
+    english_score = sum(1 for token in tokens if token in english_words)
+    if any(char in text for char in "\u00e0\u00e2\u00e7\u00e9\u00e8\u00ea\u00eb\u00ee\u00ef\u00f4\u00f9\u00fb\u00fc"):
+        french_score += 2
+    if french_score > english_score:
+        return "fr"
+    if english_score > french_score:
+        return "en"
+    return "unknown"
+
+
+def _theme_key(value: Any) -> str:
+    return _plain_key(_normalize_bilingual_theme(value))
+
+
+def _plain_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return " ".join("".join(char if char.isalnum() else " " for char in text).split())
 
 
 def _normalize_facilitator(value: Any) -> str:

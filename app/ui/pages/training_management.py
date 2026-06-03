@@ -8,7 +8,7 @@ from app.ui.pages.training_matrix import training_matrix_page
 from app.ui.theme import PRIMARY, TEXT
 
 
-def training_management_page() -> ft.Control:
+def training_management_page(page: ft.Page | None = None) -> ft.Control:
     state: dict[str, object] = {"view": "training", "cache": {}}
     content = ft.Container()
     training_button = ft.TextButton()
@@ -21,7 +21,7 @@ def training_management_page() -> ft.Control:
         cache = state["cache"]
         if isinstance(cache, dict):
             if view not in cache:
-                cache[view] = training_page() if view == "training" else training_matrix_page()
+                cache[view] = training_page(page) if view == "training" else training_matrix_page()
             content.content = cache[view]
         try:
             root.update()

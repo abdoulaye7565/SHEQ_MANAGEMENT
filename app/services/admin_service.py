@@ -30,7 +30,6 @@ ALL_MODULES = [
     "Ppe",
     "MaintenanceActions",
     "Alerts",
-    "Reports",
     "Settings",
     "Admin",
 ]
@@ -47,14 +46,13 @@ ROLE_MODULES = {
         "Ppe",
         "MaintenanceActions",
         "Alerts",
-        "Reports",
         "Settings",
         "Admin",
     ],
-    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "Reports"],
-    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts", "Reports"],
-    "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts", "Reports"],
-    "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "Reports"],
+    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts"],
+    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
+    "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
+    "Direction": ["Dashboard", "MaintenanceActions", "Alerts"],
 }
 
 
@@ -102,7 +100,7 @@ def get_role_modules(role: str) -> list[str]:
             (role_name,),
         ).fetchall()
     if rows:
-        configured = [str(row["module_key"]) for row in rows if str(row["module_key"]) in ALL_MODULES]
+        configured = _normalize_modules([str(row["module_key"]) for row in rows])
         if role_name == ADMIN_ROLE_NAME:
             for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Settings", "Admin"):
                 if mandatory_module not in configured:
@@ -151,14 +149,39 @@ def ensure_default_role_permissions() -> None:
 
 def list_role_permissions() -> list[dict[str, Any]]:
     ensure_default_role_permissions()
-    roles = list_roles()
-    return [
-        {
-            **role,
-            "modules": get_role_modules(str(role["nom"])),
-        }
-        for role in roles
-    ]
+    with db_session() as connection:
+        role_rows = connection.execute(
+            """
+            SELECT id_role, nom, description
+            FROM roles
+            ORDER BY nom
+            """
+        ).fetchall()
+        permission_rows = connection.execute(
+            """
+            SELECT r.nom AS role_name, rpm.module_key
+            FROM role_module_permissions rpm
+            JOIN roles r ON r.id_role = rpm.role_id
+            ORDER BY r.nom, rpm.module_key
+            """
+        ).fetchall()
+    modules_by_role: dict[str, list[str]] = {}
+    for row in permission_rows:
+        modules_by_role.setdefault(str(row["role_name"]), []).append(str(row["module_key"]))
+    permissions: list[dict[str, Any]] = []
+    for role in role_rows:
+        role_name = str(role["nom"])
+        configured = _normalize_modules(modules_by_role.get(role_name, []))
+        if configured:
+            if role_name == ADMIN_ROLE_NAME:
+                for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Settings", "Admin"):
+                    if mandatory_module not in configured:
+                        configured.append(mandatory_module)
+            modules = _ordered_modules(configured)
+        else:
+            modules = ROLE_MODULES.get(role_name, ["Dashboard"])
+        permissions.append({**dict(role), "modules": modules})
+    return permissions
 
 
 def update_role_modules(
@@ -167,7 +190,7 @@ def update_role_modules(
     changed_by: str = "system",
     commentaire: str | None = None,
 ) -> None:
-    selected = _ordered_modules([str(module) for module in modules if str(module) in ALL_MODULES])
+    selected = _ordered_modules(_normalize_modules([str(module) for module in modules]))
     if "Dashboard" not in selected:
         selected.insert(0, "Dashboard")
     with db_session() as connection:
@@ -200,7 +223,7 @@ def update_role_modules(
             "role_modules",
             "role",
             str(role_id),
-            ",".join(_ordered_modules(previous)),
+            ",".join(_ordered_modules(_normalize_modules(previous))),
             ",".join(selected),
             changed_by,
             commentaire,
@@ -636,6 +659,11 @@ def _insert_admin_audit(
 def _ordered_modules(modules: list[str]) -> list[str]:
     selected = set(modules)
     return [module for module in ALL_MODULES if module in selected]
+
+
+def _normalize_modules(modules: list[str]) -> list[str]:
+    normalized = ["Alerts" if module == "Reports" else module for module in modules]
+    return [module for module in normalized if module in ALL_MODULES]
 
 
 def _user_audit_value(payload: dict[str, Any]) -> str:

@@ -52,8 +52,16 @@ if (-not (Test-Path $VenvPython)) {
 
 Write-Step "Installation/verification de PyInstaller"
 Ensure-PythonPackage "flet" "flet==0.84.0"
-Ensure-PythonPackage "reportlab" "reportlab==4.4.9"
-Ensure-PythonPackage "PyInstaller" "pyinstaller"
+if (Test-Path (Join-Path $ProjectDir "requirements-build.txt")) {
+    & $VenvPython -m pip install -r (Join-Path $ProjectDir "requirements-build.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Installation requirements-build.txt impossible."
+    }
+}
+else {
+    Ensure-PythonPackage "reportlab" "reportlab==4.4.9"
+    Ensure-PythonPackage "PyInstaller" "pyinstaller"
+}
 Write-Ok "PyInstaller disponible"
 
 Write-Step "Nettoyage des anciens fichiers de build"

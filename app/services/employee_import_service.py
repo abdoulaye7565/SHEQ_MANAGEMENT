@@ -140,11 +140,39 @@ def _read_xlsx_rows(path: Path) -> list[dict[str, Any]]:
             matrix.append([values.get(col, "") for col in range(1, max_column + 1)])
     if not matrix:
         return []
-    headers = [str(item or "") for item in matrix[0]]
-    return [
-        {headers[index]: value for index, value in enumerate(row) if index < len(headers)}
-        for row in matrix[1:]
-    ]
+    header_index = _xlsx_header_row_index(matrix)
+    headers = [str(item or "") for item in matrix[header_index]]
+    rows = []
+    for row in matrix[header_index + 1 :]:
+        if _xlsx_is_footer_row(row):
+            break
+        rows.append({headers[index]: value for index, value in enumerate(row) if index < len(headers)})
+    return rows
+
+
+def _xlsx_header_row_index(matrix: list[list[str]]) -> int:
+    best_index = 0
+    best_score = 0
+    for index, row in enumerate(matrix[:20]):
+        canonical = {_canonical_header(value) for value in row if str(value or "").strip()}
+        score = len({value for value in canonical if value})
+        if score > best_score:
+            best_index = index
+            best_score = score
+        if REQUIRED_IMPORT_FIELDS.issubset({value for value in canonical if value}):
+            return index
+    return best_index
+
+
+def _xlsx_is_footer_row(row: list[str]) -> bool:
+    values = {_normalize_text(value) for value in row if str(value or "").strip()}
+    return bool(
+        values
+        and (
+            {"prepared by", "checked by", "approved by"} & values
+            or "name date signature" in values
+        )
+    )
 
 
 def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:

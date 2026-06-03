@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
@@ -23,6 +23,8 @@ from app.services import (
     validate_attendance_day,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
+from app.ui.components.confirm import confirm_action
 from app.ui.components.feedback import show_feedback
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
@@ -45,6 +47,9 @@ ATTENDANCE_TIME_PRESETS = {
 }
 
 
+PAGE_SIZE = 10
+
+
 def attendance_page(page: ft.Page | None = None) -> ft.Control:
     state: dict[str, Any] = {
         "rows": [],
@@ -52,9 +57,10 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         "time_controls": {},
         "selected_ids": set(),
         "locked": None,
+        "page": 0,
     }
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=12, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     list_area = ft.Column(spacing=10)
     control_area = ft.Column(spacing=10)
     monthly_area = ft.Column(spacing=10)
@@ -230,6 +236,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                         "prenom": row.get("prenom") or "",
                         "numero_badge": row.get("numero_badge") or "",
                         "fonction": row.get("fonction") or "",
+                        "type_employe": row.get("type_employe") or "national",
                         "shift": _shift_filter_label(str(row.get("shift_code") or "")),
                         "statut": "Present" if row.get("statut_presence") == "present" else "Absent",
                         "heure_entree": row_time_value(row, "heure_entree"),
@@ -362,6 +369,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         return rows
 
     def refresh_filters(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         render_summary()
         render_list()
         _update()
@@ -405,6 +413,13 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         else:
             selected_ids.difference_update(visible_ids)
             notify("Selection des lignes affichees retiree.", MUTED)
+        render_list()
+        _update()
+
+    def change_page(delta: int) -> None:
+        total = len(filtered_rows())
+        max_page = max((total - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"]) + delta))
         render_list()
         _update()
 
@@ -499,6 +514,15 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         return ATTENDANCE_TIME_PRESETS.get(str(time_case_filter.value or ""))
 
     def validate_and_lock_day(event: ft.ControlEvent | None = None) -> None:
+        confirm_action(
+            page,
+            "Valider et verrouiller la journee",
+            f"La liste de presence du {selected_date()} sera enregistree puis verrouillee. Les modifications seront bloquees.",
+            _validate_and_lock_day,
+            confirm_label="Verrouiller",
+        )
+
+    def _validate_and_lock_day() -> None:
         try:
             persist_day()
             lock_attendance_day(selected_date(), locked_by="superviseur")
@@ -513,6 +537,16 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def unlock_day(event: ft.ControlEvent | None = None) -> None:
+        confirm_action(
+            page,
+            "Deverrouiller la journee",
+            f"La liste de presence du {selected_date()} redeviendra modifiable.",
+            _unlock_day,
+            confirm_label="Deverrouiller",
+            danger=True,
+        )
+
+    def _unlock_day() -> None:
         unlock_attendance_day(selected_date())
         state["locked"] = None
         notify("Journee deverrouillee.", WARNING)
@@ -673,7 +707,11 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         state["switches"] = {}
         previous_time_controls = state["time_controls"]
         state["time_controls"] = {}
-        rows_to_show = filtered_rows()
+        filtered = filtered_rows()
+        max_page = max((len(filtered) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"])))
+        start = int(state["page"]) * PAGE_SIZE
+        rows_to_show = filtered[start : start + PAGE_SIZE]
         if not state["rows"]:
             list_area.controls = [
                 ft.Container(
@@ -712,9 +750,34 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             ft.Row(
                 controls=[
                     ft.Text(
-                        f"{len(rows_to_show)} ligne(s) affichee(s) | {len(state['selected_ids'])} selectionnee(s)",
+                        f"{start + 1 if filtered else 0}-{start + len(rows_to_show)} / {len(filtered)} ligne(s) | {len(state['selected_ids'])} selectionnee(s)",
                         color=MUTED,
                         size=12,
+                    ),
+                    ft.Row(
+                        controls=[
+                            ft.OutlinedButton(
+                                "Precedent",
+                                icon=ft.Icons.ARROW_BACK,
+                                disabled=int(state["page"]) <= 0,
+                                on_click=lambda event: change_page(-1),
+                            ),
+                            ft.Container(
+                                padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                                bgcolor="#EFF6FF",
+                                border=ft.border.all(1, "#BFDBFE"),
+                                border_radius=8,
+                                content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                            ),
+                            ft.OutlinedButton(
+                                "Suivant",
+                                icon=ft.Icons.ARROW_FORWARD,
+                                disabled=int(state["page"]) >= max_page,
+                                on_click=lambda event: change_page(1),
+                            ),
+                        ],
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     status,
                 ],
@@ -969,19 +1032,8 @@ def _employee_name(row: dict[str, Any]) -> str:
 
 def _summary_card(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -1052,4 +1104,3 @@ def _valid_time(value: str) -> bool:
     except ValueError:
         return False
     return True
-

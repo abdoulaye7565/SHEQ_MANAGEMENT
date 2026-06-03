@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -24,7 +24,9 @@ from app.services import (
     update_timesheet_day_status,
 )
 from app.ui.components.feedback import show_feedback
+from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -37,12 +39,15 @@ UNFILLED = "#E5E7EB"
 BREAK = "#F59E0B"
 PERMISSION = "#A855F7"
 SICK = "#DC2626"
+PAGE_SIZE = 10
+TIMESHEET_DAY_WIDTH = 34
+TIMESHEET_DAY_HEIGHT = 28
 
 
 def timesheet_page(page: ft.Page | None = None) -> ft.Control:
-    state: dict[str, Any] = {"timesheet": None, "history": [], "active": True}
+    state: dict[str, Any] = {"timesheet": None, "history": [], "active": True, "page": 0}
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     calendar_area = ft.Column(spacing=10)
     history_area = ft.Column(spacing=8)
     audit_area = ft.Column(spacing=8)
@@ -321,6 +326,15 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def lock_month(event: ft.ControlEvent | None = None) -> None:
+        confirm_action(
+            page,
+            "Verrouiller le TimeSheet",
+            f"Le TimeSheet {selected_month()} sera verrouille. Les modifications directes seront bloquees.",
+            _lock_month,
+            confirm_label="Verrouiller",
+        )
+
+    def _lock_month() -> None:
         try:
             lock_timesheet_month(selected_month(), commentaire=str(comment_field.value or ""))
             notify("TimeSheet verrouille.", SUCCESS)
@@ -330,6 +344,16 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             _update()
 
     def unlock_month(event: ft.ControlEvent | None = None) -> None:
+        confirm_action(
+            page,
+            "Deverrouiller le TimeSheet",
+            f"Le TimeSheet {selected_month()} redeviendra modifiable.",
+            _unlock_month,
+            confirm_label="Deverrouiller",
+            danger=True,
+        )
+
+    def _unlock_month() -> None:
         try:
             unlock_timesheet_month(selected_month(), commentaire=str(comment_field.value or ""))
             notify("TimeSheet deverrouille.", WARNING)
@@ -378,6 +402,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     def render_calendar(timesheet: dict[str, Any]) -> None:
         days = timesheet["days"]
         rows = filtered_rows(timesheet)
+        max_page = max((len(rows) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"])))
+        start = int(state["page"]) * PAGE_SIZE
+        page_rows = rows[start : start + PAGE_SIZE]
         columns = [
             ft.DataColumn(ft.Text("Employe")),
             ft.DataColumn(ft.Text("Badge")),
@@ -406,6 +434,30 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                     _legend("Permission", PERMISSION, "#FFFFFF"),
                     _legend("Sick", SICK, "#FFFFFF"),
                     _legend("Debut semaine", "#1E3A8A", "#FFFFFF"),
+                    ft.Text(
+                        f"{start + 1 if rows else 0}-{start + len(page_rows)} / {len(rows)} employe(s)",
+                        size=12,
+                        color=MUTED,
+                    ),
+                    ft.OutlinedButton(
+                        "Precedent",
+                        icon=ft.Icons.ARROW_BACK,
+                        disabled=int(state["page"]) <= 0,
+                        on_click=lambda event: change_page(-1),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                        bgcolor="#EFF6FF",
+                        border=ft.border.all(1, "#BFDBFE"),
+                        border_radius=8,
+                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                    ),
+                    ft.OutlinedButton(
+                        "Suivant",
+                        icon=ft.Icons.ARROW_FORWARD,
+                        disabled=int(state["page"]) >= max_page,
+                        on_click=lambda event: change_page(1),
+                    ),
                     status,
                 ],
                 spacing=10,
@@ -433,18 +485,27 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                     ft.DataCell(ft.Text(str(row.get("actual_hours", 0)), color=WARNING, weight=ft.FontWeight.BOLD)),
                                 ]
                             )
-                            for row in rows
+                            for row in page_rows
                         ],
                         border=ft.border.all(1, "#BFDBFE"),
                         border_radius=8,
                         heading_row_color="#DBEAFE",
                         data_row_min_height=42,
                         data_row_max_height=48,
+                        column_spacing=6,
+                        horizontal_margin=8,
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
             ),
         ]
+
+    def change_page(delta: int) -> None:
+        rows = filtered_rows(state.get("timesheet") or {"rows": []})
+        max_page = max((len(rows) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"]) + delta))
+        render_calendar(state["timesheet"])
+        _update()
 
     def filtered_rows(timesheet: dict[str, Any]) -> list[dict[str, Any]]:
         query = str(search_field.value or "").strip().lower()
@@ -501,6 +562,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         save_timesheet_edit()
 
     def refresh_filtered(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         render_calendar(state["timesheet"])
         _update()
 
@@ -749,8 +811,8 @@ def _employee_name(employee: dict[str, Any]) -> str:
 def _calendar_cell(cell: dict[str, Any], employee_id: int, on_status_change: object) -> ft.Control:
     color, text_color, tooltip = _cell_style(cell)
     content = ft.Container(
-        width=48,
-        height=38,
+        width=TIMESHEET_DAY_WIDTH,
+        height=TIMESHEET_DAY_HEIGHT,
         bgcolor=color,
         border=ft.border.only(
             left=ft.BorderSide(3 if cell.get("week_start") else 1, "#1E3A8A" if cell.get("week_start") else "#94A3B8"),
@@ -761,7 +823,7 @@ def _calendar_cell(cell: dict[str, Any], employee_id: int, on_status_change: obj
         border_radius=4,
         alignment=ft.Alignment(0, 0),
         tooltip=tooltip,
-        content=ft.Text(str(cell["label"]), size=11, color=text_color, weight=ft.FontWeight.BOLD),
+        content=ft.Text(str(cell["label"]), size=10, color=text_color, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
     )
     return ft.PopupMenuButton(
         content=content,
@@ -814,19 +876,8 @@ def _shift_label(shift_code: str) -> str:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -859,8 +910,8 @@ def _legend(label: str, color: str, text_color: str) -> ft.Control:
 def _day_header(day: dict[str, Any]) -> ft.Control:
     activity_color = WORK_DRILLING if day["has_drilling"] else WORK_STANDARD
     return ft.Container(
-        width=48,
-        padding=ft.padding.symmetric(horizontal=3, vertical=4),
+        width=TIMESHEET_DAY_WIDTH,
+        padding=ft.padding.symmetric(horizontal=2, vertical=3),
         bgcolor="#EFF6FF" if int(day["week_index"]) % 2 else "#F8FAFC",
         border=ft.border.only(
             left=ft.BorderSide(3 if day.get("week_start") else 1, "#1E3A8A" if day.get("week_start") else "#BFDBFE"),
@@ -872,12 +923,11 @@ def _day_header(day: dict[str, Any]) -> ft.Control:
         content=ft.Column(
             controls=[
                 ft.Text(f"S{day['week_index']}", size=10, color=PRIMARY, weight=ft.FontWeight.BOLD),
-                ft.Text(str(day["day"]), size=12, color=TEXT, weight=ft.FontWeight.BOLD),
-                ft.Text(day["weekday"], size=10, color=MUTED),
-                ft.Text("12h" if day["has_drilling"] else "8h", size=10, color=activity_color, weight=ft.FontWeight.BOLD),
+                ft.Text(str(day["day"]), size=11, color=TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(day["weekday"], size=9, color=MUTED),
+                ft.Text("12h" if day["has_drilling"] else "8h", size=9, color=activity_color, weight=ft.FontWeight.BOLD),
             ],
             spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
     )
-

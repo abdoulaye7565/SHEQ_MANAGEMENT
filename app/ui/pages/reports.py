@@ -7,6 +7,7 @@ import flet as ft
 
 from app.services import generate_report, get_report_summary, list_employees, list_report_definitions
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -24,13 +25,13 @@ CATEGORY_COLORS = {
 }
 
 
-def reports_page() -> ft.Control:
+def reports_page(show_header: bool = True) -> ft.Control:
     definitions = list_report_definitions()
     summary = get_report_summary()
     employees = list_employees()
     state: dict[str, Any] = {"generated": [], "selected_employee_ids": set()}
     status = ft.Text("", size=12, color=MUTED)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     reports_area = ft.ResponsiveRow(spacing=12, run_spacing=12)
     generated_area = ft.Column(spacing=8)
 
@@ -245,12 +246,14 @@ def reports_page() -> ft.Control:
     for control in (search_field, category_filter):
         control.on_change = refresh
 
-    root = ft.Column(
-        controls=[
-            module_header(
-                "Rapports",
-                "Exports QHSE consolides pour presence, employees, formations, TimeSheet, EPI et alertes.",
-            ),
+    controls = [
+        module_header(
+            "Rapports",
+            "Exports QHSE consolides pour presence, employees, formations, TimeSheet, EPI et alertes.",
+        )
+    ] if show_header else []
+    controls.extend(
+        [
             ft.Container(
                 bgcolor="#EFF6FF",
                 border=ft.border.all(1, "#BFDBFE"),
@@ -291,7 +294,10 @@ def reports_page() -> ft.Control:
                 padding=16,
                 content=generated_area,
             ),
-        ],
+        ]
+    )
+    root = ft.Column(
+        controls=controls,
         spacing=18,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
@@ -363,19 +369,8 @@ def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=10, vertical=6),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=16),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=color, size=13, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=6,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 

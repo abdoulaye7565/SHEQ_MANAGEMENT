@@ -7,6 +7,7 @@ from app.db.connection import db_session
 
 
 WORK_HOURS = 10
+HOLIDAY_HOURS = 8
 PERMISSION_DAYS = 3
 
 
@@ -109,6 +110,8 @@ def get_monthly_10h_timesheet(
             (selected_employee_type, *site_params),
         ).fetchall()
         breaks = _breaks_by_employee(connection, period["start"], period["end"])
+        presences = _presences_by_employee(connection, period["start"], period["end"])
+        settings = _settings_by_day(connection, period["start"], period["end"])
         assignments = _site_assignments_by_employee(connection, period["start"], period["end"], selected_site_id)
         site = _site_context(connection, selected_site_id)
 
@@ -144,6 +147,8 @@ def get_monthly_10h_timesheet(
                 break_end = None
             else:
                 break_record = _break_for_day(breaks.get(employee_id, []), day)
+                presence = presences.get((employee_id, day))
+                day_type = str(settings.get(day, {}).get("day_type") or "work")
                 if break_record and _permission_exceeds_allowed_days(break_record, day):
                     status = "absent"
                     label = "A"
@@ -158,17 +163,37 @@ def get_monthly_10h_timesheet(
                     label = "B"
                     hours = 0
                     normal_break_days += 1
+                elif day_type == "holiday":
+                    status = "holiday"
+                    label = "8H"
+                    hours = HOLIDAY_HOURS
+                    employee_hours += hours
                 elif parsed.weekday() == 6:
-                    status = "rest"
-                    label = "R"
-                    hours = 0
-                    rest_days += 1
-                else:
+                    if presence and presence.get("statut_presence") == "present":
+                        status = "worked"
+                        label = "10h"
+                        hours = WORK_HOURS
+                        employee_hours += hours
+                        worked_days += 1
+                    else:
+                        status = "rest"
+                        label = "R"
+                        hours = 0
+                        rest_days += 1
+                elif presence and presence.get("statut_presence") == "present":
                     status = "worked"
                     label = "10h"
                     hours = WORK_HOURS
                     employee_hours += hours
                     worked_days += 1
+                elif presence and presence.get("statut_presence") == "absent":
+                    status = "absent"
+                    label = "A"
+                    hours = 0
+                else:
+                    status = "unfilled"
+                    label = ""
+                    hours = 0
                 break_type = str(break_record.get("type_break")) if break_record else None
                 break_start = str(break_record.get("date_debut")) if break_record else None
                 break_end = str(break_record.get("date_fin")) if break_record else None
@@ -243,6 +268,36 @@ def _break_for_day(records: list[dict[str, Any]], day: str) -> dict[str, Any] | 
         if str(record["date_debut"]) <= day <= str(record["date_fin"]):
             return record
     return None
+
+
+def _presences_by_employee(connection: Any, start: str, end: str) -> dict[tuple[int, str], dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT employe_id, date_presence, statut_presence, heures_travaillees
+        FROM presences
+        WHERE date_presence BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchall()
+    return {
+        (int(row["employe_id"]), str(row["date_presence"])): dict(row)
+        for row in rows
+    }
+
+
+def _settings_by_day(connection: Any, start: str, end: str) -> dict[str, dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT date_presence, day_type
+        FROM timesheet_day_settings
+        WHERE date_presence BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchall()
+    return {
+        str(row["date_presence"]): {"day_type": str(row["day_type"] or "work")}
+        for row in rows
+    }
 
 
 def _permission_exceeds_allowed_days(record: dict[str, Any], day: str) -> bool:

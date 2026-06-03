@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -19,11 +19,16 @@ from app.services import (
     update_training,
     update_trainings_bulk,
 )
+from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
+from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
-def training_page() -> ft.Control:
+PAGE_SIZE = 10
+
+
+def training_page(page: ft.Page | None = None) -> ft.Control:
     options = get_training_options()
     state: dict[str, Any] = {
         "records": [],
@@ -32,10 +37,11 @@ def training_page() -> ft.Control:
         "bulk_employee_ids": set(),
         "bulk_training_type_ids": set(),
         "options": options,
+        "page": 0,
     }
     status = ft.Text("", size=12, color=MUTED)
     table_area = ft.Column(spacing=10)
-    summary_row = ft.Row(spacing=8, wrap=True)
+    summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
 
     employee_field = ft.Dropdown(label="Employe", width=360)
     training_field = ft.Dropdown(label="Nom de la formation", width=280)
@@ -103,6 +109,7 @@ def training_page() -> ft.Control:
     training_field.on_change = sync_department_from_training
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         state["records"] = list_trainings(search_field.value or "")
         current_ids = {int(record["id_formation"]) for record in state["records"]}
         state["selected"] = state["selected"] & current_ids
@@ -200,7 +207,25 @@ def training_page() -> ft.Control:
         render_table()
         _update()
 
+    def change_page(delta: int) -> None:
+        records = filtered_records()
+        max_page = max((len(records) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"]) + delta))
+        render_table()
+        _update()
+
     def bulk_update(event: ft.ControlEvent | None = None) -> None:
+        count = len(selected_ids())
+        confirm_action(
+            page,
+            "Modifier plusieurs formations",
+            f"{count} formation(s) selectionnee(s) seront mises a jour avec les valeurs du formulaire.",
+            _bulk_update,
+            confirm_label="Mettre a jour",
+            danger=count > 5,
+        )
+
+    def _bulk_update() -> None:
         try:
             updated = update_trainings_bulk(
                 selected_ids(),
@@ -221,6 +246,18 @@ def training_page() -> ft.Control:
             _update()
 
     def bulk_validate_training(event: ft.ControlEvent | None = None) -> None:
+        employees_count = len(state["bulk_employee_ids"])
+        trainings_count = len(state["bulk_training_type_ids"])
+        confirm_action(
+            page,
+            "Valider des formations en groupe",
+            f"{employees_count} employe(s) x {trainings_count} formation(s) seront valides ou mis a jour.",
+            _bulk_validate_training,
+            confirm_label="Valider le groupe",
+            danger=employees_count * trainings_count > 10,
+        )
+
+    def _bulk_validate_training() -> None:
         try:
             total = create_trainings_for_employees(
                 {
@@ -292,6 +329,16 @@ def training_page() -> ft.Control:
         _update()
 
     def remove(training_id: int) -> None:
+        confirm_action(
+            page,
+            "Supprimer la formation",
+            "Cette ligne de formation sera supprimee definitivement de la base locale.",
+            lambda: _remove(training_id),
+            confirm_label="Supprimer",
+            danger=True,
+        )
+
+    def _remove(training_id: int) -> None:
         delete_training(training_id)
         notify("Formation supprimee.", MUTED)
         if state["editing_id"] == training_id:
@@ -485,6 +532,10 @@ def training_page() -> ft.Control:
 
     def render_table() -> None:
         records = filtered_records()
+        max_page = max((len(records) - 1) // PAGE_SIZE, 0)
+        state["page"] = max(0, min(max_page, int(state["page"])))
+        start = int(state["page"]) * PAGE_SIZE
+        page_records = records[start : start + PAGE_SIZE]
         table_area.controls = [
             ft.Row(
                 controls=[
@@ -506,6 +557,36 @@ def training_page() -> ft.Control:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             summary_row,
+            ft.Row(
+                controls=[
+                    ft.Text(
+                        f"{start + 1 if records else 0}-{start + len(page_records)} / {len(records)} formation(s)",
+                        size=12,
+                        color=MUTED,
+                    ),
+                    ft.OutlinedButton(
+                        "Precedent",
+                        icon=ft.Icons.ARROW_BACK,
+                        disabled=int(state["page"]) <= 0,
+                        on_click=lambda event: change_page(-1),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                        bgcolor="#EFF6FF",
+                        border=ft.border.all(1, "#BFDBFE"),
+                        border_radius=8,
+                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                    ),
+                    ft.OutlinedButton(
+                        "Suivant",
+                        icon=ft.Icons.ARROW_FORWARD,
+                        disabled=int(state["page"]) >= max_page,
+                        on_click=lambda event: change_page(1),
+                    ),
+                ],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             ft.Row(
                 controls=[
                     professional_data_table(
@@ -569,7 +650,7 @@ def training_page() -> ft.Control:
                                     ),
                                 ]
                             )
-                            for record in records
+                            for record in page_records
                         ],
                         border=ft.border.all(1, "#BFDBFE"),
                         border_radius=8,
@@ -655,19 +736,8 @@ def _state_badge(state: str | None) -> ft.Control:
 
 def _summary_chip(label: str, value: int, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
-        padding=ft.padding.symmetric(horizontal=8, vertical=5),
-        content=ft.Row(
-            controls=[
-                ft.Icon(icon, color=color, size=15),
-                ft.Text(label, color=MUTED, size=11),
-                ft.Text(str(value), color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ],
-            spacing=5,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
@@ -681,4 +751,3 @@ def _state_text(state: str | None) -> str:
 
 def _excel_state(state: str | None) -> str:
     return {"valide": "done", "bientot_expiree": "soon", "expiree": "expired"}.get(str(state), "expired")
-
