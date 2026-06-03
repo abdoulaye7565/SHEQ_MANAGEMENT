@@ -178,7 +178,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     nav_list = ft.Column(
         controls=nav_buttons,
         spacing=6,
-        scroll=ft.ScrollMode.AUTO,
+        scroll=ft.ScrollMode.ALWAYS,
         expand=True,
     )
 
@@ -210,7 +210,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
                             ),
                         ),
                         ft.Container(
-                            padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                            padding=ft.padding.only(left=10, right=4, top=8, bottom=8),
                             content=nav_list,
                             expand=True,
                         ),
