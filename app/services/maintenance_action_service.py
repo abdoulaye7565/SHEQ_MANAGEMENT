@@ -702,14 +702,14 @@ def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
     service_interval_km = _optional_float(values.get("service_interval_km"))
     next_due_odometer = _optional_float(values.get("next_due_odometer"))
     for label, number in (
-        ("Compteur actuel", current_odometer),
-        ("Derniere maintenance km", last_service_odometer),
-        ("Intervalle km", service_interval_km),
-        ("Prochaine maintenance km", next_due_odometer),
+        ("Compteur reel actuel", current_odometer),
+        ("Dernier KM maintenance", last_service_odometer),
+        ("KM a ajouter", service_interval_km),
+        ("Prochain KM maintenance", next_due_odometer),
     ):
         if number is not None and number < 0:
             raise ValueError(f"{label}: utilise une valeur positive.")
-    if next_due_odometer is None and last_service_odometer is not None and service_interval_km is not None:
+    if last_service_odometer is not None and service_interval_km is not None:
         next_due_odometer = last_service_odometer + service_interval_km
     return {
         "equipment_code": _optional_text(values.get("equipment_code")),

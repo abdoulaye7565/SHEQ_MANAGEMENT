@@ -95,10 +95,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     planned_date = ft.TextField(label="Date planifiee", value=today_iso(), hint_text="AAAA-MM-JJ", width=160)
     completed_date = ft.TextField(label="Date terminee", hint_text="AAAA-MM-JJ", width=160)
     next_due_date = ft.TextField(label="Prochaine echeance", hint_text="AAAA-MM-JJ", width=180)
-    current_odometer = ft.TextField(label="Compteur actuel km", width=150)
-    last_service_odometer = ft.TextField(label="Derniere vidange km", width=160)
-    service_interval_km = ft.TextField(label="Intervalle km", width=130)
-    next_due_odometer = ft.TextField(label="Prochaine km", width=140)
+    current_odometer = ft.TextField(label="Compteur reel actuel (km)", width=190)
+    last_service_odometer = ft.TextField(label="Dernier KM maintenance", width=190)
+    service_interval_km = ft.TextField(label="KM a ajouter", width=150)
+    next_due_odometer = ft.TextField(label="Prochain KM auto", width=165, read_only=True)
     maintenance_cost = ft.TextField(label="Cout", value="0", width=110)
     maintenance_observations = ft.TextField(label="Observations", width=260)
     save_maintenance_button = ft.ElevatedButton("Creer", icon=ft.Icons.ADD_OUTLINED)
@@ -208,6 +208,17 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
         status.color = color
+
+    def update_next_due_odometer(event: ft.ControlEvent | None = None) -> None:
+        try:
+            last_value = float(str(last_service_odometer.value or "").replace(",", "."))
+            add_value = float(str(service_interval_km.value or "").replace(",", "."))
+        except ValueError:
+            next_due_odometer.value = ""
+        else:
+            next_due_odometer.value = f"{last_value + add_value:g}"
+        if event is not None:
+            _update()
 
     def _update() -> None:
         try:
@@ -355,7 +366,9 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         current_odometer.value = _number_text(row.get("current_odometer"))
         last_service_odometer.value = _number_text(row.get("last_service_odometer"))
         service_interval_km.value = _number_text(row.get("service_interval_km"))
-        next_due_odometer.value = _number_text(row.get("next_due_odometer"))
+        update_next_due_odometer()
+        if not next_due_odometer.value:
+            next_due_odometer.value = _number_text(row.get("next_due_odometer"))
         maintenance_cost.value = str(row.get("cost") or 0)
         maintenance_observations.value = str(row.get("observations") or "")
         save_maintenance_button.text = "Enregistrer"
@@ -711,6 +724,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
 
     for control in (maintenance_search, maintenance_status_filter, action_search, action_status_filter, risk_search, risk_status_filter):
         control.on_change = refresh
+    for control in (last_service_odometer, service_interval_km):
+        control.on_change = update_next_due_odometer
     save_maintenance_button.on_click = save_maintenance
     cancel_maintenance_button.on_click = lambda event: (reset_maintenance_form(), refresh())
     save_action_button.on_click = save_action
@@ -759,7 +774,15 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 content=ft.Column(
                     controls=[
                         ft.Text("Nouvelle maintenance equipement", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
-                        ft.Text("Pour une vidange, renseigner le compteur actuel, la derniere vidange et l'intervalle km. La prochaine maintenance est calculee automatiquement si elle est vide.", size=12, color=MUTED),
+                        ft.Row(
+                            controls=[
+                                _maintenance_hint_card(ft.Icons.SPEED_OUTLINED, "Compteur", "Renseigner le compteur reel actuel pour declencher les alertes km.", PRIMARY),
+                                _maintenance_hint_card(ft.Icons.CALCULATE_OUTLINED, "Calcul auto", "Prochain KM = Dernier KM maintenance + KM a ajouter.", SUCCESS),
+                                _maintenance_hint_card(ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED, "Rappel", "L'alerte devient critique si le compteur atteint le prochain KM.", WARNING),
+                            ],
+                            wrap=True,
+                            spacing=10,
+                        ),
                         ft.Row(
                             controls=[
                                 equipment_code,
@@ -898,6 +921,37 @@ def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
         stat_card(label, value, color, icon, compact=True),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
+    )
+
+
+def _maintenance_hint_card(icon: str, title: str, description: str, color: str) -> ft.Control:
+    return ft.Container(
+        bgcolor="#F8FAFC",
+        border=ft.border.all(1, "#CBD5E1"),
+        border_radius=8,
+        padding=ft.padding.symmetric(horizontal=12, vertical=10),
+        width=310,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    bgcolor="#FFFFFF",
+                    border=ft.border.all(1, color),
+                    border_radius=8,
+                    padding=8,
+                    content=ft.Icon(icon, color=color, size=18),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.Text(description, size=11, color=MUTED),
+                    ],
+                    spacing=2,
+                    expand=True,
+                ),
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
     )
 
 
