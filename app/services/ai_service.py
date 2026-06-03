@@ -12,7 +12,7 @@ from app.config import DATA_DIR
 
 AI_CONFIG_PATH = DATA_DIR / "ai_config.json"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-DEFAULT_MODEL = "gpt-5-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 class AIConfigurationError(ValueError):
