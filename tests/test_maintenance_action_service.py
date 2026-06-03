@@ -151,6 +151,7 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertIn("Prepared by", sheet)
         self.assertIn("<f>IF(AND(L", sheet)
         self.assertIn("DUE KM", sheet)
+        self.assertNotIn("DATEVALUE", sheet)
         self.assertIn("FF1E3A8A", styles)
 
     def test_risk_assessment_calculates_levels_and_exports(self) -> None:

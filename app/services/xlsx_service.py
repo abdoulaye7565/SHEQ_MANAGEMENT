@@ -629,6 +629,9 @@ def _equipment_maintenance_worksheet_xml(
 
 def _equipment_maintenance_row_xml(row_index: int, row: dict[str, Any], default_style: int) -> str:
     status_style = _maintenance_status_style(row.get("status"), row.get("priority"))
+    next_km = _maintenance_next_km(row)
+    remaining_km = _maintenance_remaining_km(row, next_km)
+    alert = _maintenance_alert_label(row, remaining_km)
     values: list[tuple[Any, int, str | None]] = [
         (row.get("equipment_code") or "", default_style, None),
         (row.get("equipment_name") or "", default_style, None),
@@ -643,17 +646,44 @@ def _equipment_maintenance_row_xml(row_index: int, row: dict[str, Any], default_
         (row.get("current_odometer") if row.get("current_odometer") is not None else "", default_style, None),
         (row.get("last_service_odometer") if row.get("last_service_odometer") is not None else "", default_style, None),
         (row.get("service_interval_km") if row.get("service_interval_km") is not None else "", default_style, None),
-        ("", 12, f'IF(AND(L{row_index}<>"",M{row_index}<>""),L{row_index}+M{row_index},"")'),
-        ("", 12, f'IF(AND(K{row_index}<>"",N{row_index}<>""),N{row_index}-K{row_index},"")'),
+        (next_km if next_km is not None else "", 12, f'IF(AND(L{row_index}<>"",M{row_index}<>""),L{row_index}+M{row_index},"")'),
+        (remaining_km if remaining_km is not None else "", 12, f'IF(AND(K{row_index}<>"",N{row_index}<>""),N{row_index}-K{row_index},"")'),
         (
-            "",
+            alert,
             _maintenance_alert_style(row),
-            f'IF(H{row_index}="terminee","Closed",IF(AND(N{row_index}<>"",K{row_index}>=N{row_index}),"DUE KM",IF(AND(J{row_index}<>"",DATEVALUE(J{row_index})<=TODAY()),"DUE DATE",IF(AND(I{row_index}<>"",DATEVALUE(I{row_index})<TODAY()),"LATE","OK"))))',
+            f'IF(H{row_index}="terminee","Closed",IF(AND(N{row_index}<>"",K{row_index}<>"",K{row_index}>=N{row_index}),"DUE KM",IF(H{row_index}="en_retard","LATE","OK")))',
         ),
         (row.get("cost") or 0, default_style, None),
         (row.get("observations") or "", default_style, None),
     ]
     return _xml_formula_row(row_index, values)
+
+
+def _maintenance_next_km(row: dict[str, Any]) -> float | None:
+    last_km = row.get("last_service_odometer")
+    add_km = row.get("service_interval_km")
+    if last_km is not None and add_km is not None:
+        return float(last_km) + float(add_km)
+    if row.get("next_due_odometer") is not None:
+        return float(row.get("next_due_odometer") or 0)
+    return None
+
+
+def _maintenance_remaining_km(row: dict[str, Any], next_km: float | None) -> float | None:
+    current_km = row.get("current_odometer")
+    if current_km is None or next_km is None:
+        return None
+    return next_km - float(current_km)
+
+
+def _maintenance_alert_label(row: dict[str, Any], remaining_km: float | None) -> str:
+    if row.get("status") == "terminee":
+        return "Closed"
+    if remaining_km is not None and remaining_km <= 0:
+        return "DUE KM"
+    if row.get("status") == "en_retard":
+        return "LATE"
+    return "OK" if row else ""
 
 
 def _maintenance_status_style(status: Any, priority: Any) -> int:
@@ -1062,13 +1092,24 @@ def _xml_formula_row(
         ref = f"{_column_name(col_index)}{row_index}"
         style = f' s="{style_id}"' if style_id else ""
         if formula:
-            cells.append(f'<c r="{ref}"{style}><f>{html.escape(formula)}</f></c>')
+            formula_type = ' t="str"' if value not in ("", None) and not isinstance(value, (int, float)) else ""
+            cached_value = _formula_cached_value(value)
+            cells.append(f'<c r="{ref}"{formula_type}{style}><f>{html.escape(formula)}</f>{cached_value}</c>')
         elif isinstance(value, (int, float)):
             cells.append(f'<c r="{ref}"{style}><v>{value}</v></c>')
         else:
             text = html.escape(str(value or ""))
             cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>')
     return f'<row r="{row_index}"{height_attr}>{"".join(cells)}</row>'
+
+
+def _formula_cached_value(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"<v>{value}</v>"
+    text = str(value or "")
+    if not text:
+        return ""
+    return f"<v>{html.escape(text)}</v>"
 
 
 def _signature_rows(row_index: int, col_count: int) -> list[str]:
