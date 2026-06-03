@@ -39,7 +39,7 @@ def timesheet_management_page(page: ft.Page) -> ft.Control:
         content=ft.Row(
             controls=[
                 ft.Icon(ft.Icons.EVENT_NOTE_OUTLINED, size=18),
-                ft.Text("TimeSheet 1-25 / 10H", weight=ft.FontWeight.BOLD),
+                ft.Text("TimeSheet 1-25 / Mois courant", weight=ft.FontWeight.BOLD),
             ],
             spacing=8,
             tight=True,

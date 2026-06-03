@@ -125,7 +125,10 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
         timesheet = state.get("timesheet") or get_monthly_10h_timesheet(current_monthly_timesheet_month())
         state["timesheet"] = timesheet
         summary = timesheet["summary"]
+        period = timesheet["period"]
         summary_row.controls = [
+            _period_chip("Mois courant", period["month"], PRIMARY, ft.Icons.CALENDAR_MONTH_OUTLINED),
+            _period_chip("Periode", f"{period['start']} au {period['end']}", SUCCESS, ft.Icons.DATE_RANGE_OUTLINED),
             _summary_chip("Employes", summary["employees"], PRIMARY, ft.Icons.PEOPLE_ALT_OUTLINED),
             _summary_chip("Jours travailles", summary["worked_days"], SUCCESS, ft.Icons.WORK_OUTLINE),
             _summary_chip("Repos dimanche", summary["rest_days"], MUTED, ft.Icons.WEEKEND_OUTLINED),
@@ -245,7 +248,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
         controls=[
             module_header(
                 "TimeSheet 1-25",
-                "TimeSheet mensuel 10H par jour travaille, repos dimanche et couleurs break normal / break annuel.",
+                "TimeSheet du mois en cours: du 01 au 25, 10H par jour travaille, repos dimanche et couleurs break normal / break annuel.",
             ),
             ft.Container(
                 bgcolor="#EFF6FF",
@@ -341,6 +344,13 @@ def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
         stat_card(label, value, color, icon, compact=True),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
+    )
+
+
+def _period_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
+    return ft.Container(
+        stat_card(label, value, color, icon, compact=True),
+        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 3},
     )
 
 

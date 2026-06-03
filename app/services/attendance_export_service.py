@@ -39,11 +39,12 @@ def export_styled_rows_xlsx(
     headers: list[str],
     rows: list[list[Any]],
     styles: list[list[str | None]],
+    document_title: str | None = None,
 ) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     safe_filename = "".join(char if char.isalnum() or char in "._-" else "_" for char in filename)
     output_path = _unique_export_path(safe_filename)
-    return _write_styled_xlsx_safely(output_path, sheet_name[:31], headers, rows, styles)
+    return _write_styled_xlsx_safely(output_path, sheet_name[:31], headers, rows, styles, document_title=document_title)
 
 
 def export_attendance_xlsx(date_presence: str) -> Path:
@@ -412,6 +413,10 @@ def export_monthly_10h_timesheet_xlsx(month: str, site_id: int | None = None) ->
         headers,
         rows,
         styles,
+        document_title=(
+            f"MONTHLY TIMESHEET 1-25 | CURRENT MONTH {timesheet['period']['month']} "
+            f"| PERIOD {timesheet['period']['start']} TO {timesheet['period']['end']}"
+        ),
     )
 
 
@@ -701,7 +706,9 @@ def _write_styled_xlsx_safely(
     headers: list[str],
     rows: list[list[Any]],
     styles: list[list[str | None]],
+    document_title: str | None = None,
 ) -> Path:
+    title = document_title or sheet_name
     try:
         write_styled_xlsx(
             path,
@@ -710,7 +717,7 @@ def _write_styled_xlsx_safely(
             rows,
             styles,
             include_company_description=True,
-            document_title=sheet_name,
+            document_title=title,
         )
         return path
     except PermissionError:
@@ -722,7 +729,7 @@ def _write_styled_xlsx_safely(
             rows,
             styles,
             include_company_description=True,
-            document_title=sheet_name,
+            document_title=title,
         )
         return fallback
 

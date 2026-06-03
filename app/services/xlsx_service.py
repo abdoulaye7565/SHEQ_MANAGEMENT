@@ -306,12 +306,16 @@ def _worksheet_xml(
     is_timesheet = day_end >= day_start
     training_start, training_end = _training_matrix_bounds(headers, title)
     is_training_matrix = training_end >= training_start
+    summary_row = ["Summary", f"Rows: {len(rows)}"]
+    if "MONTHLY TIMESHEET 1-25" in str(title).upper():
+        month_value, period_value = _monthly_125_title_values(title)
+        summary_row = ["Current month", month_value, "Period", period_value, "Rows", len(rows)]
     all_rows = [
         ["OREZONE", "", title],
         ["", "", "Controlled QHSE document | Document QHSE controle"],
         ["", "", OREZONE_HEADER_NOTE],
         [],
-        ["Summary", f"Rows: {len(rows)}"],
+        summary_row,
         [],
         headers,
         *rows,
@@ -548,6 +552,19 @@ def _training_matrix_bounds(headers: list[str], document_title: str) -> tuple[in
     if "TRAINING MATRIX" not in title or len(headers) <= 4:
         return 1, 0
     return 5, len(headers)
+
+
+def _monthly_125_title_values(title: str) -> tuple[str, str]:
+    parts = [part.strip() for part in str(title or "").split("|")]
+    month = ""
+    period = ""
+    for part in parts:
+        upper = part.upper()
+        if upper.startswith("CURRENT MONTH"):
+            month = part.replace("CURRENT MONTH", "", 1).strip()
+        if upper.startswith("PERIOD"):
+            period = part.replace("PERIOD", "", 1).strip()
+    return month or "-", period or "-"
 
 
 def _equipment_maintenance_worksheet_xml(
