@@ -5,6 +5,7 @@ from typing import Any
 
 from app.db.connection import db_session
 from app.services.break_service import list_break_alerts
+from app.services.equipment_check_service import monthly_equipment_check_alert
 from app.services.maintenance_action_service import list_maintenance_action_alerts
 from app.services.ppe_service import list_ppe_alerts
 
@@ -40,6 +41,7 @@ def list_alerts(
 
     rows = [
         *_manual_alerts(),
+        *_monthly_equipment_check_alerts(),
         *_break_alerts(),
         *_ppe_alerts(),
         *_maintenance_action_alerts(),
@@ -133,6 +135,11 @@ def get_alert_filter_options() -> dict[str, list[dict[str, str]]]:
             {"value": "ignoree", "label": "Ignorees"},
         ],
     }
+
+
+def _monthly_equipment_check_alerts() -> list[dict[str, Any]]:
+    alert = monthly_equipment_check_alert()
+    return [alert] if alert else []
 
 
 def _manual_alerts() -> list[dict[str, Any]]:

@@ -1,6 +1,7 @@
 import flet as ft
 
 from app.services import authenticate_user, create_user, get_role_modules, has_users, list_roles
+from app.services.equipment_check_service import confirm_monthly_equipment_check, get_monthly_equipment_check_status
 from app.ui.pages.admin import admin_page
 from app.ui.pages.ai_assistant import ai_assistant_page
 from app.ui.pages.dashboard import dashboard_page
@@ -96,6 +97,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     current_key: str | None = None
     nav_buttons: list[ft.TextButton] = []
     screen_cache: dict[str, ft.Control] = {}
+    startup_reminder_shown = False
 
     def render(index: int, force_reload: bool = False) -> None:
         nonlocal current_key
@@ -189,6 +191,108 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
         scroll=ft.ScrollMode.ALWAYS,
         expand=True,
     )
+
+    def show_monthly_equipment_reminder() -> None:
+        nonlocal startup_reminder_shown
+        if startup_reminder_shown:
+            return
+        status = get_monthly_equipment_check_status()
+        if status["confirmed"]:
+            return
+        startup_reminder_shown = True
+        can_open_maintenance = any(item[0] == "MaintenanceActions" for item in visible_nav_items)
+
+        def close_dialog(event: ft.ControlEvent | None = None) -> None:
+            page.pop_dialog()
+            page.update()
+
+        def open_maintenance(event: ft.ControlEvent | None = None) -> None:
+            close_dialog()
+            render_key("MaintenanceActions")
+
+        def confirm_check(event: ft.ControlEvent | None = None) -> None:
+            confirm_monthly_equipment_check(
+                str(status["month"]),
+                confirmed_by=str(user.get("username") or "system"),
+                commentaire="Verification mensuelle confirmee depuis le rappel au demarrage.",
+            )
+            screen_cache.pop("Alerts", None)
+            screen_cache.pop("MaintenanceActions", None)
+            close_dialog()
+            refresh_current()
+
+        page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Row(
+                    controls=[
+                        ft.Container(
+                            bgcolor="#FEF3C7",
+                            border_radius=8,
+                            padding=8,
+                            content=ft.Icon(ft.Icons.HANDYMAN_OUTLINED, color="#B45309", size=22),
+                        ),
+                        ft.Column(
+                            controls=[
+                                ft.Text("Verification mensuelle des engins", color=TEXT, weight=ft.FontWeight.BOLD, size=17),
+                                ft.Text(f"Mois concerne: {status['month']}", color=MUTED, size=12),
+                            ],
+                            spacing=2,
+                            tight=True,
+                        ),
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                content=ft.Container(
+                    width=520,
+                    content=ft.Column(
+                        controls=[
+                            ft.Text(str(status["message"]), color=TEXT, size=13),
+                            ft.Container(
+                                bgcolor="#F8FAFC",
+                                border=ft.border.all(1, BORDER),
+                                border_radius=8,
+                                padding=12,
+                                content=ft.Row(
+                                    controls=[
+                                        _startup_metric("Ouvertes", status["open_maintenance"], PRIMARY),
+                                        _startup_metric("Dues", status["due_maintenance"], DANGER if status["due_maintenance"] else PRIMARY),
+                                        _startup_metric("Statut", "Non confirme", DANGER),
+                                    ],
+                                    spacing=10,
+                                    wrap=True,
+                                ),
+                            ),
+                            ft.Text(
+                                "Ce rappel continuera a s'afficher a chaque ouverture tant que la verification mensuelle n'est pas confirmee.",
+                                color=MUTED,
+                                size=12,
+                            ),
+                        ],
+                        spacing=12,
+                        tight=True,
+                    ),
+                ),
+                actions=[
+                    ft.TextButton("Plus tard", on_click=close_dialog),
+                    ft.OutlinedButton(
+                        "Ouvrir Maintenance",
+                        icon=ft.Icons.OPEN_IN_NEW_OUTLINED,
+                        on_click=open_maintenance,
+                        visible=can_open_maintenance,
+                    ),
+                    ft.ElevatedButton(
+                        "Confirmer la verification du mois",
+                        icon=ft.Icons.CHECK_CIRCLE_OUTLINED,
+                        bgcolor=PRIMARY,
+                        color="#FFFFFF",
+                        on_click=confirm_check,
+                    ),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+        )
 
     app = ft.Row(
         controls=[
@@ -321,6 +425,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
         expand=True,
     )
     render(0)
+    show_monthly_equipment_reminder()
     return app
 
 
@@ -340,6 +445,24 @@ def _module_subtitle(key: str) -> str:
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
     }
     return subtitles.get(key, "Module OREZONE QHSE.")
+
+
+def _startup_metric(label: str, value: object, color: str) -> ft.Control:
+    return ft.Container(
+        bgcolor="#FFFFFF",
+        border=ft.border.all(1, color),
+        border_radius=8,
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        content=ft.Column(
+            controls=[
+                ft.Text(label, size=11, color=MUTED, weight=ft.FontWeight.BOLD),
+                ft.Text(str(value), size=16, color=color, weight=ft.FontWeight.BOLD),
+            ],
+            spacing=2,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
 
 
 def _build_screen(

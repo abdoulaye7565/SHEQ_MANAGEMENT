@@ -369,6 +369,13 @@ CREATE TABLE IF NOT EXISTS alertes (
     CHECK (statut IN ('ouverte', 'traitee', 'ignoree'))
 );
 
+CREATE TABLE IF NOT EXISTS equipment_monthly_checks (
+    month TEXT PRIMARY KEY,
+    confirmed_by TEXT NOT NULL DEFAULT 'system',
+    confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    commentaire TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_formations_employe_expiration
     ON formations(employe_id, date_expiration);
 

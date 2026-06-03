@@ -38,6 +38,16 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "equipment_maintenance", "next_due_odometer", "REAL")
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS equipment_monthly_checks (
+            month TEXT PRIMARY KEY,
+            confirmed_by TEXT NOT NULL DEFAULT 'system',
+            confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            commentaire TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS employee_breaks (
             id_break INTEGER PRIMARY KEY AUTOINCREMENT,
             employe_id INTEGER NOT NULL,
