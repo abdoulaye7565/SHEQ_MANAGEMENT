@@ -737,12 +737,24 @@ def _ensure_performance_indexes(connection: sqlite3.Connection) -> None:
         ON presences(date_presence, employe_id)
         """,
         """
+        CREATE INDEX IF NOT EXISTS idx_presences_employee_date_status
+        ON presences(employe_id, date_presence, statut_presence)
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_presences_statut_date
         ON presences(statut_presence, date_presence)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_employee_breaks_dates_status
         ON employee_breaks(date_debut, date_fin, statut)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_employee_breaks_type_employee_fin
+        ON employee_breaks(type_break, employe_id, statut, date_fin)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_employee_breaks_employee_status_range
+        ON employee_breaks(employe_id, statut, date_debut, date_fin)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_employee_breaks_status_employee_dates

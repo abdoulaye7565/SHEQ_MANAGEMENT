@@ -172,35 +172,33 @@ def _presence_trend(connection: Any, start_date: str, end_date: str) -> list[dic
 
 
 def _breaks_due_count(connection: Any, current_date: str) -> int:
-    rows = connection.execute(
+    row = connection.execute(
         """
-        SELECT
-            e.id_employe,
-            DATE(COALESCE(last_break.date_fin, DATE(e.created_at)), '+14 days') AS due_date
+        WITH last_break AS (
+            SELECT employe_id, MAX(date_fin) AS date_fin
+            FROM employee_breaks
+            WHERE type_break = 'break'
+              AND statut IN ('planifie', 'en_cours', 'termine')
+              AND date_fin < ?
+            GROUP BY employe_id
+        ),
+        active_or_future AS (
+            SELECT DISTINCT employe_id
+            FROM employee_breaks
+            WHERE statut IN ('planifie', 'en_cours')
+              AND date_fin >= ?
+        )
+        SELECT COUNT(*) AS total
         FROM employes e
-        LEFT JOIN employee_breaks last_break
-          ON last_break.id_break = (
-            SELECT eb.id_break
-            FROM employee_breaks eb
-            WHERE eb.employe_id = e.id_employe
-              AND eb.type_break = 'break'
-              AND eb.statut IN ('planifie', 'en_cours', 'termine')
-              AND eb.date_fin < ?
-            ORDER BY eb.date_fin DESC, eb.id_break DESC
-            LIMIT 1
-          )
+        LEFT JOIN last_break lb ON lb.employe_id = e.id_employe
+        LEFT JOIN active_or_future af ON af.employe_id = e.id_employe
         WHERE e.statut = 'actif'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM employee_breaks eb
-            WHERE eb.employe_id = e.id_employe
-              AND eb.statut IN ('planifie', 'en_cours')
-              AND eb.date_fin >= ?
-          )
+          AND af.employe_id IS NULL
+          AND DATE(COALESCE(lb.date_fin, DATE(e.created_at)), '+14 days') <= ?
         """,
-        (current_date, current_date),
-    ).fetchall()
-    return sum(1 for row in rows if str(row["due_date"]) <= current_date)
+        (current_date, current_date, current_date),
+    ).fetchone()
+    return int(row["total"] or 0)
 
 
 def _presence_by_shift(connection: Any, target_date: str) -> list[dict[str, Any]]:

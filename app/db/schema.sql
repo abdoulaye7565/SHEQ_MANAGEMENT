@@ -621,8 +621,17 @@ CREATE INDEX IF NOT EXISTS idx_badges_employe
 CREATE INDEX IF NOT EXISTS idx_presences_date_employe
     ON presences(date_presence, employe_id);
 
+CREATE INDEX IF NOT EXISTS idx_presences_employee_date_status
+    ON presences(employe_id, date_presence, statut_presence);
+
 CREATE INDEX IF NOT EXISTS idx_employee_breaks_dates_status
     ON employee_breaks(date_debut, date_fin, statut);
+
+CREATE INDEX IF NOT EXISTS idx_employee_breaks_type_employee_fin
+    ON employee_breaks(type_break, employe_id, statut, date_fin);
+
+CREATE INDEX IF NOT EXISTS idx_employee_breaks_employee_status_range
+    ON employee_breaks(employe_id, statut, date_debut, date_fin);
 
 CREATE INDEX IF NOT EXISTS idx_employee_breaks_status_employee_dates
     ON employee_breaks(statut, employe_id, date_debut, date_fin);

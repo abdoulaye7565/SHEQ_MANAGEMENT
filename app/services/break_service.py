@@ -254,36 +254,40 @@ def list_break_alerts(reference_date: str | None = None) -> dict[str, list[dict[
             ORDER BY nom, prenom
             """
         ).fetchall()
+        last_break_rows = connection.execute(
+            """
+            SELECT employe_id, MAX(date_fin) AS date_fin
+            FROM employee_breaks
+            WHERE type_break = 'break'
+              AND statut IN ('planifie', 'en_cours', 'termine')
+            GROUP BY employe_id
+            """
+        ).fetchall()
+        last_break_by_employee = {
+            int(row["employe_id"]): str(row["date_fin"])
+            for row in last_break_rows
+            if row["date_fin"]
+        }
+        active_or_future_rows = connection.execute(
+            """
+            SELECT DISTINCT employe_id
+            FROM employee_breaks
+            WHERE statut IN ('planifie', 'en_cours')
+              AND date_fin >= ?
+            """,
+            (current_date.isoformat(),),
+        ).fetchall()
+        active_or_future_employee_ids = {
+            int(row["employe_id"])
+            for row in active_or_future_rows
+        }
 
         for employee in employees:
-            last_break = connection.execute(
-                """
-                SELECT date_fin
-                FROM employee_breaks
-                WHERE employe_id = ?
-                  AND type_break = 'break'
-                  AND statut IN ('planifie', 'en_cours', 'termine')
-                ORDER BY date_fin DESC
-                LIMIT 1
-                """,
-                (employee["id_employe"],),
-            ).fetchone()
-            active_or_future = connection.execute(
-                """
-                SELECT id_break
-                FROM employee_breaks
-                WHERE employe_id = ?
-                  AND statut IN ('planifie', 'en_cours')
-                  AND date_fin >= ?
-                LIMIT 1
-                """,
-                (employee["id_employe"], current_date.isoformat()),
-            ).fetchone()
-
-            reference = last_break["date_fin"] if last_break else employee["date_reference"]
+            employee_id = int(employee["id_employe"])
+            reference = last_break_by_employee.get(employee_id) or employee["date_reference"]
             reference_dt = _parse_date(reference)
             days_worked = (current_date - reference_dt).days
-            if not active_or_future and days_worked >= WORK_DAYS_BEFORE_BREAK:
+            if employee_id not in active_or_future_employee_ids and days_worked >= WORK_DAYS_BEFORE_BREAK:
                 row = dict(employee)
                 row["jours_travailles"] = days_worked
                 row["date_break_suggeree"] = current_date.isoformat()
