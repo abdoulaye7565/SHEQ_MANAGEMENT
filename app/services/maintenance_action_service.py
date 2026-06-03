@@ -8,7 +8,7 @@ from app.db.connection import db_session
 from app.services.attendance_export_service import export_rows_xlsx, export_styled_rows_xlsx
 
 
-MAINTENANCE_TYPES = {"preventive", "corrective", "inspection", "calibration"}
+MAINTENANCE_TYPES = {"preventive", "corrective", "inspection", "calibration", "oil_change"}
 MAINTENANCE_STATUSES = {"planifiee", "en_cours", "terminee", "annulee", "en_retard"}
 ACTION_STATUSES = {"ouverte", "en_cours", "terminee", "annulee", "en_retard"}
 PRIORITIES = {"basse", "moyenne", "haute", "critique"}
@@ -24,12 +24,13 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
             SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN status IN ('planifiee', 'en_cours') THEN 1 ELSE 0 END) AS open_count,
-                SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND planned_date < ? THEN 1 ELSE 0 END) AS late_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND (planned_date < ? OR (next_due_date IS NOT NULL AND next_due_date <= ?) OR (next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer)) THEN 1 ELSE 0 END) AS late_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer THEN 1 ELSE 0 END) AS odometer_due_count,
                 SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count,
                 COALESCE(SUM(cost), 0) AS cost_total
             FROM equipment_maintenance
             """,
-            (today,),
+            (today, today),
         ).fetchone()
         actions = connection.execute(
             """
@@ -58,6 +59,7 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
         "maintenance_total": int(maintenance["total"] or 0),
         "maintenance_open": int(maintenance["open_count"] or 0),
         "maintenance_late": int(maintenance["late_count"] or 0),
+        "maintenance_odometer_due": int(maintenance["odometer_due_count"] or 0),
         "maintenance_critical": int(maintenance["critical_count"] or 0),
         "maintenance_cost": round(float(maintenance["cost_total"] or 0), 2),
         "actions_total": int(actions["total"] or 0),
@@ -106,17 +108,22 @@ def list_maintenance_action_alerts() -> dict[str, list[dict[str, Any]]]:
                 em.priority,
                 em.status,
                 em.planned_date,
+                em.next_due_date,
+                em.current_odometer,
+                em.next_due_odometer,
                 s.nom AS site
             FROM equipment_maintenance em
             LEFT JOIN sites s ON s.id_site = em.site_id
             WHERE em.status IN ('planifiee', 'en_cours')
               AND (
                   em.planned_date < ?
+                  OR (em.next_due_date IS NOT NULL AND em.next_due_date <= ?)
+                  OR (em.next_due_odometer IS NOT NULL AND em.current_odometer IS NOT NULL AND em.current_odometer >= em.next_due_odometer)
                   OR em.priority = 'critique'
               )
             ORDER BY em.planned_date, em.priority
             """,
-            (today,),
+            (today, today),
         ).fetchall()
         action_rows = connection.execute(
             """
@@ -162,7 +169,18 @@ def list_equipment_maintenance(
             """
         )
         params.extend([pattern, pattern, pattern, pattern])
-    if status != "all":
+    if status == "en_retard":
+        where.append(
+            """
+            (em.status = 'en_retard'
+             OR (em.status IN ('planifiee', 'en_cours')
+                 AND (em.planned_date < ?
+                      OR (em.next_due_date IS NOT NULL AND em.next_due_date <= ?)
+                      OR (em.next_due_odometer IS NOT NULL AND em.current_odometer IS NOT NULL AND em.current_odometer >= em.next_due_odometer))))
+            """
+        )
+        params.extend([today, today])
+    elif status != "all":
         where.append("em.status = ?")
         params.append(status)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
@@ -183,12 +201,20 @@ def list_equipment_maintenance(
                 em.maintenance_type,
                 em.priority,
                 CASE
-                    WHEN em.status IN ('planifiee', 'en_cours') AND em.planned_date < ? THEN 'en_retard'
+                    WHEN em.status IN ('planifiee', 'en_cours') AND (em.planned_date < ? OR (em.next_due_date IS NOT NULL AND em.next_due_date <= ?) OR (em.next_due_odometer IS NOT NULL AND em.current_odometer IS NOT NULL AND em.current_odometer >= em.next_due_odometer)) THEN 'en_retard'
                     ELSE em.status
                 END AS status,
+                CASE
+                    WHEN em.next_due_odometer IS NOT NULL AND em.current_odometer IS NOT NULL THEN em.next_due_odometer - em.current_odometer
+                    ELSE NULL
+                END AS remaining_km,
                 em.planned_date,
                 em.completed_date,
                 em.next_due_date,
+                em.current_odometer,
+                em.last_service_odometer,
+                em.service_interval_km,
+                em.next_due_odometer,
                 em.cost,
                 em.observations
             FROM equipment_maintenance em
@@ -201,7 +227,7 @@ def list_equipment_maintenance(
                 em.id_maintenance DESC
             LIMIT ?
             """,
-            (today, *params),
+            (today, today, *params),
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -214,8 +240,9 @@ def create_equipment_maintenance(values: dict[str, Any]) -> int:
             INSERT INTO equipment_maintenance (
                 equipment_code, equipment_name, category, site_id, responsible_employee_id,
                 maintenance_type, priority, status, planned_date, completed_date,
-                next_due_date, cost, observations
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                next_due_date, current_odometer, last_service_odometer, service_interval_km,
+                next_due_odometer, cost, observations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["equipment_code"],
@@ -229,6 +256,10 @@ def create_equipment_maintenance(values: dict[str, Any]) -> int:
                 payload["planned_date"],
                 payload["completed_date"],
                 payload["next_due_date"],
+                payload["current_odometer"],
+                payload["last_service_odometer"],
+                payload["service_interval_km"],
+                payload["next_due_odometer"],
                 payload["cost"],
                 payload["observations"],
             ),
@@ -245,7 +276,8 @@ def update_equipment_maintenance(maintenance_id: int, values: dict[str, Any]) ->
             SET equipment_code = ?, equipment_name = ?, category = ?, site_id = ?,
                 responsible_employee_id = ?, maintenance_type = ?, priority = ?,
                 status = ?, planned_date = ?, completed_date = ?, next_due_date = ?,
-                cost = ?, observations = ?, updated_at = CURRENT_TIMESTAMP
+                current_odometer = ?, last_service_odometer = ?, service_interval_km = ?,
+                next_due_odometer = ?, cost = ?, observations = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id_maintenance = ?
             """,
             (
@@ -260,6 +292,10 @@ def update_equipment_maintenance(maintenance_id: int, values: dict[str, Any]) ->
                 payload["planned_date"],
                 payload["completed_date"],
                 payload["next_due_date"],
+                payload["current_odometer"],
+                payload["last_service_odometer"],
+                payload["service_interval_km"],
+                payload["next_due_odometer"],
                 payload["cost"],
                 payload["observations"],
                 maintenance_id,
@@ -495,6 +531,11 @@ def export_equipment_maintenance_xlsx() -> Path:
             "Date planifiee",
             "Date terminee",
             "Prochaine echeance",
+            "Compteur actuel",
+            "Derniere vidange km",
+            "Intervalle km",
+            "Prochaine maintenance km",
+            "Km restants",
             "Cout",
             "Observations",
         ],
@@ -511,6 +552,11 @@ def export_equipment_maintenance_xlsx() -> Path:
                 row.get("planned_date") or "",
                 row.get("completed_date") or "",
                 row.get("next_due_date") or "",
+                row.get("current_odometer") or "",
+                row.get("last_service_odometer") or "",
+                row.get("service_interval_km") or "",
+                row.get("next_due_odometer") or "",
+                row.get("remaining_km") if row.get("remaining_km") is not None else "",
                 row.get("cost") or 0,
                 row.get("observations") or "",
             ]
@@ -666,6 +712,20 @@ def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Statut maintenance invalide.")
     if priority not in PRIORITIES:
         raise ValueError("Priorite invalide.")
+    current_odometer = _optional_float(values.get("current_odometer"))
+    last_service_odometer = _optional_float(values.get("last_service_odometer"))
+    service_interval_km = _optional_float(values.get("service_interval_km"))
+    next_due_odometer = _optional_float(values.get("next_due_odometer"))
+    for label, number in (
+        ("Compteur actuel", current_odometer),
+        ("Derniere maintenance km", last_service_odometer),
+        ("Intervalle km", service_interval_km),
+        ("Prochaine maintenance km", next_due_odometer),
+    ):
+        if number is not None and number < 0:
+            raise ValueError(f"{label}: utilise une valeur positive.")
+    if next_due_odometer is None and last_service_odometer is not None and service_interval_km is not None:
+        next_due_odometer = last_service_odometer + service_interval_km
     return {
         "equipment_code": _optional_text(values.get("equipment_code")),
         "equipment_name": _required_text(values.get("equipment_name"), "Equipement"),
@@ -678,6 +738,10 @@ def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
         "planned_date": _date_text(values.get("planned_date"), "Date planifiee"),
         "completed_date": _optional_date(values.get("completed_date"), "Date terminee"),
         "next_due_date": _optional_date(values.get("next_due_date"), "Prochaine echeance"),
+        "current_odometer": current_odometer,
+        "last_service_odometer": last_service_odometer,
+        "service_interval_km": service_interval_km,
+        "next_due_odometer": next_due_odometer,
         "cost": _optional_float(values.get("cost")) or 0,
         "observations": _optional_text(values.get("observations")),
     }

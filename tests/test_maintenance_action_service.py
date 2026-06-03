@@ -17,6 +17,7 @@ from app.services.maintenance_action_service import (
     get_maintenance_action_summary,
     list_action_tracker,
     list_equipment_maintenance,
+    list_maintenance_action_alerts,
     list_risk_assessments,
     update_action,
     update_equipment_maintenance,
@@ -75,6 +76,36 @@ class MaintenanceActionServiceTest(unittest.TestCase):
             },
         )
         self.assertEqual(list_equipment_maintenance()[0]["status"], "terminee")
+
+    def test_oil_change_maintenance_is_due_by_odometer(self) -> None:
+        maintenance_id = create_equipment_maintenance(
+            {
+                "equipment_code": "TRUCK-01",
+                "equipment_name": "Service truck",
+                "category": "Vehicle",
+                "site_id": self.site_id,
+                "responsible_employee_id": self.employee_id,
+                "maintenance_type": "oil_change",
+                "priority": "haute",
+                "status": "planifiee",
+                "planned_date": "2026-12-01",
+                "current_odometer": 12500,
+                "last_service_odometer": 10000,
+                "service_interval_km": 2500,
+            }
+        )
+
+        row = list_equipment_maintenance()[0]
+        summary = get_maintenance_action_summary()
+        alerts = list_maintenance_action_alerts()["maintenance"]
+
+        self.assertEqual(row["id_maintenance"], maintenance_id)
+        self.assertEqual(row["maintenance_type"], "oil_change")
+        self.assertEqual(row["next_due_odometer"], 12500)
+        self.assertEqual(row["remaining_km"], 0)
+        self.assertEqual(row["status"], "en_retard")
+        self.assertEqual(summary["maintenance_odometer_due"], 1)
+        self.assertTrue(any(item["id_maintenance"] == maintenance_id for item in alerts))
 
     def test_action_tracker_lifecycle_and_export(self) -> None:
         action_id = create_action(

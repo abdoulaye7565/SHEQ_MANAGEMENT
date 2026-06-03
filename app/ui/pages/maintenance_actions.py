@@ -74,6 +74,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         width=160,
         options=[
             ft.dropdown.Option("preventive", "Preventive"),
+            ft.dropdown.Option("oil_change", "Vidange / Oil change"),
             ft.dropdown.Option("corrective", "Corrective"),
             ft.dropdown.Option("inspection", "Inspection"),
             ft.dropdown.Option("calibration", "Calibration"),
@@ -94,6 +95,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     planned_date = ft.TextField(label="Date planifiee", value=today_iso(), hint_text="AAAA-MM-JJ", width=160)
     completed_date = ft.TextField(label="Date terminee", hint_text="AAAA-MM-JJ", width=160)
     next_due_date = ft.TextField(label="Prochaine echeance", hint_text="AAAA-MM-JJ", width=180)
+    current_odometer = ft.TextField(label="Compteur actuel km", width=150)
+    last_service_odometer = ft.TextField(label="Derniere vidange km", width=160)
+    service_interval_km = ft.TextField(label="Intervalle km", width=130)
+    next_due_odometer = ft.TextField(label="Prochaine km", width=140)
     maintenance_cost = ft.TextField(label="Cout", value="0", width=110)
     maintenance_observations = ft.TextField(label="Observations", width=260)
     save_maintenance_button = ft.ElevatedButton("Creer", icon=ft.Icons.ADD_OUTLINED)
@@ -230,6 +235,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         planned_date.value = today_iso()
         completed_date.value = ""
         next_due_date.value = ""
+        current_odometer.value = ""
+        last_service_odometer.value = ""
+        service_interval_km.value = ""
+        next_due_odometer.value = ""
         maintenance_cost.value = "0"
         maintenance_observations.value = ""
         save_maintenance_button.text = "Creer"
@@ -311,6 +320,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 "planned_date": planned_date.value,
                 "completed_date": completed_date.value,
                 "next_due_date": next_due_date.value,
+                "current_odometer": current_odometer.value,
+                "last_service_odometer": last_service_odometer.value,
+                "service_interval_km": service_interval_km.value,
+                "next_due_odometer": next_due_odometer.value,
                 "cost": maintenance_cost.value,
                 "observations": maintenance_observations.value,
             }
@@ -339,6 +352,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         planned_date.value = str(row.get("planned_date") or today_iso())
         completed_date.value = str(row.get("completed_date") or "")
         next_due_date.value = str(row.get("next_due_date") or "")
+        current_odometer.value = _number_text(row.get("current_odometer"))
+        last_service_odometer.value = _number_text(row.get("last_service_odometer"))
+        service_interval_km.value = _number_text(row.get("service_interval_km"))
+        next_due_odometer.value = _number_text(row.get("next_due_odometer"))
         maintenance_cost.value = str(row.get("cost") or 0)
         maintenance_observations.value = str(row.get("observations") or "")
         save_maintenance_button.text = "Enregistrer"
@@ -520,6 +537,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         summary_row.controls = [
             _summary_chip("Maintenances ouvertes", summary["maintenance_open"], PRIMARY, ft.Icons.HANDYMAN_OUTLINED),
             _summary_chip("Maint. retard", summary["maintenance_late"], DANGER if summary["maintenance_late"] else SUCCESS, ft.Icons.WARNING_AMBER_OUTLINED),
+            _summary_chip("Maint. compteur", summary.get("maintenance_odometer_due", 0), DANGER if summary.get("maintenance_odometer_due") else SUCCESS, ft.Icons.SPEED_OUTLINED),
             _summary_chip("Actions ouvertes", summary["actions_open"], PRIMARY, ft.Icons.TASK_ALT_OUTLINED),
             _summary_chip("Actions retard", summary["actions_late"], DANGER if summary["actions_late"] else SUCCESS, ft.Icons.REPORT_PROBLEM_OUTLINED),
             _summary_chip("Critiques", int(summary["maintenance_critical"]) + int(summary["actions_critical"]), WARNING, ft.Icons.PRIORITY_HIGH_OUTLINED),
@@ -547,6 +565,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                             ft.DataColumn(ft.Text("Priorite")),
                             ft.DataColumn(ft.Text("Statut")),
                             ft.DataColumn(ft.Text("Date")),
+                            ft.DataColumn(ft.Text("Compteur")),
+                            ft.DataColumn(ft.Text("Prochaine")),
                             ft.DataColumn(ft.Text("Responsable")),
                             ft.DataColumn(ft.Text("Actions")),
                         ],
@@ -560,6 +580,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                                     ft.DataCell(_badge(str(row.get("priority") or "-"), _priority_color(row.get("priority")))),
                                     ft.DataCell(_badge(_status_label(row.get("status")), _status_color(row.get("status")))),
                                     ft.DataCell(ft.Text(str(row.get("planned_date") or "-"))),
+                                    ft.DataCell(ft.Text(_odometer_label(row))),
+                                    ft.DataCell(_badge(_next_due_label(row), _next_due_color(row))),
                                     ft.DataCell(ft.Text(_person_name(row, "responsable_nom", "responsable_prenom") or "-")),
                                     ft.DataCell(
                                         ft.Row(
@@ -737,6 +759,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 content=ft.Column(
                     controls=[
                         ft.Text("Nouvelle maintenance equipement", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.Text("Pour une vidange, renseigner le compteur actuel, la derniere vidange et l'intervalle km. La prochaine maintenance est calculee automatiquement si elle est vide.", size=12, color=MUTED),
                         ft.Row(
                             controls=[
                                 equipment_code,
@@ -750,6 +773,10 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                                 planned_date,
                                 completed_date,
                                 next_due_date,
+                                current_odometer,
+                                last_service_odometer,
+                                service_interval_km,
+                                next_due_odometer,
                                 maintenance_cost,
                                 maintenance_observations,
                                 save_maintenance_button,
@@ -897,10 +924,53 @@ def _person_name(row: dict[str, Any], last_key: str, first_key: str) -> str:
 def _type_label(value: Any) -> str:
     return {
         "preventive": "Preventive",
+        "oil_change": "Vidange / Oil change",
         "corrective": "Corrective",
         "inspection": "Inspection",
         "calibration": "Calibration",
     }.get(str(value or ""), str(value or "-"))
+
+
+def _number_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{number:g}"
+
+
+def _odometer_label(row: dict[str, Any]) -> str:
+    current = row.get("current_odometer")
+    if current in (None, ""):
+        return "-"
+    remaining = row.get("remaining_km")
+    if remaining in (None, ""):
+        return f"{float(current):g} km"
+    return f"{float(current):g} km | reste {float(remaining):g}"
+
+
+def _next_due_label(row: dict[str, Any]) -> str:
+    labels = []
+    if row.get("next_due_date"):
+        labels.append(str(row.get("next_due_date")))
+    if row.get("next_due_odometer") not in (None, ""):
+        labels.append(f"{float(row.get('next_due_odometer')):g} km")
+    return " | ".join(labels) if labels else "-"
+
+
+def _next_due_color(row: dict[str, Any]) -> str:
+    if row.get("status") == "en_retard":
+        return DANGER
+    remaining = row.get("remaining_km")
+    if remaining not in (None, ""):
+        value = float(remaining)
+        if value <= 0:
+            return DANGER
+        if value <= 500:
+            return WARNING
+    return SUCCESS
 
 
 def _status_label(value: Any) -> str:

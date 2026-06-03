@@ -240,14 +240,32 @@ def _maintenance_action_alerts() -> list[dict[str, Any]]:
     for row in data["maintenance"]:
         equipment = _equipment_label(row)
         late = str(row.get("planned_date") or "") < current_date
+        next_due_date_reached = bool(row.get("next_due_date")) and str(row.get("next_due_date")) <= current_date
+        odometer_due = (
+            row.get("current_odometer") is not None
+            and row.get("next_due_odometer") is not None
+            and float(row.get("current_odometer") or 0) >= float(row.get("next_due_odometer") or 0)
+        )
+        if odometer_due:
+            detail = (
+                f"compteur {float(row.get('current_odometer') or 0):g} km "
+                f"/ prochaine maintenance {float(row.get('next_due_odometer') or 0):g} km."
+            )
+            alert_type = "Maintenance compteur atteinte"
+        elif next_due_date_reached:
+            detail = f"prochaine echeance arrivee le {row.get('next_due_date') or '-'}."
+            alert_type = "Maintenance a echeance"
+        else:
+            detail = f"planifiee le {row.get('planned_date') or '-'}."
+            alert_type = "Maintenance en retard" if late else "Maintenance critique"
         alerts.append(
             _alert(
                 alert_id=f"maintenance:{row.get('id_maintenance')}",
                 source_key="maintenance",
                 source="Maintenance",
-                type_alerte="Maintenance en retard" if late else "Maintenance critique",
-                message=f"{equipment} - site {row.get('site') or '-'} - planifiee le {row.get('planned_date') or '-'}.",
-                niveau="critique" if late or row.get("priority") == "critique" else "haut",
+                type_alerte=alert_type,
+                message=f"{equipment} - site {row.get('site') or '-'} - {detail}",
+                niveau="critique" if late or next_due_date_reached or odometer_due or row.get("priority") == "critique" else "haut",
                 date_creation=str(row.get("planned_date") or current_date),
                 reference_id=row.get("id_maintenance"),
                 reference_label=equipment,

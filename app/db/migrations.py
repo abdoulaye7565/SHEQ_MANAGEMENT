@@ -32,6 +32,10 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         "TEXT NOT NULL DEFAULT 'absent'",
     )
     _add_column_if_missing(connection, "formations", "structure_responsable", "TEXT")
+    _add_column_if_missing(connection, "equipment_maintenance", "current_odometer", "REAL")
+    _add_column_if_missing(connection, "equipment_maintenance", "last_service_odometer", "REAL")
+    _add_column_if_missing(connection, "equipment_maintenance", "service_interval_km", "REAL")
+    _add_column_if_missing(connection, "equipment_maintenance", "next_due_odometer", "REAL")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS employee_breaks (
@@ -51,6 +55,7 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
     )
     _rebuild_employee_breaks_type_check_if_needed(connection)
+    _rebuild_equipment_maintenance_type_check_if_needed(connection)
     _deduplicate_employee_trainings(connection)
     _deduplicate_daily_themes(connection)
     connection.execute(
@@ -286,13 +291,17 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
             planned_date TEXT NOT NULL,
             completed_date TEXT,
             next_due_date TEXT,
+            current_odometer REAL,
+            last_service_odometer REAL,
+            service_interval_km REAL,
+            next_due_odometer REAL,
             cost REAL NOT NULL DEFAULT 0,
             observations TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT,
             FOREIGN KEY (site_id) REFERENCES sites(id_site),
             FOREIGN KEY (responsible_employee_id) REFERENCES employes(id_employe),
-            CHECK (maintenance_type IN ('preventive', 'corrective', 'inspection', 'calibration')),
+            CHECK (maintenance_type IN ('preventive', 'corrective', 'inspection', 'calibration', 'oil_change')),
             CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
             CHECK (status IN ('planifiee', 'en_cours', 'terminee', 'annulee', 'en_retard')),
             CHECK (completed_date IS NULL OR completed_date >= planned_date)
@@ -594,6 +603,68 @@ def _rebuild_employee_breaks_type_check_if_needed(connection: sqlite3.Connection
         """
     )
     connection.execute("DROP TABLE employee_breaks_old")
+
+
+def _rebuild_equipment_maintenance_type_check_if_needed(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'equipment_maintenance'"
+    ).fetchone()
+    sql = row["sql"] or "" if row else ""
+    if not row or "'oil_change'" in sql:
+        return
+
+    connection.execute("ALTER TABLE equipment_maintenance RENAME TO equipment_maintenance_old")
+    connection.execute(
+        """
+        CREATE TABLE equipment_maintenance (
+            id_maintenance INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_code TEXT,
+            equipment_name TEXT NOT NULL,
+            category TEXT,
+            site_id INTEGER,
+            responsible_employee_id INTEGER,
+            maintenance_type TEXT NOT NULL DEFAULT 'preventive',
+            priority TEXT NOT NULL DEFAULT 'moyenne',
+            status TEXT NOT NULL DEFAULT 'planifiee',
+            planned_date TEXT NOT NULL,
+            completed_date TEXT,
+            next_due_date TEXT,
+            current_odometer REAL,
+            last_service_odometer REAL,
+            service_interval_km REAL,
+            next_due_odometer REAL,
+            cost REAL NOT NULL DEFAULT 0,
+            observations TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (responsible_employee_id) REFERENCES employes(id_employe),
+            CHECK (maintenance_type IN ('preventive', 'corrective', 'inspection', 'calibration', 'oil_change')),
+            CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique')),
+            CHECK (status IN ('planifiee', 'en_cours', 'terminee', 'annulee', 'en_retard')),
+            CHECK (completed_date IS NULL OR completed_date >= planned_date)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO equipment_maintenance (
+            id_maintenance, equipment_code, equipment_name, category, site_id,
+            responsible_employee_id, maintenance_type, priority, status,
+            planned_date, completed_date, next_due_date, current_odometer,
+            last_service_odometer, service_interval_km, next_due_odometer,
+            cost, observations, created_at, updated_at
+        )
+        SELECT
+            id_maintenance, equipment_code, equipment_name, category, site_id,
+            responsible_employee_id, maintenance_type, priority, status,
+            planned_date, completed_date, next_due_date, current_odometer,
+            last_service_odometer, service_interval_km, next_due_odometer,
+            cost, observations, created_at, updated_at
+        FROM equipment_maintenance_old
+        """
+    )
+    connection.execute("DROP TABLE equipment_maintenance_old")
 
 
 def _deduplicate_employee_trainings(connection: sqlite3.Connection) -> None:
