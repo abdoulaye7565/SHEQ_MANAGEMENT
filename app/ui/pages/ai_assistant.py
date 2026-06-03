@@ -57,7 +57,7 @@ def ai_assistant_page(page: ft.Page | None = None) -> ft.Control:
         maintenance = get_maintenance_action_summary()
         alerts = get_alert_summary()
         summary_row.controls = [
-            _summary_chip("IA", "Active" if ai["enabled"] else "Off", SUCCESS if ai["enabled"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
+            _summary_chip("IA", "Operationnelle" if ai["operational"] else "A configurer", SUCCESS if ai["operational"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
             _summary_chip("Cle API", "OK" if ai["api_key_configured"] else "A configurer", SUCCESS if ai["api_key_configured"] else DANGER, ft.Icons.KEY_OUTLINED),
             _summary_chip("Alertes ouvertes", alerts.get("open", 0), WARNING, ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
             _summary_chip("Risques hauts", maintenance.get("risks_high_residual", 0), DANGER if maintenance.get("risks_high_residual") else SUCCESS, ft.Icons.SHIELD_OUTLINED),

@@ -12,7 +12,7 @@ from app.config import DATA_DIR
 
 AI_CONFIG_PATH = DATA_DIR / "ai_config.json"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5-mini"
 
 
 class AIConfigurationError(ValueError):
@@ -27,6 +27,7 @@ def get_ai_settings() -> dict[str, Any]:
         "provider": "OpenAI",
         "model": str(config.get("model") or DEFAULT_MODEL),
         "api_key_configured": bool(api_key),
+        "operational": bool(config.get("enabled", False)) and bool(api_key),
         "api_key_source": "Variable OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY") else "Fichier local",
         "config_path": str(AI_CONFIG_PATH),
     }
@@ -112,6 +113,17 @@ def summarize_alerts_and_reports(context: dict[str, Any]) -> str:
         ),
         user_prompt=f"Summarize this QHSE context and propose next actions:\n{json.dumps(context, ensure_ascii=False, default=str)}",
         max_output_tokens=900,
+    )
+
+
+def test_ai_connection() -> str:
+    return generate_ai_text(
+        system_prompt=(
+            "You are a QHSE assistant health check. Reply in French with one short sentence confirming "
+            "that the AI connection is operational."
+        ),
+        user_prompt="Test de connexion IA OREZONE QHSE. Reponds uniquement par une confirmation courte.",
+        max_output_tokens=80,
     )
 
 

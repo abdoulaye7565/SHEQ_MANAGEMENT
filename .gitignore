@@ -9,6 +9,7 @@ dist_*/
 *.spec
 *.db
 data/*.db
+data/ai_config.json
 *.db-wal
 *.db-shm
 data/*.db-wal

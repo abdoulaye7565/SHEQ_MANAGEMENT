@@ -5,7 +5,7 @@ from typing import Any
 import flet as ft
 
 from app.services import create_settings_backup, ensure_runtime_directories, get_application_settings
-from app.services.ai_service import get_ai_settings, save_ai_settings
+from app.services.ai_service import AIConfigurationError, get_ai_settings, save_ai_settings, test_ai_connection
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -77,6 +77,27 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             notify(str(exc), DANGER)
         _update()
 
+    def test_ai_config(event: ft.ControlEvent | None = None) -> None:
+        try:
+            save_ai_settings(
+                {
+                    "enabled": ai_enabled.value,
+                    "model": ai_model.value,
+                    "api_key": ai_api_key.value,
+                    "clear_api_key": ai_clear_key.value,
+                }
+            )
+            ai_api_key.value = ""
+            ai_clear_key.value = False
+            notify("Test IA en cours...", PRIMARY)
+            _update()
+            message = test_ai_connection()
+            notify(f"IA operationnelle: {message}", SUCCESS)
+            render()
+        except (ValueError, AIConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
     def render() -> None:
         data = get_application_settings()
         ai = get_ai_settings()
@@ -88,7 +109,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             _summary_chip("Exports", data["exports_count"], PRIMARY, ft.Icons.DOWNLOAD_OUTLINED),
             _summary_chip("Backups", data["backups_count"], SUCCESS, ft.Icons.BACKUP_OUTLINED),
             _summary_chip("SQLite", "OK" if data["database_exists"] else "Absent", SUCCESS if data["database_exists"] else DANGER, ft.Icons.STORAGE_OUTLINED),
-            _summary_chip("IA", "Active" if ai["enabled"] else "Off", SUCCESS if ai["enabled"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
+            _summary_chip("IA", "Operationnelle" if ai["operational"] else "A configurer", SUCCESS if ai["operational"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
         ]
         rows = [
             ("Application", "Version", data["version"]),
@@ -105,7 +126,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ("SQLite", "Taille base", f"{data['database_size']} octets"),
             ("IA", "Fournisseur", ai["provider"]),
             ("IA", "Modele", ai["model"]),
-            ("IA", "Etat", "Activee" if ai["enabled"] else "Desactivee"),
+            ("IA", "Etat", "Operationnelle" if ai["operational"] else ("Activee sans cle" if ai["enabled"] else "Desactivee")),
             ("IA", "Cle API", "Configuree" if ai["api_key_configured"] else "Non configuree"),
             ("IA", "Source cle", ai["api_key_source"] if ai["api_key_configured"] else "-"),
             ("IA", "Fichier config", ai["config_path"]),
@@ -137,6 +158,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                                 ai_api_key,
                                 ai_clear_key,
                                 ft.ElevatedButton("Enregistrer IA", icon=ft.Icons.SAVE_OUTLINED, on_click=save_ai_config),
+                                ft.OutlinedButton("Tester IA", icon=ft.Icons.TASK_ALT_OUTLINED, on_click=test_ai_config),
                             ],
                             wrap=True,
                             spacing=10,
