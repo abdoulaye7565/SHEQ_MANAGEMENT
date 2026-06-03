@@ -233,6 +233,64 @@ def write_toolbox_talk_xlsx(
         archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
 
 
+def write_equipment_maintenance_xlsx(
+    path: Path,
+    rows: list[dict[str, Any]],
+    generated_at: str,
+    summary: dict[str, int | float],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    headers = [
+        "Code",
+        "Equipment",
+        "Category",
+        "Site",
+        "Responsible",
+        "Type",
+        "Priority",
+        "Status",
+        "Planned date",
+        "Next date",
+        "Current km",
+        "Last service km",
+        "Interval km",
+        "Next maintenance km",
+        "Km remaining",
+        "Alert",
+        "Cost",
+        "Observations",
+    ]
+    sheet_xml = _equipment_maintenance_worksheet_xml(headers, rows, generated_at, summary)
+    workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Equipment Maintenance" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"""
+    rels_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+    workbook_rels_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"""
+    content_types_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", rels_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/styles.xml", _daily_lineup_styles_xml())
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
 def _worksheet_xml(
     headers: list[str],
     rows: list[list[Any]],
@@ -490,6 +548,145 @@ def _training_matrix_bounds(headers: list[str], document_title: str) -> tuple[in
     if "TRAINING MATRIX" not in title or len(headers) <= 4:
         return 1, 0
     return 5, len(headers)
+
+
+def _equipment_maintenance_worksheet_xml(
+    headers: list[str],
+    rows: list[dict[str, Any]],
+    generated_at: str,
+    summary: dict[str, int | float],
+) -> str:
+    table_start = 10
+    export_rows = rows or [{}]
+    table_end = table_start + len(export_rows)
+    col_count = len(headers)
+    signature_start = table_end + 2
+    xml_rows = [
+        _xml_sparse_row(1, [(1, "OREZONE", 16), (3, "EQUIPMENT MAINTENANCE REGISTER", 1)], height=34),
+        _xml_sparse_row(2, [(3, "Preventive maintenance, oil change follow-up, odometer due alerts and QHSE approval workflow.", 2)]),
+        _xml_sparse_row(3, [(3, f"Generated: {generated_at} | Controlled QHSE document | Automated due-date and kilometer formulas", 3)]),
+        _xml_row(
+            6,
+            [
+                (f"Total: {summary.get('total', 0)}", 5),
+                (f"Open: {summary.get('open', 0)}", 6),
+                (f"Late/Due: {summary.get('late', 0)}", 8),
+                (f"Km due: {summary.get('odometer_due', 0)}", 8 if summary.get("odometer_due", 0) else 5),
+                (f"Critical: {summary.get('critical', 0)}", 7),
+                (f"Cost: {summary.get('cost', 0)}", 6),
+            ],
+        ),
+        _xml_sparse_row(
+            8,
+            [(1, "Automation: Next maintenance km = Last service km + Interval km. Alert recalculates if dates or counters are edited in Excel.", 2)],
+            height=26,
+        ),
+        _xml_row(table_start, [(header, 9) for header in headers], height=34),
+    ]
+    for offset, row in enumerate(export_rows, start=1):
+        row_index = table_start + offset
+        style = 10 if offset % 2 else 11
+        xml_rows.append(_equipment_maintenance_row_xml(row_index, row, style))
+    xml_rows.extend(_signature_rows(signature_start, col_count))
+
+    last_row = signature_start + 1
+    dimension = f"A1:{_column_name(col_count)}{max(last_row, table_start)}"
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="{dimension}"/>
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="{table_start}" topLeftCell="A{table_start + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <cols>
+    <col min="1" max="1" width="14" customWidth="1"/>
+    <col min="2" max="2" width="28" customWidth="1"/>
+    <col min="3" max="4" width="18" customWidth="1"/>
+    <col min="5" max="5" width="28" customWidth="1"/>
+    <col min="6" max="8" width="15" customWidth="1"/>
+    <col min="9" max="10" width="15" customWidth="1"/>
+    <col min="11" max="15" width="15" customWidth="1"/>
+    <col min="16" max="16" width="17" customWidth="1"/>
+    <col min="17" max="17" width="13" customWidth="1"/>
+    <col min="18" max="18" width="34" customWidth="1"/>
+  </cols>
+  <sheetData>{"".join(xml_rows)}</sheetData>
+  <autoFilter ref="A{table_start}:{_column_name(col_count)}{max(table_end, table_start)}"/>
+  <mergeCells count="11">
+    <mergeCell ref="A1:B3"/>
+    <mergeCell ref="C1:R1"/>
+    <mergeCell ref="C2:R2"/>
+    <mergeCell ref="C3:R3"/>
+    <mergeCell ref="A8:R8"/>
+    <mergeCell ref="A{signature_start}:C{signature_start}"/>
+    <mergeCell ref="D{signature_start}:G{signature_start}"/>
+    <mergeCell ref="H{signature_start}:K{signature_start}"/>
+    <mergeCell ref="A{signature_start + 1}:C{signature_start + 1}"/>
+    <mergeCell ref="D{signature_start + 1}:G{signature_start + 1}"/>
+    <mergeCell ref="H{signature_start + 1}:K{signature_start + 1}"/>
+  </mergeCells>
+  <pageMargins left="0.25" right="0.25" top="0.45" bottom="0.45" header="0.2" footer="0.2"/>
+  <pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/>
+</worksheet>"""
+
+
+def _equipment_maintenance_row_xml(row_index: int, row: dict[str, Any], default_style: int) -> str:
+    status_style = _maintenance_status_style(row.get("status"), row.get("priority"))
+    values: list[tuple[Any, int, str | None]] = [
+        (row.get("equipment_code") or "", default_style, None),
+        (row.get("equipment_name") or "", default_style, None),
+        (row.get("category") or "", default_style, None),
+        (row.get("site") or "", default_style, None),
+        (row.get("responsible") or "", default_style, None),
+        (row.get("maintenance_type") or "", default_style, None),
+        (row.get("priority") or "", _maintenance_priority_style(row.get("priority"), default_style), None),
+        (row.get("status") or "", status_style, None),
+        (row.get("planned_date") or "", default_style, None),
+        (row.get("next_due_date") or "", default_style, None),
+        (row.get("current_odometer") if row.get("current_odometer") is not None else "", default_style, None),
+        (row.get("last_service_odometer") if row.get("last_service_odometer") is not None else "", default_style, None),
+        (row.get("service_interval_km") if row.get("service_interval_km") is not None else "", default_style, None),
+        ("", 12, f'IF(AND(L{row_index}<>"",M{row_index}<>""),L{row_index}+M{row_index},"")'),
+        ("", 12, f'IF(AND(K{row_index}<>"",N{row_index}<>""),N{row_index}-K{row_index},"")'),
+        (
+            "",
+            _maintenance_alert_style(row),
+            f'IF(H{row_index}="terminee","Closed",IF(AND(N{row_index}<>"",K{row_index}>=N{row_index}),"DUE KM",IF(AND(J{row_index}<>"",DATEVALUE(J{row_index})<=TODAY()),"DUE DATE",IF(AND(I{row_index}<>"",DATEVALUE(I{row_index})<TODAY()),"LATE","OK"))))',
+        ),
+        (row.get("cost") or 0, default_style, None),
+        (row.get("observations") or "", default_style, None),
+    ]
+    return _xml_formula_row(row_index, values)
+
+
+def _maintenance_status_style(status: Any, priority: Any) -> int:
+    text = str(status or "").lower()
+    if text == "en_retard":
+        return 15
+    if text == "terminee":
+        return 12
+    if text == "annulee":
+        return 19
+    if str(priority or "").lower() == "critique":
+        return 14
+    return 13 if text == "en_cours" else 10
+
+
+def _maintenance_priority_style(priority: Any, default_style: int) -> int:
+    text = str(priority or "").lower()
+    if text == "critique":
+        return 15
+    if text == "haute":
+        return 14
+    if text == "basse":
+        return 12
+    return default_style
+
+
+def _maintenance_alert_style(row: dict[str, Any]) -> int:
+    remaining = row.get("remaining_km")
+    if row.get("status") == "en_retard" or (remaining is not None and float(remaining) <= 0):
+        return 15
+    if remaining is not None and float(remaining) <= 500:
+        return 14
+    return 12
 
 
 def _toolbox_talk_worksheet_xml(
@@ -844,6 +1041,29 @@ def _xml_row(
         ref = f"{_column_name(col_index)}{row_index}"
         style = f' s="{style_id}"' if style_id else ""
         if isinstance(value, (int, float)):
+            cells.append(f'<c r="{ref}"{style}><v>{value}</v></c>')
+        else:
+            text = html.escape(str(value or ""))
+            cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>')
+    return f'<row r="{row_index}"{height_attr}>{"".join(cells)}</row>'
+
+
+def _xml_formula_row(
+    row_index: int,
+    values: list[tuple[Any, int, str | None]],
+    start_col: int = 1,
+    height: int | None = None,
+) -> str:
+    height_attr = f' ht="{height}" customHeight="1"' if height else ""
+    cells = []
+    for offset, item in enumerate(values):
+        value, style_id, formula = item
+        col_index = start_col + offset
+        ref = f"{_column_name(col_index)}{row_index}"
+        style = f' s="{style_id}"' if style_id else ""
+        if formula:
+            cells.append(f'<c r="{ref}"{style}><f>{html.escape(formula)}</f></c>')
+        elif isinstance(value, (int, float)):
             cells.append(f'<c r="{ref}"{style}><v>{value}</v></c>')
         else:
             text = html.escape(str(value or ""))

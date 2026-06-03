@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from app.db.connection import db_session
-from app.services.attendance_export_service import export_rows_xlsx, export_styled_rows_xlsx
+from app.config import EXPORTS_DIR
+from app.services.attendance_export_service import _unique_export_path, export_rows_xlsx, export_styled_rows_xlsx
+from app.services.xlsx_service import write_equipment_maintenance_xlsx
 
 
 MAINTENANCE_TYPES = {"preventive", "corrective", "inspection", "calibration", "oil_change"}
@@ -516,53 +518,36 @@ def delete_risk_assessment(risk_id: int) -> None:
 
 def export_equipment_maintenance_xlsx() -> Path:
     rows = list_equipment_maintenance(limit=1000)
-    return export_rows_xlsx(
-        "maintenance_equipements.xlsx",
-        "Maintenance equipements",
-        [
-            "Code",
-            "Equipement",
-            "Categorie",
-            "Site",
-            "Responsable",
-            "Type",
-            "Priorite",
-            "Statut",
-            "Date planifiee",
-            "Date terminee",
-            "Prochaine echeance",
-            "Compteur actuel",
-            "Derniere vidange km",
-            "Intervalle km",
-            "Prochaine maintenance km",
-            "Km restants",
-            "Cout",
-            "Observations",
-        ],
-        [
-            [
-                row.get("equipment_code") or "",
-                row.get("equipment_name") or "",
-                row.get("category") or "",
-                row.get("site") or "",
-                _person_name(row, "responsable_nom", "responsable_prenom"),
-                row.get("maintenance_type") or "",
-                row.get("priority") or "",
-                row.get("status") or "",
-                row.get("planned_date") or "",
-                row.get("completed_date") or "",
-                row.get("next_due_date") or "",
-                row.get("current_odometer") or "",
-                row.get("last_service_odometer") or "",
-                row.get("service_interval_km") or "",
-                row.get("next_due_odometer") or "",
-                row.get("remaining_km") if row.get("remaining_km") is not None else "",
-                row.get("cost") or 0,
-                row.get("observations") or "",
-            ]
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_export_path("maintenance_equipements_orezone.xlsx")
+    workbook_rows = [
+        {
+            **row,
+            "responsible": _person_name(row, "responsable_nom", "responsable_prenom"),
+        }
+        for row in rows
+    ]
+    summary = {
+        "total": len(rows),
+        "open": sum(1 for row in rows if row.get("status") in ("planifiee", "en_cours", "en_retard")),
+        "late": sum(1 for row in rows if row.get("status") == "en_retard"),
+        "odometer_due": sum(
+            1
             for row in rows
-        ],
-    )
+            if row.get("current_odometer") is not None
+            and row.get("next_due_odometer") is not None
+            and float(row.get("current_odometer") or 0) >= float(row.get("next_due_odometer") or 0)
+        ),
+        "critical": sum(1 for row in rows if row.get("priority") == "critique" and row.get("status") not in ("terminee", "annulee")),
+        "cost": round(sum(float(row.get("cost") or 0) for row in rows), 2),
+    }
+    try:
+        write_equipment_maintenance_xlsx(output_path, workbook_rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path("maintenance_equipements_orezone_nouveau.xlsx")
+        write_equipment_maintenance_xlsx(fallback, workbook_rows, datetime.now().strftime("%Y-%m-%d %H:%M"), summary)
+        return fallback
 
 
 def export_action_tracker_xlsx() -> Path:

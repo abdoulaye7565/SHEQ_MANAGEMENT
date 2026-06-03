@@ -143,6 +143,15 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertTrue(action_export.exists())
         self.assertGreater(maintenance_export.stat().st_size, 0)
         self.assertGreater(action_export.stat().st_size, 0)
+        with zipfile.ZipFile(maintenance_export) as workbook:
+            sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            styles = workbook.read("xl/styles.xml").decode("utf-8")
+        self.assertIn("EQUIPMENT MAINTENANCE REGISTER", sheet)
+        self.assertIn("Next maintenance km", sheet)
+        self.assertIn("Prepared by", sheet)
+        self.assertIn("<f>IF(AND(L", sheet)
+        self.assertIn("DUE KM", sheet)
+        self.assertIn("FF1E3A8A", styles)
 
     def test_risk_assessment_calculates_levels_and_exports(self) -> None:
         risk_id = create_risk_assessment(
