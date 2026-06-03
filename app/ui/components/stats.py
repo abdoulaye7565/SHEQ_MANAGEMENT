@@ -4,7 +4,7 @@ from typing import Any
 
 import flet as ft
 
-from app.ui.theme import BORDER, MUTED, PANEL, PRIMARY, TEXT
+from app.ui.theme import BORDER, MUTED, PANEL, PANEL_ALT, PRIMARY, TEXT
 
 
 def stat_card(
@@ -22,9 +22,10 @@ def stat_card(
         bgcolor=PANEL,
         border=ft.border.all(1, BORDER),
         border_radius=8,
-        padding=ft.padding.symmetric(horizontal=14, vertical=12),
+        padding=ft.padding.only(left=0, right=14, top=12, bottom=12),
         content=ft.Row(
             controls=[
+                ft.Container(width=4, height=64 if compact else 82, bgcolor=color, border_radius=4),
                 ft.Container(
                     width=40,
                     height=40,
@@ -36,7 +37,14 @@ def stat_card(
                 ft.Column(
                     controls=[
                         ft.Text(str(label), size=11, color=MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                        ft.Text(str(value), size=22 if compact else 25, color=TEXT, weight=ft.FontWeight.BOLD, max_lines=1),
+                        ft.Text(
+                            str(value),
+                            size=22 if compact else 25,
+                            color=TEXT,
+                            weight=ft.FontWeight.BOLD,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
                         ft.Text(
                             str(subtitle or ""),
                             size=10,
@@ -81,4 +89,4 @@ def _soft_color(color: str) -> str:
         "#F59E0B": "#FEF3C7",
         "#0891B2": "#CFFAFE",
         "#64748B": "#E2E8F0",
-    }.get(color, "#E2E8F0")
+    }.get(color, PANEL_ALT)

@@ -14,7 +14,7 @@ from app.ui.pages.maintenance_actions import maintenance_actions_page
 from app.ui.pages.timesheet_management import timesheet_management_page
 from app.ui.pages.toolbox_talk import toolbox_talk_page
 from app.ui.pages.training_management import training_management_page
-from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_MUTED, SURFACE, TEXT
+from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_ACTIVE, SIDEBAR_MUTED, SURFACE, TEXT
 
 
 NAV_ITEMS = [
@@ -142,7 +142,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     def nav_style(selected: bool) -> ft.ButtonStyle:
         return ft.ButtonStyle(
             color="#FFFFFF" if selected else SIDEBAR_MUTED,
-            bgcolor="#1D4ED8" if selected else SIDEBAR,
+            bgcolor=SIDEBAR_ACTIVE if selected else SIDEBAR,
             shape=ft.RoundedRectangleBorder(radius=8),
             padding=ft.padding.symmetric(horizontal=12, vertical=10),
         )
@@ -164,7 +164,15 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
             content=ft.Row(
                 controls=[
                     ft.Icon(icon, size=19, color=SIDEBAR_MUTED),
-                    ft.Text(label, size=13, weight=ft.FontWeight.W_500, color=SIDEBAR_MUTED),
+                    ft.Text(
+                        label,
+                        size=13,
+                        weight=ft.FontWeight.W_600 if key in {"Admin", "AiAssistant"} else ft.FontWeight.W_500,
+                        color=SIDEBAR_MUTED,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        width=168,
+                    ),
                 ],
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -185,7 +193,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
     app = ft.Row(
         controls=[
             ft.Container(
-                width=246,
+                width=252,
                 bgcolor=SIDEBAR,
                 border=ft.border.only(right=ft.BorderSide(1, "#1F2937")),
                 content=ft.Column(
@@ -201,7 +209,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
                                         color="#F9FAFB",
                                     ),
                                     ft.Text(
-                                        "Industrial Admin Dashboard",
+                                        "Industrial QHSE Dashboard",
                                         size=11,
                                         color=SIDEBAR_MUTED,
                                     ),
@@ -274,6 +282,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
                                     expand=True,
                                 ),
                                 ft.Container(
+                                    bgcolor="#F8FAFC",
                                     border=ft.border.all(1, BORDER),
                                     border_radius=8,
                                     padding=ft.padding.symmetric(horizontal=10, vertical=7),

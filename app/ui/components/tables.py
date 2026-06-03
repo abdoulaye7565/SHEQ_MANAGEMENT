@@ -4,7 +4,7 @@ from typing import Any
 
 import flet as ft
 
-from app.ui.theme import BORDER, MUTED, PANEL, PRIMARY, TEXT
+from app.ui.theme import BORDER, MUTED, PANEL, PANEL_ALT, PRIMARY, TEXT
 
 
 def professional_data_table(*args: Any, **kwargs: Any) -> ft.DataTable:
@@ -13,23 +13,23 @@ def professional_data_table(*args: Any, **kwargs: Any) -> ft.DataTable:
     kwargs.setdefault("bgcolor", PANEL)
     kwargs.setdefault("border", ft.border.all(1, BORDER))
     kwargs.setdefault("border_radius", 8)
-    kwargs.setdefault("horizontal_lines", ft.BorderSide(1, "#E5EAF2"))
-    kwargs.setdefault("vertical_lines", ft.BorderSide(1, "#EEF2F7"))
-    kwargs.setdefault("heading_row_color", "#EAF2FF")
-    kwargs.setdefault("heading_row_height", 46)
-    kwargs.setdefault("data_row_min_height", 44)
-    kwargs.setdefault("data_row_max_height", 72)
-    kwargs.setdefault("column_spacing", 18)
-    kwargs.setdefault("horizontal_margin", 14)
+    kwargs.setdefault("horizontal_lines", ft.BorderSide(1, "#E2E8F0"))
+    kwargs.setdefault("vertical_lines", ft.BorderSide(1, "#F1F5F9"))
+    kwargs.setdefault("heading_row_color", "#DBEAFE")
+    kwargs.setdefault("heading_row_height", 48)
+    kwargs.setdefault("data_row_min_height", 46)
+    kwargs.setdefault("data_row_max_height", 76)
+    kwargs.setdefault("column_spacing", 20)
+    kwargs.setdefault("horizontal_margin", 16)
     kwargs.setdefault("divider_thickness", 0.6)
     kwargs.setdefault("show_bottom_border", True)
     kwargs.setdefault("show_checkbox_column", False)
-    kwargs.setdefault("heading_text_style", ft.TextStyle(size=12, weight=ft.FontWeight.BOLD, color=PRIMARY))
+    kwargs.setdefault("heading_text_style", ft.TextStyle(size=12, weight=ft.FontWeight.BOLD, color="#1E3A8A"))
     kwargs.setdefault("data_text_style", ft.TextStyle(size=12, color=TEXT))
     kwargs.setdefault(
         "data_row_color",
         {
-            ft.ControlState.HOVERED: "#F8FAFC",
+            ft.ControlState.HOVERED: PANEL_ALT,
             ft.ControlState.PRESSED: "#EAF2FF",
             ft.ControlState.SELECTED: "#D7E7FF",
         },
@@ -63,7 +63,7 @@ def _enable_single_row_selection(table: ft.DataTable, rows: list[ft.DataRow]) ->
 
 def empty_table_state(message: str = "Aucune donnee disponible.") -> ft.Control:
     return ft.Container(
-        bgcolor="#F8FAFC",
+        bgcolor=PANEL_ALT,
         border=ft.border.all(1, BORDER),
         border_radius=8,
         padding=24,
