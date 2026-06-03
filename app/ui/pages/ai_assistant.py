@@ -57,7 +57,7 @@ def ai_assistant_page(page: ft.Page | None = None) -> ft.Control:
         maintenance = get_maintenance_action_summary()
         alerts = get_alert_summary()
         summary_row.controls = [
-            _summary_chip("IA", "Operationnelle" if ai["operational"] else "A configurer", SUCCESS if ai["operational"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
+            _summary_chip("IA", _ai_status_label(ai), _ai_status_color(ai), ft.Icons.AUTO_AWESOME_OUTLINED),
             _summary_chip("Cle API", "OK" if ai["api_key_configured"] else "A configurer", SUCCESS if ai["api_key_configured"] else DANGER, ft.Icons.KEY_OUTLINED),
             _summary_chip("Alertes ouvertes", alerts.get("open", 0), WARNING, ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
             _summary_chip("Risques hauts", maintenance.get("risks_high_residual", 0), DANGER if maintenance.get("risks_high_residual") else SUCCESS, ft.Icons.SHIELD_OUTLINED),
@@ -159,3 +159,23 @@ def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
         stat_card(label, value, color, icon, compact=True),
         col={"xs": 12, "sm": 6, "md": 3, "lg": 3, "xl": 3},
     )
+
+
+def _ai_status_label(ai: dict[str, Any]) -> str:
+    if ai.get("operational"):
+        return "Operationnelle"
+    if ai.get("last_test_status") == "error":
+        return "Erreur test"
+    if ai.get("ready"):
+        return "A tester"
+    if ai.get("enabled"):
+        return "Cle requise"
+    return "Off"
+
+
+def _ai_status_color(ai: dict[str, Any]) -> str:
+    if ai.get("operational"):
+        return SUCCESS
+    if ai.get("last_test_status") == "error":
+        return DANGER
+    return WARNING

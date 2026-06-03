@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
 from app.config import DATA_DIR
 
@@ -22,12 +23,18 @@ class AIConfigurationError(ValueError):
 def get_ai_settings() -> dict[str, Any]:
     config = _read_ai_config()
     api_key = _resolve_api_key(config)
+    ready = bool(config.get("enabled", False)) and bool(api_key)
+    last_test_status = str(config.get("last_test_status") or "not_tested")
     return {
         "enabled": bool(config.get("enabled", False)),
         "provider": "OpenAI",
         "model": str(config.get("model") or DEFAULT_MODEL),
         "api_key_configured": bool(api_key),
-        "operational": bool(config.get("enabled", False)) and bool(api_key),
+        "ready": ready,
+        "operational": ready and last_test_status == "ok",
+        "last_test_status": last_test_status,
+        "last_test_message": str(config.get("last_test_message") or ""),
+        "last_test_at": str(config.get("last_test_at") or ""),
         "api_key_source": "Variable OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY") else "Fichier local",
         "config_path": str(AI_CONFIG_PATH),
     }
@@ -40,9 +47,14 @@ def save_ai_settings(values: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Modele IA obligatoire.")
     api_key = values.get("api_key")
     clear_api_key = bool(values.get("clear_api_key"))
+    key_changed = api_key is not None and str(api_key).strip() and str(api_key).strip() != str(current.get("api_key") or "")
+    model_changed = model != str(current.get("model") or DEFAULT_MODEL)
     payload = {
         "enabled": bool(values.get("enabled", current.get("enabled", False))),
         "model": model,
+        "last_test_status": "not_tested" if key_changed or model_changed or clear_api_key else str(current.get("last_test_status") or "not_tested"),
+        "last_test_message": "" if key_changed or model_changed or clear_api_key else str(current.get("last_test_message") or ""),
+        "last_test_at": "" if key_changed or model_changed or clear_api_key else str(current.get("last_test_at") or ""),
     }
     if clear_api_key:
         payload["api_key"] = ""
@@ -52,6 +64,16 @@ def save_ai_settings(values: dict[str, Any]) -> dict[str, Any]:
         payload["api_key"] = str(current.get("api_key") or "")
     AI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     AI_CONFIG_PATH.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    return get_ai_settings()
+
+
+def record_ai_test_status(status: str, message: str) -> dict[str, Any]:
+    config = _read_ai_config()
+    config["last_test_status"] = str(status or "error")
+    config["last_test_message"] = str(message or "")[:500]
+    config["last_test_at"] = datetime.now().isoformat(timespec="seconds")
+    AI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AI_CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=True, indent=2), encoding="utf-8")
     return get_ai_settings()
 
 
@@ -155,7 +177,7 @@ def generate_ai_text(system_prompt: str, user_prompt: str, max_output_tokens: in
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise AIConfigurationError(f"Erreur OpenAI {exc.code}: {_short_error(detail)}") from exc
+        raise AIConfigurationError(_http_error_message(exc.code, detail)) from exc
     except urllib.error.URLError as exc:
         raise AIConfigurationError(f"Connexion IA indisponible: {exc.reason}") from exc
     return _extract_response_text(data)
@@ -200,3 +222,18 @@ def _short_error(detail: str) -> str:
     except json.JSONDecodeError:
         pass
     return detail[:280]
+
+
+def _http_error_message(code: int, detail: str) -> str:
+    message = _short_error(detail)
+    lowered = message.lower()
+    if code == 429 and ("quota" in lowered or "billing" in lowered or "exceeded" in lowered):
+        return (
+            "Quota OpenAI depasse ou facturation inactive. Ajoute du credit, active la facturation "
+            "ou augmente la limite du projet sur platform.openai.com, puis relance Tester IA."
+        )
+    if code == 401:
+        return "Cle API OpenAI invalide ou revoquee. Cree une nouvelle cle et enregistre-la dans Parametres."
+    if code == 404 and "model" in lowered:
+        return "Modele OpenAI introuvable ou non autorise pour ce compte. Essaie un autre modele puis relance Tester IA."
+    return f"Erreur OpenAI {code}: {message}"

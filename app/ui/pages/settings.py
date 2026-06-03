@@ -5,7 +5,7 @@ from typing import Any
 import flet as ft
 
 from app.services import create_settings_backup, ensure_runtime_directories, get_application_settings
-from app.services.ai_service import AIConfigurationError, get_ai_settings, save_ai_settings, test_ai_connection
+from app.services.ai_service import AIConfigurationError, get_ai_settings, record_ai_test_status, save_ai_settings, test_ai_connection
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -92,9 +92,11 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             notify("Test IA en cours...", PRIMARY)
             _update()
             message = test_ai_connection()
+            record_ai_test_status("ok", message)
             notify(f"IA operationnelle: {message}", SUCCESS)
             render()
         except (ValueError, AIConfigurationError) as exc:
+            record_ai_test_status("error", str(exc))
             notify(str(exc), DANGER)
         _update()
 
@@ -109,7 +111,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             _summary_chip("Exports", data["exports_count"], PRIMARY, ft.Icons.DOWNLOAD_OUTLINED),
             _summary_chip("Backups", data["backups_count"], SUCCESS, ft.Icons.BACKUP_OUTLINED),
             _summary_chip("SQLite", "OK" if data["database_exists"] else "Absent", SUCCESS if data["database_exists"] else DANGER, ft.Icons.STORAGE_OUTLINED),
-            _summary_chip("IA", "Operationnelle" if ai["operational"] else "A configurer", SUCCESS if ai["operational"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
+            _summary_chip("IA", _ai_status_label(ai), _ai_status_color(ai), ft.Icons.AUTO_AWESOME_OUTLINED),
         ]
         rows = [
             ("Application", "Version", data["version"]),
@@ -126,9 +128,11 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ("SQLite", "Taille base", f"{data['database_size']} octets"),
             ("IA", "Fournisseur", ai["provider"]),
             ("IA", "Modele", ai["model"]),
-            ("IA", "Etat", "Operationnelle" if ai["operational"] else ("Activee sans cle" if ai["enabled"] else "Desactivee")),
+            ("IA", "Etat", _ai_status_label(ai)),
             ("IA", "Cle API", "Configuree" if ai["api_key_configured"] else "Non configuree"),
             ("IA", "Source cle", ai["api_key_source"] if ai["api_key_configured"] else "-"),
+            ("IA", "Dernier test", ai["last_test_message"] or "-"),
+            ("IA", "Date test", ai["last_test_at"] or "-"),
             ("IA", "Fichier config", ai["config_path"]),
         ]
         table_area.controls = [
@@ -231,3 +235,23 @@ def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
         stat_card(label, value, color, icon, compact=True),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
+
+
+def _ai_status_label(ai: dict[str, Any]) -> str:
+    if ai.get("operational"):
+        return "Operationnelle"
+    if ai.get("last_test_status") == "error":
+        return "Erreur test"
+    if ai.get("ready"):
+        return "A tester"
+    if ai.get("enabled"):
+        return "Cle requise"
+    return "Off"
+
+
+def _ai_status_color(ai: dict[str, Any]) -> str:
+    if ai.get("operational"):
+        return SUCCESS
+    if ai.get("last_test_status") == "error":
+        return DANGER
+    return WARNING
