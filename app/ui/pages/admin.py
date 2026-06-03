@@ -41,6 +41,7 @@ MODULE_LABELS = {
     "Ppe": "Gestion des EPI",
     "MaintenanceActions": "Maintenance & Actions",
     "Alerts": "Alertes & Rapports",
+    "AiAssistant": "Assistant IA",
     "Settings": "Parametres",
     "Admin": "Administrateur",
 }

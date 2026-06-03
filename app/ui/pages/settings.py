@@ -5,6 +5,7 @@ from typing import Any
 import flet as ft
 
 from app.services import create_settings_backup, ensure_runtime_directories, get_application_settings
+from app.services.ai_service import get_ai_settings, save_ai_settings
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -17,6 +18,16 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
     status = ft.Text("", size=12, color=MUTED)
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
+    ai_enabled = ft.Switch(label="Activer IA", value=False, active_color=PRIMARY)
+    ai_model = ft.TextField(label="Modele OpenAI", value="", width=220)
+    ai_api_key = ft.TextField(
+        label="Cle API OpenAI",
+        hint_text="Laisser vide pour conserver",
+        password=True,
+        can_reveal_password=True,
+        width=320,
+    )
+    ai_clear_key = ft.Checkbox(label="Supprimer la cle locale", value=False)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -48,14 +59,36 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             notify(str(exc), DANGER)
         _update()
 
+    def save_ai_config(event: ft.ControlEvent | None = None) -> None:
+        try:
+            save_ai_settings(
+                {
+                    "enabled": ai_enabled.value,
+                    "model": ai_model.value,
+                    "api_key": ai_api_key.value,
+                    "clear_api_key": ai_clear_key.value,
+                }
+            )
+            ai_api_key.value = ""
+            ai_clear_key.value = False
+            notify("Configuration IA enregistree.", SUCCESS)
+            render()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
     def render() -> None:
         data = get_application_settings()
+        ai = get_ai_settings()
+        ai_enabled.value = bool(ai["enabled"])
+        ai_model.value = str(ai["model"])
         summary_row.controls = [
             _summary_chip("Version", data["version"], PRIMARY, ft.Icons.INFO_OUTLINED),
             _summary_chip("Mode", data["mode"], SUCCESS if data["mode"] == "Installee" else WARNING, ft.Icons.DESKTOP_WINDOWS_OUTLINED),
             _summary_chip("Exports", data["exports_count"], PRIMARY, ft.Icons.DOWNLOAD_OUTLINED),
             _summary_chip("Backups", data["backups_count"], SUCCESS, ft.Icons.BACKUP_OUTLINED),
             _summary_chip("SQLite", "OK" if data["database_exists"] else "Absent", SUCCESS if data["database_exists"] else DANGER, ft.Icons.STORAGE_OUTLINED),
+            _summary_chip("IA", "Active" if ai["enabled"] else "Off", SUCCESS if ai["enabled"] else WARNING, ft.Icons.AUTO_AWESOME_OUTLINED),
         ]
         rows = [
             ("Application", "Version", data["version"]),
@@ -70,6 +103,12 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ("SQLite", "Base active", data["database_path"]),
             ("SQLite", "Schema", data["schema_path"]),
             ("SQLite", "Taille base", f"{data['database_size']} octets"),
+            ("IA", "Fournisseur", ai["provider"]),
+            ("IA", "Modele", ai["model"]),
+            ("IA", "Etat", "Activee" if ai["enabled"] else "Desactivee"),
+            ("IA", "Cle API", "Configuree" if ai["api_key_configured"] else "Non configuree"),
+            ("IA", "Source cle", ai["api_key_source"] if ai["api_key_configured"] else "-"),
+            ("IA", "Fichier config", ai["config_path"]),
         ]
         table_area.controls = [
             ft.Row(
@@ -82,6 +121,35 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                 wrap=True,
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Container(
+                bgcolor="#F8FAFC",
+                border=ft.border.all(1, "#CBD5E1"),
+                border_radius=8,
+                padding=12,
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Configuration IA", size=15, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.Row(
+                            controls=[
+                                ai_enabled,
+                                ai_model,
+                                ai_api_key,
+                                ai_clear_key,
+                                ft.ElevatedButton("Enregistrer IA", icon=ft.Icons.SAVE_OUTLINED, on_click=save_ai_config),
+                            ],
+                            wrap=True,
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(
+                            "La cle reste stockee localement sur cet ordinateur. Les suggestions IA doivent etre validees par un responsable QHSE.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                    ],
+                    spacing=10,
+                ),
             ),
             ft.Row(
                 controls=[

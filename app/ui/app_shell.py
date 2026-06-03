@@ -2,6 +2,7 @@ import flet as ft
 
 from app.services import authenticate_user, create_user, get_role_modules, has_users, list_roles
 from app.ui.pages.admin import admin_page
+from app.ui.pages.ai_assistant import ai_assistant_page
 from app.ui.pages.dashboard import dashboard_page
 from app.ui.pages.alerts_reports import alerts_reports_page
 from app.ui.pages.employee_management import employee_management_page
@@ -26,6 +27,7 @@ NAV_ITEMS = [
     ("Ppe", "Gestion des EPI", ft.Icons.INVENTORY_2_OUTLINED),
     ("MaintenanceActions", "Maintenance & Actions", ft.Icons.HANDYMAN_OUTLINED),
     ("Alerts", "Alertes & Rapports", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
+    ("AiAssistant", "Assistant IA", ft.Icons.AUTO_AWESOME_OUTLINED),
     ("Settings", "Parametres", ft.Icons.SETTINGS_OUTLINED),
     ("Admin", "Administrateur", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
 ]
@@ -324,6 +326,7 @@ def _module_subtitle(key: str) -> str:
         "Ppe": "Stock EPI, dotations, inspections et seuils critiques.",
         "MaintenanceActions": "Maintenance equipements, action tracker, echeances et responsabilites.",
         "Alerts": "Signaux QHSE et rapports operationnels consolides.",
+        "AiAssistant": "Assistant QHSE pour analyses, priorites et aide a la decision.",
         "Settings": "Chemins, exports, base SQLite, sauvegardes et installation.",
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
     }
@@ -355,6 +358,8 @@ def _build_screen(
         return maintenance_actions_page(page)
     if key == "Alerts":
         return alerts_reports_page(navigate=render_key)
+    if key == "AiAssistant":
+        return ai_assistant_page(page)
     if key == "Settings":
         return settings_page(user, page)
     if key == "Admin":

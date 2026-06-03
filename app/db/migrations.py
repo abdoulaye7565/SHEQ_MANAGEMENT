@@ -733,13 +733,14 @@ def _ensure_default_role_permissions(connection: sqlite3.Connection) -> None:
             "Ppe",
             "MaintenanceActions",
             "Alerts",
+            "AiAssistant",
             "Settings",
             "Admin",
         ],
-        "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts"],
+        "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
         "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
         "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
-        "Direction": ["Dashboard", "MaintenanceActions", "Alerts"],
+        "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "AiAssistant"],
     }
     for role_name, modules in role_modules.items():
         role = connection.execute(

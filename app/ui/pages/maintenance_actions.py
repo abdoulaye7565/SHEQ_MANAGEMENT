@@ -26,6 +26,7 @@ from app.services import (
     update_equipment_maintenance,
     update_risk_assessment,
 )
+from app.services.ai_service import AIConfigurationError, suggest_risk_assessment
 from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -188,6 +189,16 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     risk_review_date = ft.TextField(label="Date revue", value=today_iso(), hint_text="AAAA-MM-JJ", width=160)
     save_risk_button = ft.ElevatedButton("Creer", icon=ft.Icons.ADD_OUTLINED)
     cancel_risk_button = ft.OutlinedButton("Annuler", icon=ft.Icons.CLOSE_OUTLINED, visible=False)
+    risk_ai_button = ft.OutlinedButton("Suggestion IA", icon=ft.Icons.AUTO_AWESOME_OUTLINED)
+    risk_ai_output = ft.TextField(
+        label="Suggestion IA QHSE",
+        multiline=True,
+        min_lines=4,
+        max_lines=8,
+        read_only=True,
+        expand=True,
+        value="",
+    )
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -260,9 +271,31 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         risk_status.value = "open"
         risk_due_date.value = ""
         risk_review_date.value = today_iso()
+        risk_ai_output.value = ""
         save_risk_button.text = "Creer"
         save_risk_button.icon = ft.Icons.ADD_OUTLINED
         cancel_risk_button.visible = False
+
+    def risk_payload() -> dict[str, Any]:
+        return {
+            "activity": risk_activity.value,
+            "task": risk_task.value,
+            "hazard": risk_hazard.value,
+            "risk_event": risk_event.value,
+            "consequences": risk_consequences.value,
+            "existing_controls": risk_existing_controls.value,
+            "site_id": risk_site.value,
+            "owner_employee_id": risk_owner.value,
+            "probability_initial": risk_probability_initial.value,
+            "severity_initial": risk_severity_initial.value,
+            "hierarchy_control": risk_hierarchy.value,
+            "additional_controls": risk_additional_controls.value,
+            "probability_residual": risk_probability_residual.value,
+            "severity_residual": risk_severity_residual.value,
+            "status": risk_status.value,
+            "due_date": risk_due_date.value,
+            "review_date": risk_review_date.value,
+        }
 
     def save_maintenance(event: ft.ControlEvent | None = None) -> None:
         try:
@@ -398,25 +431,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
 
     def save_risk(event: ft.ControlEvent | None = None) -> None:
         try:
-            payload = {
-                "activity": risk_activity.value,
-                "task": risk_task.value,
-                "hazard": risk_hazard.value,
-                "risk_event": risk_event.value,
-                "consequences": risk_consequences.value,
-                "existing_controls": risk_existing_controls.value,
-                "site_id": risk_site.value,
-                "owner_employee_id": risk_owner.value,
-                "probability_initial": risk_probability_initial.value,
-                "severity_initial": risk_severity_initial.value,
-                "hierarchy_control": risk_hierarchy.value,
-                "additional_controls": risk_additional_controls.value,
-                "probability_residual": risk_probability_residual.value,
-                "severity_residual": risk_severity_residual.value,
-                "status": risk_status.value,
-                "due_date": risk_due_date.value,
-                "review_date": risk_review_date.value,
-            }
+            payload = risk_payload()
             if state["risk_id"] is None:
                 create_risk_assessment(payload)
                 notify("Evaluation des risques creee.", SUCCESS)
@@ -428,6 +443,18 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         except ValueError as exc:
             notify(str(exc), DANGER)
             _update()
+
+    def ask_risk_ai(event: ft.ControlEvent | None = None) -> None:
+        try:
+            risk_ai_output.value = "Generation IA en cours..."
+            notify("Analyse IA du risque en cours.", PRIMARY)
+            _update()
+            risk_ai_output.value = suggest_risk_assessment(risk_payload())
+            notify("Suggestion IA generee. A valider avant enregistrement.", SUCCESS)
+        except (ValueError, AIConfigurationError) as exc:
+            risk_ai_output.value = ""
+            notify(str(exc), DANGER)
+        _update()
 
     def edit_risk(row: dict[str, Any]) -> None:
         state["risk_id"] = int(row["id_risk"])
@@ -667,6 +694,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     save_action_button.on_click = save_action
     cancel_action_button.on_click = lambda event: (reset_action_form(), refresh())
     save_risk_button.on_click = save_risk
+    risk_ai_button.on_click = ask_risk_ai
     cancel_risk_button.on_click = lambda event: (reset_risk_form(), refresh())
 
     root = ft.Column(
@@ -794,12 +822,14 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                                 risk_status,
                                 risk_due_date,
                                 risk_review_date,
+                                risk_ai_button,
                                 save_risk_button,
                                 cancel_risk_button,
                             ],
                             wrap=True,
                             spacing=10,
                         ),
+                        risk_ai_output,
                     ],
                     spacing=10,
                 ),

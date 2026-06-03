@@ -23,6 +23,7 @@ from app.services import (
     save_theme_catalog,
     save_toolbox_topic,
 )
+from app.services.ai_service import AIConfigurationError, suggest_toolbox_theme
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -214,6 +215,32 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
             notify(str(exc), DANGER)
             _update()
 
+    def suggest_catalog_theme_ai(event: ft.ControlEvent | None = None) -> None:
+        try:
+            data = state.get("data") or {"rows": []}
+            existing_month_topics = [str(row.get("theme") or "") for row in data.get("rows", []) if row.get("theme")]
+            catalog_topics = [str(row.get("theme") or "") for row in state.get("themes", []) if row.get("theme")]
+            catalog_theme_field.value = "Generation IA en cours..."
+            state["show_bank"] = True
+            render()
+            notify("Suggestion IA de theme Toolbox Talk en cours.", PRIMARY)
+            _update()
+            catalog_theme_field.value = suggest_toolbox_theme(
+                {
+                    "month": month_field.value,
+                    "site_id": site_field.value,
+                    "existing_month_topics": existing_month_topics,
+                    "catalog_topics": catalog_topics,
+                    "format": "English topic / Theme francais",
+                }
+            ).strip()
+            notify("Theme IA propose. Verifie puis enregistre dans la banque.", SUCCESS)
+        except (ValueError, AIConfigurationError) as exc:
+            catalog_theme_field.value = ""
+            notify(str(exc), DANGER)
+        render()
+        _update()
+
     def assign_month(event: ft.ControlEvent | None = None) -> None:
         try:
             count = assign_monthly_topics(month_field.value, monthly_facilitator_field.value)
@@ -328,6 +355,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                     ft.OutlinedButton("Actualiser", icon=ft.Icons.REFRESH_OUTLINED, on_click=refresh),
                     ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_excel),
                     ft.OutlinedButton("Bank Theme", icon=ft.Icons.ACCOUNT_BALANCE_OUTLINED, on_click=toggle_bank_theme),
+                    ft.OutlinedButton("Theme IA", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=suggest_catalog_theme_ai),
                     ft.OutlinedButton("Effacer formulaire", icon=ft.Icons.CLEAR_OUTLINED, on_click=clear_form),
                     status,
                 ],
@@ -417,6 +445,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:
                         visible=bool(state.get("editing_topic_id")),
                     ),
                     generated_count_field,
+                    ft.OutlinedButton("Theme IA", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=suggest_catalog_theme_ai),
                     ft.OutlinedButton("Generer themes", icon=ft.Icons.AUTO_AWESOME_OUTLINED, on_click=generate_catalog),
                     monthly_facilitator_field,
                     ft.OutlinedButton("Appliquer facilitateur au mois", icon=ft.Icons.PERSON_PIN_OUTLINED, on_click=apply_facilitator_to_month),

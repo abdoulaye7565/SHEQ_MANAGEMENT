@@ -30,6 +30,7 @@ ALL_MODULES = [
     "Ppe",
     "MaintenanceActions",
     "Alerts",
+    "AiAssistant",
     "Settings",
     "Admin",
 ]
@@ -46,13 +47,14 @@ ROLE_MODULES = {
         "Ppe",
         "MaintenanceActions",
         "Alerts",
+        "AiAssistant",
         "Settings",
         "Admin",
     ],
-    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts"],
+    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
     "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
     "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
-    "Direction": ["Dashboard", "MaintenanceActions", "Alerts"],
+    "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "AiAssistant"],
 }
 
 
@@ -102,7 +104,7 @@ def get_role_modules(role: str) -> list[str]:
     if rows:
         configured = _normalize_modules([str(row["module_key"]) for row in rows])
         if role_name == ADMIN_ROLE_NAME:
-            for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Settings", "Admin"):
+            for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts", "AiAssistant", "Settings", "Admin"):
                 if mandatory_module not in configured:
                     configured.append(mandatory_module)
         return _ordered_modules(configured)
@@ -174,7 +176,7 @@ def list_role_permissions() -> list[dict[str, Any]]:
         configured = _normalize_modules(modules_by_role.get(role_name, []))
         if configured:
             if role_name == ADMIN_ROLE_NAME:
-                for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Settings", "Admin"):
+                for mandatory_module in ("ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts", "AiAssistant", "Settings", "Admin"):
                     if mandatory_module not in configured:
                         configured.append(mandatory_module)
             modules = _ordered_modules(configured)
