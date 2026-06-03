@@ -9,7 +9,7 @@ from app.services.attendance_service import get_attendance_list
 from app.services.employee_service import list_employees
 from app.services.break_service import list_active_break_employees
 from app.services.ppe_service import get_ppe_export_data
-from app.services.monthly_timesheet_service import get_monthly_10h_timesheet
+from app.services.monthly_timesheet_service import current_monthly_timesheet_month, get_monthly_10h_timesheet
 from app.services.timesheet_service import get_timesheet, list_timesheet_audit
 from app.services.toolbox_talk_service import list_toolbox_topics
 from app.services.xlsx_service import (
@@ -369,9 +369,10 @@ def export_timesheet_audit_xlsx(month: str) -> Path:
     )
 
 
-def export_monthly_10h_timesheet_xlsx(month: str, site_id: int | None = None) -> Path:
-    timesheet = get_monthly_10h_timesheet(month, site_id=site_id)
-    expatriates = get_monthly_10h_timesheet(month, site_id=site_id, employee_type="expatriate")
+def export_monthly_10h_timesheet_xlsx(month: str | None = None, site_id: int | None = None) -> Path:
+    selected_month = current_monthly_timesheet_month()
+    timesheet = get_monthly_10h_timesheet(selected_month, site_id=site_id)
+    expatriates = get_monthly_10h_timesheet(selected_month, site_id=site_id, employee_type="expatriate")
     site_suffix = ""
     if timesheet.get("site"):
         site_suffix = "_" + _safe_name(timesheet["site"].get("nom") or "")

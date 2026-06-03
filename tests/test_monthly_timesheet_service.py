@@ -9,7 +9,12 @@ from app.db import connection
 from app.services import attendance_export_service
 from app.services.break_service import create_break
 from app.services.employee_service import create_employee
-from app.services.monthly_timesheet_service import get_monthly_10h_timesheet, list_monthly_timesheet_days
+from app.services.monthly_timesheet_service import (
+    current_monthly_timesheet_month,
+    get_monthly_timesheet_period,
+    get_monthly_10h_timesheet,
+    list_monthly_timesheet_days,
+)
 from app.services.attendance_service import save_attendance_day
 from app.services.timesheet_service import set_day_activity, update_timesheet_day_status
 
@@ -183,17 +188,19 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(row["sick_days"], 1)
 
     def test_export_monthly_timesheet_xlsx_contains_status_labels(self) -> None:
+        current_month = current_monthly_timesheet_month()
+        period = get_monthly_timesheet_period(current_month)
         self._create_employee("Expat Employee", employee_type="expatriate")
         save_attendance_day(
-            "2026-05-01",
+            period["start"],
             {self.employee_id: {"statut_presence": "present", "heure_entree": "07:00", "heure_sortie": "17:00"}},
         )
         create_break(
             {
                 "employe_id": self.employee_id,
                 "type_break": "annual",
-                "date_debut": "2026-05-05",
-                "date_fin": "2026-05-05",
+                "date_debut": f"{current_month}-05",
+                "date_fin": f"{current_month}-05",
                 "statut": "planifie",
             }
         )
@@ -207,8 +214,8 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertIn("10h", sheet)
         self.assertIn("MONTHLY TIMESHEET", sheet)
         self.assertIn("Current month", sheet)
-        self.assertIn("2026-05", sheet)
-        self.assertIn("2026-05-01 TO 2026-05-25", sheet)
+        self.assertIn(current_month, sheet)
+        self.assertIn(f"{period['start']} TO {period['end']}", sheet)
         self.assertIn(">R<", sheet)
         self.assertIn(">AL<", sheet)
         self.assertIn("EXPATRIES - RESERVE", sheet)

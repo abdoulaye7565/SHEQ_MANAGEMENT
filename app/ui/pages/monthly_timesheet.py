@@ -38,10 +38,11 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
     table_area = ft.Column(spacing=10)
 
     month_field = ft.TextField(
-        label="Mois",
+        label="Mois courant",
         value=current_monthly_timesheet_month(),
         hint_text="AAAA-MM",
         width=150,
+        read_only=True,
     )
     site_field = ft.Dropdown(label="Site", value="all", width=260)
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=240)
@@ -68,9 +69,10 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
     def refresh(event: ft.ControlEvent | None = None) -> None:
         try:
             load_site_options()
+            month_field.value = current_monthly_timesheet_month()
             state["page"] = 0
             state["timesheet"] = get_monthly_10h_timesheet(
-                str(month_field.value or ""),
+                current_monthly_timesheet_month(),
                 site_id=selected_site_id(),
             )
             render()
@@ -84,8 +86,9 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
 
     def export_excel(event: ft.ControlEvent | None = None) -> None:
         try:
+            month_field.value = current_monthly_timesheet_month()
             output = export_monthly_10h_timesheet_xlsx(
-                str(month_field.value or ""),
+                current_monthly_timesheet_month(),
                 site_id=selected_site_id(),
             )
             notify(f"Export Excel TimeSheet 1-25 cree: {output}", SUCCESS)
