@@ -4,8 +4,6 @@ from typing import Any
 
 import flet as ft
 
-from app.ui.components.tables import professional_data_table
-
 from app.services import (
     create_manual_alert,
     delete_manual_alert,
@@ -177,7 +175,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
         ] or [ft.Text("Aucune source en alerte.", size=12, color=SUCCESS)]
 
     def render_action_plan() -> None:
-        plan = get_alert_action_plan()
+        plan = get_alert_action_plan(limit=3)
         action_plan_area.controls = [
             ft.Container(
                 col={"xs": 12, "md": 6, "xl": 4},
@@ -229,26 +227,9 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                 ],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            ft.Row(
-                controls=[
-                    professional_data_table(
-                        columns=[
-                            ft.DataColumn(ft.Text("Niveau")),
-                            ft.DataColumn(ft.Text("Source")),
-                            ft.DataColumn(ft.Text("Type")),
-                            ft.DataColumn(ft.Text("Reference")),
-                            ft.DataColumn(ft.Text("Message")),
-                            ft.DataColumn(ft.Text("Action")),
-                            ft.DataColumn(ft.Text("Statut")),
-                            ft.DataColumn(ft.Text("Actions")),
-                        ],
-                        rows=[_alert_row(row, close_manual, remove_manual, navigate) for row in rows],
-                        border=ft.border.all(1, "#BFDBFE"),
-                        border_radius=8,
-                        heading_row_color="#DBEAFE",
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
+            ft.Column(
+                controls=[_alert_card(row, close_manual, remove_manual, navigate) for row in rows],
+                spacing=8,
             )
             if rows
             else ft.Container(
@@ -305,9 +286,19 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                 border=ft.border.all(1, "#BFDBFE"),
                 border_radius=8,
                 padding=16,
-                content=ft.Column(
+                content=table_area,
+            ),
+            ft.Container(
+                bgcolor="#FFFFFF",
+                border=ft.border.all(1, "#BFDBFE"),
+                border_radius=8,
+                padding=16,
+                content=ft.ExpansionTile(
+                    title="Nouvelle alerte manuelle",
+                    leading=ft.Icons.ADD_ALERT_OUTLINED,
+                    expanded=False,
+                    controls_padding=ft.padding.only(left=10, right=10, bottom=10),
                     controls=[
-                        ft.Text("Nouvelle alerte manuelle", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
                         ft.Row(
                             controls=[manual_type_field, manual_level_field, manual_message_field],
                             spacing=10,
@@ -323,15 +314,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                             wrap=True,
                         ),
                     ],
-                    spacing=10,
                 ),
-            ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=table_area,
             ),
         ]
     )
@@ -345,22 +328,39 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
     return root
 
 
-def _alert_row(row: dict[str, Any], close_action: Any, delete_action: Any, navigate: Any | None) -> ft.DataRow:
+def _alert_card(row: dict[str, Any], close_action: Any, delete_action: Any, navigate: Any | None) -> ft.Control:
     color = LEVEL_COLORS.get(str(row.get("niveau") or ""), MUTED)
     can_close = bool(row.get("can_close"))
     target_key = _target_key(str(row.get("source_key") or ""))
-    return ft.DataRow(
-        cells=[
-            ft.DataCell(_level_badge(str(row.get("niveau_label") or "-"), color)),
-            ft.DataCell(ft.Text(str(row.get("source") or "-"))),
-            ft.DataCell(ft.Text(str(row.get("type_alerte") or "-"), weight=ft.FontWeight.BOLD)),
-            ft.DataCell(ft.Text(str(row.get("reference_label") or "-"))),
-            ft.DataCell(ft.Text(str(row.get("message") or "-"), width=360)),
-            ft.DataCell(ft.Text(str(row.get("action_hint") or "-"), color=MUTED, width=180)),
-            ft.DataCell(ft.Text(str(row.get("statut") or "-"))),
-            ft.DataCell(
+    return ft.Container(
+        bgcolor="#FFFFFF",
+        border=ft.border.all(1, color),
+        border_radius=8,
+        padding=12,
+        content=ft.Column(
+            controls=[
                 ft.Row(
                     controls=[
+                        _level_badge(str(row.get("niveau_label") or "-"), color),
+                        ft.Text(str(row.get("source") or "-"), color=TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text(str(row.get("type_alerte") or "-"), color=TEXT, weight=ft.FontWeight.BOLD, expand=True),
+                        ft.Text(str(row.get("statut") or "-"), color=MUTED, size=12),
+                    ],
+                    spacing=10,
+                    wrap=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Text(str(row.get("message") or "-"), color=TEXT, size=13),
+                ft.Row(
+                    controls=[
+                        ft.Container(
+                            bgcolor="#F8FAFC",
+                            border=ft.border.all(1, "#E2E8F0"),
+                            border_radius=8,
+                            padding=ft.padding.symmetric(horizontal=9, vertical=5),
+                            content=ft.Text(str(row.get("reference_label") or "-"), color=MUTED, size=12),
+                        ),
+                        ft.Text(str(row.get("action_hint") or "-"), color=MUTED, size=12, expand=True),
                         ft.IconButton(
                             icon=ft.Icons.DONE_OUTLINED,
                             tooltip="Marquer traitee",
@@ -382,18 +382,20 @@ def _alert_row(row: dict[str, Any], close_action: Any, delete_action: Any, navig
                             visible=can_close,
                             on_click=lambda event, current=row: delete_action(current["id"]),
                         ),
-                        ft.IconButton(
+                        ft.OutlinedButton(
+                            "Ouvrir",
                             icon=ft.Icons.OPEN_IN_NEW_OUTLINED,
-                            tooltip="Ouvrir le module source",
-                            icon_color=PRIMARY,
                             visible=navigate is not None and target_key is not None,
                             on_click=lambda event, key=target_key: navigate(key) if navigate and key is not None else None,
                         ),
                     ],
-                    spacing=0,
-                )
-            ),
-        ]
+                    spacing=8,
+                    wrap=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=8,
+        ),
     )
 
 
