@@ -16,6 +16,7 @@ from app.services import (
     export_monthly_10h_timesheet_xlsx,
     export_timesheet_annual_history_xls,
     prepare_timesheet_outlook_draft,
+    prepare_timesheet_whatsapp_share,
     send_timesheet_email,
 )
 from app.ui.components.module_header import module_header
@@ -147,6 +148,27 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 site_label=selected_site_label(),
             )
             notify(f"Brouillon Outlook prepare pour {', '.join(result['recipients'])}.", SUCCESS)
+        except (ValueError, EmailConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
+    def prepare_timesheet_in_whatsapp(event: ft.ControlEvent | None = None) -> None:
+        try:
+            month_field.value = current_monthly_timesheet_month()
+            output = export_monthly_10h_timesheet_xlsx(
+                current_monthly_timesheet_month(),
+                site_id=selected_site_id(),
+            )
+            result = prepare_timesheet_whatsapp_share(
+                "TimeSheet 1-25",
+                current_monthly_timesheet_month(),
+                output,
+                site_label=selected_site_label(),
+            )
+            notify(f"WhatsApp ouvert pour {len(result['targets'])} destinataire(s). Fichier a joindre: {result['attachment']}", SUCCESS)
         except (ValueError, EmailConfigurationError) as exc:
             notify(str(exc), DANGER)
         try:
@@ -335,6 +357,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                 ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_excel),
                                 ft.OutlinedButton("Envoyer email", icon=ft.Icons.SEND_OUTLINED, on_click=send_timesheet_by_email),
                                 ft.OutlinedButton("Outlook", icon=ft.Icons.MAIL_OUTLINED, on_click=prepare_timesheet_in_outlook),
+                                ft.OutlinedButton("WhatsApp", icon=ft.Icons.CHAT_OUTLINED, on_click=prepare_timesheet_in_whatsapp),
                                 ft.OutlinedButton("Historique 12 mois", icon=ft.Icons.HISTORY_OUTLINED, on_click=export_history),
                             ],
                             spacing=10,

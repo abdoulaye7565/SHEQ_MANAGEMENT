@@ -21,6 +21,7 @@ from app.services import (
     list_timesheet_site_options,
     lock_timesheet_month,
     prepare_timesheet_outlook_draft,
+    prepare_timesheet_whatsapp_share,
     set_day_activity,
     set_day_activity_range,
     send_timesheet_email,
@@ -334,6 +335,20 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 site_label=selected_site_label(),
             )
             notify(f"Brouillon Outlook prepare pour {', '.join(result['recipients'])}.", SUCCESS)
+        except (ValueError, EmailConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def prepare_timesheet_in_whatsapp(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_timesheet_xls(selected_month(), site_id=selected_site_id())
+            result = prepare_timesheet_whatsapp_share(
+                "TimeSheet 21-20",
+                selected_month(),
+                output,
+                site_label=selected_site_label(),
+            )
+            notify(f"WhatsApp ouvert pour {len(result['targets'])} destinataire(s). Fichier a joindre: {result['attachment']}", SUCCESS)
         except (ValueError, EmailConfigurationError) as exc:
             notify(str(exc), DANGER)
         _update()
@@ -719,6 +734,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                 site_scope_field,
                                 ft.ElevatedButton("Actualiser", icon=ft.Icons.SYNC_OUTLINED, on_click=refresh),
                                 ft.OutlinedButton("Outlook", icon=ft.Icons.MAIL_OUTLINED, on_click=prepare_timesheet_in_outlook),
+                                ft.OutlinedButton("WhatsApp", icon=ft.Icons.CHAT_OUTLINED, on_click=prepare_timesheet_in_whatsapp),
                                 ft.PopupMenuButton(
                                     content=ft.OutlinedButton("Exports", icon=ft.Icons.DOWNLOAD_OUTLINED),
                                     items=[
@@ -733,6 +749,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                         ft.PopupMenuItem(
                                             content=ft.Text("Preparer dans Outlook"),
                                             on_click=prepare_timesheet_in_outlook,
+                                        ),
+                                        ft.PopupMenuItem(
+                                            content=ft.Text("Preparer dans WhatsApp"),
+                                            on_click=prepare_timesheet_in_whatsapp,
                                         ),
                                         ft.PopupMenuItem(
                                             content=ft.Text("TimeSheet individuel Excel"),

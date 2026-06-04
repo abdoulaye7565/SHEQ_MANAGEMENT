@@ -6,6 +6,8 @@ import os
 import smtplib
 import subprocess
 import tempfile
+import urllib.parse
+import webbrowser
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
@@ -37,6 +39,9 @@ def get_email_settings() -> dict[str, Any]:
         "sender_name": str(config.get("sender_name") or "OREZONE QHSE"),
         "manager_email": str(config.get("manager_email") or ""),
         "somisy_email": str(config.get("somisy_email") or ""),
+        "manager_whatsapp": str(config.get("manager_whatsapp") or ""),
+        "somisy_whatsapp": str(config.get("somisy_whatsapp") or ""),
+        "whatsapp_group_link": str(config.get("whatsapp_group_link") or ""),
         "password_configured": bool(password),
         "password_source": "Variable OREZONE_EMAIL_PASSWORD" if os.getenv("OREZONE_EMAIL_PASSWORD") else "Fichier local",
         "ready": ready,
@@ -54,6 +59,9 @@ def save_email_settings(values: dict[str, Any]) -> dict[str, Any]:
     sender_email = str(values.get("sender_email", current.get("sender_email", "")) or "").strip()
     manager_email = str(values.get("manager_email", current.get("manager_email", "")) or "").strip()
     somisy_email = str(values.get("somisy_email", current.get("somisy_email", "")) or "").strip()
+    manager_whatsapp = _clean_phone(values.get("manager_whatsapp", current.get("manager_whatsapp", "")))
+    somisy_whatsapp = _clean_phone(values.get("somisy_whatsapp", current.get("somisy_whatsapp", "")))
+    whatsapp_group_link = str(values.get("whatsapp_group_link", current.get("whatsapp_group_link", "")) or "").strip()
     password = values.get("password")
     clear_password = bool(values.get("clear_password"))
     changed = any(
@@ -62,6 +70,9 @@ def save_email_settings(values: dict[str, Any]) -> dict[str, Any]:
             sender_email != str(current.get("sender_email") or ""),
             manager_email != str(current.get("manager_email") or ""),
             somisy_email != str(current.get("somisy_email") or ""),
+            manager_whatsapp != str(current.get("manager_whatsapp") or ""),
+            somisy_whatsapp != str(current.get("somisy_whatsapp") or ""),
+            whatsapp_group_link != str(current.get("whatsapp_group_link") or ""),
             clear_password,
             password is not None and bool(str(password).strip()),
         ]
@@ -75,6 +86,9 @@ def save_email_settings(values: dict[str, Any]) -> dict[str, Any]:
         "sender_name": str(values.get("sender_name", current.get("sender_name", "OREZONE QHSE")) or "OREZONE QHSE").strip(),
         "manager_email": manager_email,
         "somisy_email": somisy_email,
+        "manager_whatsapp": manager_whatsapp,
+        "somisy_whatsapp": somisy_whatsapp,
+        "whatsapp_group_link": whatsapp_group_link,
         "last_test_status": "not_tested" if changed else str(current.get("last_test_status") or "not_tested"),
         "last_test_message": "" if changed else str(current.get("last_test_message") or ""),
         "last_test_at": "" if changed else str(current.get("last_test_at") or ""),
@@ -148,6 +162,24 @@ def prepare_timesheet_outlook_draft(timesheet_type: str, month: str, attachment_
     )
     _open_outlook_draft(recipients, subject, body, attachment)
     return {"recipients": recipients, "attachment": str(attachment)}
+
+
+def prepare_timesheet_whatsapp_share(timesheet_type: str, month: str, attachment_path: Path | str, site_label: str | None = None) -> dict[str, Any]:
+    settings = get_email_settings()
+    attachment = Path(attachment_path)
+    if not attachment.exists():
+        raise EmailConfigurationError(f"Fichier introuvable: {attachment}")
+    targets = _configured_whatsapp_targets(settings)
+    if not targets:
+        raise EmailConfigurationError("Configure au moins un numero WhatsApp ou un lien groupe WhatsApp dans Parametres.")
+    message = (
+        f"Bonjour, le {timesheet_type} du mois {month}"
+        f"{' - ' + site_label if site_label else ''} est pret.\n\n"
+        f"Fichier Excel genere: {attachment.resolve()}\n\n"
+        "Merci de verifier et confirmer la reception. Le fichier doit etre joint depuis l'application WhatsApp."
+    )
+    urls = _open_whatsapp_targets(targets, message)
+    return {"targets": targets, "attachment": str(attachment), "urls": urls}
 
 
 def send_email_with_attachments(subject: str, body: str, recipients: list[str], attachments: list[Path]) -> None:
@@ -250,6 +282,29 @@ def _configured_recipients(settings: dict[str, Any]) -> list[str]:
     return _dedupe_recipients(_parse_recipients(settings.get("manager_email")) + _parse_recipients(settings.get("somisy_email")))
 
 
+def _configured_whatsapp_targets(settings: dict[str, Any]) -> list[str]:
+    values = [
+        str(settings.get("manager_whatsapp") or "").strip(),
+        str(settings.get("somisy_whatsapp") or "").strip(),
+        str(settings.get("whatsapp_group_link") or "").strip(),
+    ]
+    return _dedupe_recipients([value for value in values if value])
+
+
+def _open_whatsapp_targets(targets: list[str], message: str) -> list[str]:
+    urls: list[str] = []
+    encoded = urllib.parse.quote(message)
+    for target in targets:
+        if target.startswith(("http://", "https://")):
+            separator = "&" if "?" in target else "?"
+            url = f"{target}{separator}text={encoded}" if "wa.me" in target or "api.whatsapp.com" in target else target
+        else:
+            url = f"https://wa.me/{_clean_phone(target)}?text={encoded}"
+        webbrowser.open(url)
+        urls.append(url)
+    return urls
+
+
 def _dedupe_recipients(recipients: list[str]) -> list[str]:
     seen: set[str] = set()
     clean: list[str] = []
@@ -288,6 +343,9 @@ def _read_email_config() -> dict[str, Any]:
             "sender_name": "OREZONE QHSE",
             "manager_email": "",
             "somisy_email": "",
+            "manager_whatsapp": "",
+            "somisy_whatsapp": "",
+            "whatsapp_group_link": "",
             "password": "",
         }
     try:
@@ -308,3 +366,7 @@ def _as_port(value: Any) -> int:
     if port <= 0 or port > 65535:
         raise ValueError("Port SMTP invalide.")
     return port
+
+
+def _clean_phone(value: Any) -> str:
+    return "".join(character for character in str(value or "") if character.isdigit())

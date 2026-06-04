@@ -51,6 +51,9 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
     email_clear_password = ft.Checkbox(label="Supprimer le mot de passe local", value=False)
     email_manager = ft.TextField(label="Email manager", width=280)
     email_somisy = ft.TextField(label="Email SOMISY", width=280)
+    whatsapp_manager = ft.TextField(label="WhatsApp manager", hint_text="Ex: 2250700000000", width=230)
+    whatsapp_somisy = ft.TextField(label="WhatsApp SOMISY", hint_text="Ex: 2250700000000", width=230)
+    whatsapp_group = ft.TextField(label="Lien groupe WhatsApp", hint_text="https://chat.whatsapp.com/...", width=320)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -162,6 +165,9 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             "clear_password": email_clear_password.value,
             "manager_email": email_manager.value,
             "somisy_email": email_somisy.value,
+            "manager_whatsapp": whatsapp_manager.value,
+            "somisy_whatsapp": whatsapp_somisy.value,
+            "whatsapp_group_link": whatsapp_group.value,
         }
 
     def render() -> None:
@@ -178,6 +184,9 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
         email_sender_name.value = str(email["sender_name"])
         email_manager.value = str(email["manager_email"])
         email_somisy.value = str(email["somisy_email"])
+        whatsapp_manager.value = str(email["manager_whatsapp"])
+        whatsapp_somisy.value = str(email["somisy_whatsapp"])
+        whatsapp_group.value = str(email["whatsapp_group_link"])
         summary_row.controls = [
             _summary_chip("Version", data["version"], PRIMARY, ft.Icons.INFO_OUTLINED),
             _summary_chip("Mode", data["mode"], SUCCESS if data["mode"] == "Installee" else WARNING, ft.Icons.DESKTOP_WINDOWS_OUTLINED),
@@ -214,6 +223,9 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ("Email", "Expediteur", email["sender_email"] or "-"),
             ("Email", "Manager", email["manager_email"] or "-"),
             ("Email", "SOMISY", email["somisy_email"] or "-"),
+            ("WhatsApp", "Manager", email["manager_whatsapp"] or "-"),
+            ("WhatsApp", "SOMISY", email["somisy_whatsapp"] or "-"),
+            ("WhatsApp", "Groupe", email["whatsapp_group_link"] or "-"),
             ("Email", "Mot de passe", "Configure" if email["password_configured"] else "Non configure"),
             ("Email", "Etat", _email_status_label(email)),
             ("Email", "Dernier test", email["last_test_message"] or "-"),
@@ -283,6 +295,12 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         ft.Row(
+                            controls=[whatsapp_manager, whatsapp_somisy, whatsapp_group],
+                            wrap=True,
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
                             controls=[
                                 ft.ElevatedButton("Enregistrer email", icon=ft.Icons.SAVE_OUTLINED, on_click=save_email_config),
                                 ft.OutlinedButton("Tester email", icon=ft.Icons.MARK_EMAIL_READ_OUTLINED, on_click=test_email_config),
@@ -292,6 +310,11 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                         ),
                         ft.Text(
                             "SMTP envoie directement. L'option Outlook prepare un brouillon avec piece jointe en utilisant Outlook installe sur ce PC.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                        ft.Text(
+                            "WhatsApp ouvre une conversation avec un message pret. La piece jointe Excel doit etre ajoutee manuellement dans WhatsApp.",
                             size=12,
                             color=MUTED,
                         ),
