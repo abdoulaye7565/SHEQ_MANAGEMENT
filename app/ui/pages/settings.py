@@ -299,6 +299,35 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                     spacing=10,
                 ),
             ),
+            ft.Container(
+                bgcolor="#ECFDF5",
+                border=ft.border.all(1, "#86EFAC"),
+                border_radius=8,
+                padding=12,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.MAIL_OUTLINED, color=SUCCESS, size=20),
+                                ft.Text("Outlook Desktop", size=15, weight=ft.FontWeight.BOLD, color=TEXT),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(
+                            "Pour utiliser Outlook, renseigne seulement Email manager et Email SOMISY ci-dessus, puis clique sur le bouton Outlook dans le TimeSheet. Outlook doit etre installe et connecte sur ce PC.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                        ft.Text(
+                            "Cette option prepare le message avec le fichier Excel deja attache; l'utilisateur verifie puis clique Envoyer dans Outlook.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+            ),
             ft.Row(
                 controls=[
                     professional_data_table(

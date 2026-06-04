@@ -718,6 +718,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                 month_field,
                                 site_scope_field,
                                 ft.ElevatedButton("Actualiser", icon=ft.Icons.SYNC_OUTLINED, on_click=refresh),
+                                ft.OutlinedButton("Outlook", icon=ft.Icons.MAIL_OUTLINED, on_click=prepare_timesheet_in_outlook),
                                 ft.PopupMenuButton(
                                     content=ft.OutlinedButton("Exports", icon=ft.Icons.DOWNLOAD_OUTLINED),
                                     items=[
