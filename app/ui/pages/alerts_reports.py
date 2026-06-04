@@ -8,68 +8,56 @@ from app.ui.components.module_header import module_header
 from app.ui.pages.alerts import alerts_page
 from app.ui.pages.automation_controls import automation_controls_page
 from app.ui.pages.reports import reports_page
+from app.ui.theme import BORDER, MUTED, PRIMARY, TEXT
 
 
 def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
-    views: dict[str, ft.Container] = {
-        "alerts": ft.Container(content=alerts_page(navigate=navigate, show_header=False), visible=True),
-        "reports": ft.Container(visible=False),
-        "automation": ft.Container(visible=False),
-    }
-    switch = ft.SegmentedButton(
-        selected=["alerts"],
-        allow_empty_selection=False,
-        segments=[
-            ft.Segment(
-                value="alerts",
-                icon=ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED,
-                label="Alertes",
-            ),
-            ft.Segment(
-                value="reports",
-                icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
-                label="Rapports",
-            ),
-            ft.Segment(
-                value="automation",
-                icon=ft.Icons.AUTO_MODE_OUTLINED,
-                label="Automatisations",
-            ),
+    tab_bar = ft.TabBar(
+        tabs=[
+            ft.Tab(label="Alertes", icon=ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
+            ft.Tab(label="Rapports", icon=ft.Icons.PICTURE_AS_PDF_OUTLINED),
+            ft.Tab(label="Automatisations", icon=ft.Icons.AUTO_MODE_OUTLINED),
         ],
+        indicator_color=PRIMARY,
+        label_color=TEXT,
+        unselected_label_color=MUTED,
+        divider_color=BORDER,
     )
-
-    def change_tab(event: ft.ControlEvent | None = None) -> None:
-        selected = "automation" if "automation" in switch.selected else ("reports" if "reports" in switch.selected else "alerts")
-        if views[selected].content is None:
-            views[selected].content = automation_controls_page(navigate=navigate) if selected == "automation" else reports_page(show_header=False)
-        for key, view in views.items():
-            view.visible = key == selected
-        try:
-            root.update()
-        except RuntimeError:
-            pass
-
-    switch.on_change = change_tab
-    root = ft.Column(
+    tab_view = ft.TabBarView(
+        controls=[
+            _tab_content(alerts_page(navigate=navigate, show_header=False)),
+            _tab_content(reports_page(show_header=False)),
+            _tab_content(automation_controls_page(navigate=navigate)),
+        ],
+        expand=True,
+    )
+    tabs = ft.Tabs(
+        content=ft.Column(
+            controls=[tab_bar, tab_view],
+            spacing=12,
+            expand=True,
+        ),
+        length=3,
+        selected_index=0,
+        animation_duration=120,
+        expand=True,
+    )
+    return ft.Column(
         controls=[
             module_header(
                 "Alertes & Rapports",
                 "Control center QHSE: alertes, automatisations et rapports operationnels.",
             ),
-            ft.Row(
-                controls=[switch],
-                wrap=True,
-            ),
-            ft.Container(
-                padding=ft.padding.only(top=4),
-                content=ft.Column(
-                    controls=[views["alerts"], views["reports"], views["automation"]],
-                    spacing=0,
-                ),
-            ),
+            tabs,
         ],
         spacing=16,
         expand=True,
-        scroll=ft.ScrollMode.AUTO,
     )
-    return root
+
+
+def _tab_content(content: ft.Control) -> ft.Control:
+    return ft.Container(
+        padding=ft.padding.only(top=2, right=2),
+        content=content,
+        expand=True,
+    )
