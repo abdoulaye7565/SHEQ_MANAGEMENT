@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +10,7 @@ from app.services.employee_service import list_employees
 from app.services.break_service import list_active_break_employees
 from app.services.ppe_service import get_ppe_export_data
 from app.services.monthly_timesheet_service import current_monthly_timesheet_month, get_monthly_10h_timesheet
-from app.services.timesheet_service import get_timesheet, list_timesheet_audit
+from app.services.timesheet_service import get_timesheet, list_timesheet_audit, list_timesheet_history
 from app.services.toolbox_talk_service import list_toolbox_topics
 from app.services.xlsx_service import (
     write_attendance_list_xlsx as write_attendance_list_workbook,
@@ -297,6 +297,108 @@ def export_timesheet_all_employees_xls(month: str) -> Path:
     return _export_timesheet_rows_to_directory(timesheet, rows, "timesheets_individuels_orezone")
 
 
+def export_timesheet_annual_history_xls(site_id: int | None = None) -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    history_21_20 = list_timesheet_history(limit=12)
+    history_1_25 = _last_twelve_calendar_months()
+    if not history_21_20 and not history_1_25:
+        raise ValueError("Aucun historique TimeSheet disponible pour l'export annuel.")
+    site_suffix = ""
+    if site_id is not None:
+        site_suffix = f"_site_{int(site_id)}"
+    output_dir = _unique_export_dir(f"historique_timesheets_12_mois{site_suffix}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timesheet_21_20_dir = output_dir / "timesheet_21_20"
+    timesheet_1_25_dir = output_dir / "timesheet_1_25"
+    timesheet_21_20_dir.mkdir(parents=True, exist_ok=True)
+    timesheet_1_25_dir.mkdir(parents=True, exist_ok=True)
+    summary_rows: list[list[Any]] = []
+    for item in history_21_20:
+        month = str(item["month"])
+        timesheet = get_timesheet(month, site_id=site_id)
+        summary = timesheet.get("summary") or {}
+        period = timesheet.get("period") or {}
+        summary_rows.append(
+            [
+                "TimeSheet 21-20",
+                month,
+                period.get("start") or "",
+                period.get("end") or "",
+                summary.get("employees", 0),
+                summary.get("worked_days", 0),
+                summary.get("rest_days", 0),
+                summary.get("break_days", 0),
+                summary.get("permission_days", 0),
+                summary.get("sick_days", 0),
+                summary.get("absent_days", 0),
+                summary.get("unfilled_days", 0),
+                summary.get("drilling_hours", 0),
+                summary.get("standard_hours", 0),
+                summary.get("hours", 0),
+                len(timesheet.get("rows") or []),
+            ]
+        )
+        monthly_path = _unique_export_path_in_dir(
+            timesheet_21_20_dir,
+            f"timesheet_orezone_{month}.xlsx",
+        )
+        _write_timesheet_xlsx(monthly_path, timesheet)
+    for month in history_1_25:
+        timesheet = get_monthly_10h_timesheet(month, site_id=site_id)
+        expatriates = get_monthly_10h_timesheet(month, site_id=site_id, employee_type="expatriate")
+        summary = timesheet.get("summary") or {}
+        period = timesheet.get("period") or {}
+        summary_rows.append(
+            [
+                "TimeSheet 1-25",
+                month,
+                period.get("start") or "",
+                period.get("end") or "",
+                summary.get("employees", 0),
+                summary.get("worked_days", 0),
+                summary.get("rest_days", 0),
+                summary.get("normal_break_days", 0),
+                summary.get("permission_days", 0),
+                summary.get("sick_days", 0),
+                summary.get("absent_days", 0),
+                summary.get("unfilled_days", 0),
+                "",
+                "",
+                summary.get("hours", 0),
+                len(timesheet.get("rows") or []),
+            ]
+        )
+        monthly_path = _unique_export_path_in_dir(
+            timesheet_1_25_dir,
+            f"timesheet_1_25_orezone_{month}.xlsx",
+        )
+        _write_monthly_10h_timesheet_xlsx(monthly_path, timesheet, expatriates)
+    _write_xlsx_safely(
+        output_dir / "resume_historique_timesheets_12_mois.xlsx",
+        "Historique 12 mois",
+        [
+            "Type TimeSheet",
+            "Mois",
+            "Debut periode",
+            "Fin periode",
+            "Employes",
+            "Jours travailles",
+            "Repos",
+            "Break",
+            "Permission",
+            "Sick",
+            "Absents",
+            "Non renseignes",
+            "Heures 12H",
+            "Heures 8H",
+            "Heures totales",
+            "Lignes exportees",
+        ],
+        summary_rows,
+    )
+    return output_dir
+
+
 def export_timesheet_selected_employees_xls(month: str, employee_ids: list[int]) -> Path:
     selected_ids = {int(employee_id) for employee_id in employee_ids if int(employee_id or 0)}
     if not selected_ids:
@@ -376,6 +478,21 @@ def export_monthly_10h_timesheet_xlsx(month: str | None = None, site_id: int | N
     site_suffix = ""
     if timesheet.get("site"):
         site_suffix = "_" + _safe_name(timesheet["site"].get("nom") or "")
+    output_path = _unique_export_path(f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}.xlsx")
+    try:
+        _write_monthly_10h_timesheet_xlsx(output_path, timesheet, expatriates)
+        return output_path
+    except PermissionError:
+        fallback = _unique_export_path(f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}_nouveau.xlsx")
+        _write_monthly_10h_timesheet_xlsx(fallback, timesheet, expatriates)
+        return fallback
+
+
+def _write_monthly_10h_timesheet_xlsx(
+    path: Path,
+    timesheet: dict[str, Any],
+    expatriates: dict[str, Any],
+) -> None:
     headers = [
         "Employe",
         "Badge",
@@ -408,8 +525,8 @@ def export_monthly_10h_timesheet_xlsx(month: str | None = None, site_id: int | N
     else:
         rows.append(["Aucun employe expatrie actif pour cette periode.", *["" for _ in headers[1:]]])
         styles.append([None for _ in headers])
-    return export_styled_rows_xlsx(
-        f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}.xlsx",
+    write_styled_xlsx(
+        path,
         "MONTHLY TIMESHEET 1-25",
         headers,
         rows,
@@ -652,6 +769,19 @@ def _unique_export_path_in_dir(directory: Path, filename: str) -> Path:
 
 def _safe_name(value: Any) -> str:
     return "".join(char if char.isalnum() or char in "._-" else "_" for char in str(value or "").strip())
+
+
+def _last_twelve_calendar_months(reference: date | None = None) -> list[str]:
+    current = (reference or date.today()).replace(day=1)
+    months: list[str] = []
+    for offset in range(12):
+        year = current.year
+        month = current.month - offset
+        while month <= 0:
+            month += 12
+            year -= 1
+        months.append(f"{year:04d}-{month:02d}")
+    return months
 
 
 def _monthly_10h_cell_style(cell: dict[str, Any]) -> str | None:

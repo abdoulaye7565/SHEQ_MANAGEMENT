@@ -11,7 +11,7 @@ from app.services.monthly_timesheet_service import (
     get_monthly_10h_timesheet,
     list_monthly_timesheet_site_options,
 )
-from app.services import export_monthly_10h_timesheet_xlsx
+from app.services import export_monthly_10h_timesheet_xlsx, export_timesheet_annual_history_xls
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
@@ -92,6 +92,17 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 site_id=selected_site_id(),
             )
             notify(f"Export Excel TimeSheet 1-25 cree: {output}", SUCCESS)
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
+    def export_history(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_timesheet_annual_history_xls(site_id=selected_site_id())
+            notify(f"Historique 12 mois des deux TimeSheets exporte: {output}", SUCCESS)
         except ValueError as exc:
             notify(str(exc), DANGER)
         try:
@@ -267,6 +278,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                 search_field,
                                 ft.ElevatedButton("Actualiser", icon=ft.Icons.SYNC_OUTLINED, on_click=refresh),
                                 ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_excel),
+                                ft.OutlinedButton("Historique 12 mois", icon=ft.Icons.HISTORY_OUTLINED, on_click=export_history),
                             ],
                             spacing=10,
                             wrap=True,

@@ -8,6 +8,7 @@ from app.services.break_service import list_break_alerts
 from app.services.equipment_check_service import monthly_equipment_check_alert
 from app.services.maintenance_action_service import list_maintenance_action_alerts
 from app.services.ppe_service import list_ppe_alerts
+from app.services.toolbox_talk_service import get_toolbox_topic_for_date
 
 
 ALERT_LEVELS = ["bas", "moyen", "haut", "critique"]
@@ -26,6 +27,46 @@ def get_alert_summary() -> dict[str, Any]:
         "low": sum(1 for row in open_alerts if row["niveau"] == "bas"),
         "by_source": _count_by(open_alerts, "source"),
     }
+
+
+def get_alert_action_plan(limit: int = 6) -> list[dict[str, Any]]:
+    open_alerts = list_alerts(statut="ouverte")
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in open_alerts:
+        source_key = str(row.get("source_key") or "manual")
+        item = grouped.setdefault(
+            source_key,
+            {
+                "source_key": source_key,
+                "source": row.get("source") or "-",
+                "count": 0,
+                "critical": 0,
+                "high": 0,
+                "top_level": row.get("niveau") or "bas",
+                "top_message": row.get("message") or "",
+                "action_hint": row.get("action_hint") or _default_action_hint(source_key),
+            },
+        )
+        item["count"] += 1
+        if row.get("niveau") == "critique":
+            item["critical"] += 1
+        if row.get("niveau") == "haut":
+            item["high"] += 1
+        if _level_rank(str(row.get("niveau") or "bas")) >= _level_rank(str(item["top_level"])):
+            item["top_level"] = row.get("niveau") or "bas"
+            item["top_message"] = row.get("message") or ""
+            item["action_hint"] = row.get("action_hint") or _default_action_hint(source_key)
+    plan = list(grouped.values())
+    plan.sort(
+        key=lambda item: (
+            _level_rank(str(item.get("top_level") or "bas")),
+            int(item.get("critical") or 0),
+            int(item.get("high") or 0),
+            int(item.get("count") or 0),
+        ),
+        reverse=True,
+    )
+    return plan[: max(1, int(limit or 6))]
 
 
 def list_alerts(
@@ -47,6 +88,7 @@ def list_alerts(
         *_maintenance_action_alerts(),
         *_training_alerts(),
         *_attendance_alerts(),
+        *_toolbox_alerts(),
     ]
     rows.sort(key=lambda row: (_level_rank(row["niveau"]), str(row["date_creation"])), reverse=True)
 
@@ -125,6 +167,7 @@ def get_alert_filter_options() -> dict[str, list[dict[str, str]]]:
             {"value": "maintenance", "label": "Maintenance et actions"},
             {"value": "training", "label": "Formations"},
             {"value": "attendance", "label": "Presence"},
+            {"value": "toolbox", "label": "Toolbox Talk"},
         ],
         "levels": [{"value": "all", "label": "Tous les niveaux"}]
         + [{"value": item, "label": _level_label(item)} for item in ALERT_LEVELS],
@@ -137,9 +180,42 @@ def get_alert_filter_options() -> dict[str, list[dict[str, str]]]:
     }
 
 
+def _default_action_hint(source_key: str) -> str:
+    return {
+        "breaks": "Verifier et planifier les breaks.",
+        "ppe": "Verifier stock, dotations ou inspections EPI.",
+        "maintenance": "Traiter les maintenances, actions ou risques en retard.",
+        "training": "Programmer les renouvellements de formation.",
+        "attendance": "Corriger les presences, badges ou heures.",
+        "toolbox": "Completer ou generer les themes Toolbox Talk.",
+        "manual": "Qualifier l'alerte et assigner une action.",
+    }.get(source_key, "Analyser et traiter l'alerte.")
+
+
 def _monthly_equipment_check_alerts() -> list[dict[str, Any]]:
     alert = monthly_equipment_check_alert()
     return [alert] if alert else []
+
+
+def _toolbox_alerts() -> list[dict[str, Any]]:
+    current_date = date.today().isoformat()
+    topic = get_toolbox_topic_for_date(current_date, auto_assign=False)
+    if topic and str(topic.get("theme") or "").strip():
+        return []
+    return [
+        _alert(
+            alert_id=f"toolbox-missing:{current_date}",
+            source_key="toolbox",
+            source="Toolbox Talk",
+            type_alerte="Theme du jour manquant",
+            message=f"Aucun theme Toolbox Talk n'est renseigne pour le {current_date}.",
+            niveau="moyen",
+            date_creation=current_date,
+            reference_id=current_date,
+            reference_label=current_date,
+            action_hint="Renseigner ou generer les themes Toolbox du mois",
+        )
+    ]
 
 
 def _manual_alerts() -> list[dict[str, Any]]:

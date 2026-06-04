@@ -18,16 +18,50 @@ RISK_STATUSES = {"open", "in_progress", "controlled", "closed"}
 CONTROL_HIERARCHY = {"elimination", "substitution", "engineering", "administrative", "ppe"}
 
 
+def sync_overdue_maintenance_actions() -> dict[str, int]:
+    today = date.today().isoformat()
+    with db_session() as connection:
+        maintenance = connection.execute(
+            """
+            UPDATE equipment_maintenance
+            SET status = 'en_retard',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('planifiee', 'en_cours')
+              AND (
+                    planned_date < ?
+                 OR (next_due_date IS NOT NULL AND next_due_date <= ?)
+                 OR (next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer)
+              )
+            """,
+            (today, today),
+        )
+        actions = connection.execute(
+            """
+            UPDATE action_tracker
+            SET status = 'en_retard',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('ouverte', 'en_cours')
+              AND due_date < ?
+            """,
+            (today,),
+        )
+    return {
+        "maintenance": int(maintenance.rowcount or 0),
+        "actions": int(actions.rowcount or 0),
+    }
+
+
 def get_maintenance_action_summary() -> dict[str, int | float]:
+    sync_overdue_maintenance_actions()
     today = date.today().isoformat()
     with db_session() as connection:
         maintenance = connection.execute(
             """
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN status IN ('planifiee', 'en_cours') THEN 1 ELSE 0 END) AS open_count,
-                SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND (planned_date < ? OR (next_due_date IS NOT NULL AND next_due_date <= ?) OR (next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer)) THEN 1 ELSE 0 END) AS late_count,
-                SUM(CASE WHEN status IN ('planifiee', 'en_cours') AND next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer THEN 1 ELSE 0 END) AS odometer_due_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') AND (status = 'en_retard' OR planned_date < ? OR (next_due_date IS NOT NULL AND next_due_date <= ?) OR (next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer)) THEN 1 ELSE 0 END) AS late_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') AND next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer THEN 1 ELSE 0 END) AS odometer_due_count,
                 SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count,
                 COALESCE(SUM(cost), 0) AS cost_total
             FROM equipment_maintenance
@@ -38,8 +72,8 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
             """
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN status IN ('ouverte', 'en_cours') THEN 1 ELSE 0 END) AS open_count,
-                SUM(CASE WHEN status IN ('ouverte', 'en_cours') AND due_date < ? THEN 1 ELSE 0 END) AS late_count,
+                SUM(CASE WHEN status IN ('ouverte', 'en_cours', 'en_retard') THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status IN ('ouverte', 'en_cours', 'en_retard') AND (status = 'en_retard' OR due_date < ?) THEN 1 ELSE 0 END) AS late_count,
                 SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count
             FROM action_tracker
             """,
@@ -99,6 +133,7 @@ def get_maintenance_action_options() -> dict[str, list[dict[str, Any]]]:
 
 
 def list_maintenance_action_alerts() -> dict[str, list[dict[str, Any]]]:
+    sync_overdue_maintenance_actions()
     today = date.today().isoformat()
     with db_session() as connection:
         maintenance_rows = connection.execute(
@@ -116,7 +151,7 @@ def list_maintenance_action_alerts() -> dict[str, list[dict[str, Any]]]:
                 s.nom AS site
             FROM equipment_maintenance em
             LEFT JOIN sites s ON s.id_site = em.site_id
-            WHERE em.status IN ('planifiee', 'en_cours')
+            WHERE em.status IN ('planifiee', 'en_cours', 'en_retard')
               AND (
                   em.planned_date < ?
                   OR (em.next_due_date IS NOT NULL AND em.next_due_date <= ?)
@@ -139,7 +174,7 @@ def list_maintenance_action_alerts() -> dict[str, list[dict[str, Any]]]:
                 s.nom AS site
             FROM action_tracker a
             LEFT JOIN sites s ON s.id_site = a.site_id
-            WHERE a.status IN ('ouverte', 'en_cours')
+            WHERE a.status IN ('ouverte', 'en_cours', 'en_retard')
               AND (
                   a.due_date < ?
                   OR a.priority = 'critique'
@@ -485,7 +520,9 @@ def create_risk_assessment(values: dict[str, Any]) -> int:
             """,
             _risk_payload_tuple(payload),
         )
-        return int(cursor.lastrowid)
+        risk_id = int(cursor.lastrowid)
+        _ensure_action_for_high_risk(connection, risk_id, payload)
+        return risk_id
 
 
 def update_risk_assessment(risk_id: int, values: dict[str, Any]) -> None:
@@ -507,6 +544,7 @@ def update_risk_assessment(risk_id: int, values: dict[str, Any]) -> None:
         )
         if not cursor.rowcount:
             raise ValueError("Evaluation des risques introuvable.")
+        _ensure_action_for_high_risk(connection, int(risk_id), payload)
 
 
 def delete_risk_assessment(risk_id: int) -> None:
@@ -793,6 +831,48 @@ def _risk_payload_tuple(payload: dict[str, Any]) -> tuple[Any, ...]:
         payload["status"],
         payload["due_date"],
         payload["review_date"],
+    )
+
+
+def _ensure_action_for_high_risk(connection: Any, risk_id: int, payload: dict[str, Any]) -> None:
+    if payload["level_residual"] not in {"high", "critical"} or payload["status"] in {"controlled", "closed"}:
+        return
+    title = f"Risk control #{risk_id}: {payload['activity']}"[:180]
+    existing = connection.execute(
+        """
+        SELECT id_action
+        FROM action_tracker
+        WHERE source = 'Risk Assessment'
+          AND title = ?
+          AND status NOT IN ('terminee', 'annulee')
+        LIMIT 1
+        """,
+        (title,),
+    ).fetchone()
+    if existing:
+        return
+    due_date = payload.get("due_date") or payload.get("review_date") or date.today().isoformat()
+    priority = "critique" if payload["level_residual"] == "critical" else "haute"
+    description = (
+        f"Danger: {payload['hazard']}. "
+        f"Evenement redoute: {payload['risk_event']}. "
+        f"Controles additionnels: {payload.get('additional_controls') or 'A definir'}."
+    )
+    connection.execute(
+        """
+        INSERT INTO action_tracker (
+            source, title, description, site_id, owner_employee_id,
+            priority, status, due_date, progress
+        ) VALUES ('Risk Assessment', ?, ?, ?, ?, ?, 'ouverte', ?, 0)
+        """,
+        (
+            title,
+            description[:1000],
+            payload.get("site_id"),
+            payload.get("owner_employee_id"),
+            priority,
+            due_date,
+        ),
     )
 
 

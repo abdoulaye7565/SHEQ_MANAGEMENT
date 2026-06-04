@@ -205,6 +205,39 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertIn("FFDC2626", styles)
         self.assertIn("FFFBBF24", styles)
 
+    def test_high_residual_risk_creates_action_tracker_item(self) -> None:
+        risk_id = create_risk_assessment(
+            {
+                "activity": "Fuel transfer",
+                "task": "Refuelling mobile equipment",
+                "hazard": "Hydrocarbon spill",
+                "risk_event": "Fire or environmental release",
+                "consequences": "Major damage",
+                "existing_controls": "Extinguisher and spill kit",
+                "site_id": self.site_id,
+                "owner_employee_id": self.employee_id,
+                "probability_initial": 4,
+                "severity_initial": 5,
+                "hierarchy_control": "engineering",
+                "additional_controls": "Install drip tray and dedicated exclusion zone",
+                "probability_residual": 5,
+                "severity_residual": 5,
+                "status": "in_progress",
+                "due_date": "2026-06-10",
+            }
+        )
+
+        actions = list_action_tracker()
+
+        self.assertTrue(
+            any(
+                row["source"] == "Risk Assessment"
+                and f"#{risk_id}" in row["title"]
+                and row["priority"] == "critique"
+                for row in actions
+            )
+        )
+
     def _first_site(self) -> int:
         with connection.db_session() as db:
             row = db.execute("SELECT id_site FROM sites ORDER BY id_site LIMIT 1").fetchone()

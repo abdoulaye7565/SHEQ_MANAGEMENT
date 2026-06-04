@@ -10,6 +10,7 @@ from app.db import connection
 from app.services.attendance_export_service import (
     export_attendance_records_xlsx,
     export_timesheet_all_employees_xls,
+    export_timesheet_annual_history_xls,
     export_timesheet_employee_xls,
     export_timesheet_xls,
 )
@@ -138,6 +139,34 @@ class TimeSheetExportTest(unittest.TestCase):
                 contents.append(workbook.read("xl/worksheets/sheet1.xml").decode("utf-8"))
         self.assertTrue(any("Export Employe" in content for content in contents))
         self.assertTrue(any("Second Export Employe" in content for content in contents))
+
+    def test_export_timesheet_annual_history_creates_summary_and_monthly_files(self) -> None:
+        set_day_activity("2026-04-21", True)
+        save_attendance_day(
+            "2026-04-21",
+            {
+                self.employee_id: {
+                    "statut_presence": "present",
+                    "heure_entree": "07:00",
+                    "heure_sortie": "15:00",
+                },
+            },
+        )
+
+        output_dir = export_timesheet_annual_history_xls()
+        files = sorted(output_dir.glob("*.xlsx"))
+
+        self.assertTrue(output_dir.name.startswith("historique_timesheets_12_mois"))
+        self.assertTrue((output_dir / "timesheet_21_20").is_dir())
+        self.assertTrue((output_dir / "timesheet_1_25").is_dir())
+        self.assertTrue((output_dir / "resume_historique_timesheets_12_mois.xlsx").exists())
+        self.assertTrue(any(path.name.startswith("timesheet_orezone_2026-04") for path in (output_dir / "timesheet_21_20").glob("*.xlsx")))
+        self.assertTrue(any(path.name.startswith("timesheet_1_25_orezone_") for path in (output_dir / "timesheet_1_25").glob("*.xlsx")))
+        with zipfile.ZipFile(output_dir / "resume_historique_timesheets_12_mois.xlsx") as workbook:
+            content = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn("Historique 12 mois", content)
+        self.assertIn("Type TimeSheet", content)
+        self.assertIn("Heures totales", content)
 
     def test_export_timesheet_employee_uses_print_layout(self) -> None:
         output = export_timesheet_employee_xls("2026-04", self.employee_id)

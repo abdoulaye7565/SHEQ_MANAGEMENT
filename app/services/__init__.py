@@ -17,8 +17,10 @@ from app.services.admin_service import (
     update_user_status,
 )
 from app.services.dashboard_service import get_dashboard_summary
+from app.services.automation_service import run_startup_automations
 from app.services.alert_service import (
     create_manual_alert,
+    get_alert_action_plan,
     delete_manual_alert,
     get_alert_filter_options,
     get_alert_summary,
@@ -51,6 +53,7 @@ from app.services.attendance_export_service import (
     export_training_matrix_xls,
     export_timesheet_xls,
     export_timesheet_all_employees_xls,
+    export_timesheet_annual_history_xls,
     export_timesheet_employee_xls,
     export_timesheet_selected_employees_xls,
     export_timesheet_audit_xlsx,
@@ -143,6 +146,7 @@ from app.services.maintenance_action_service import (
     list_equipment_maintenance,
     list_maintenance_action_alerts,
     list_risk_assessments,
+    sync_overdue_maintenance_actions,
     update_action,
     update_equipment_maintenance,
     update_risk_assessment,
@@ -244,6 +248,7 @@ __all__ = [
     "export_training_matrix_xls",
     "export_timesheet_xls",
     "export_timesheet_all_employees_xls",
+    "export_timesheet_annual_history_xls",
     "export_timesheet_employee_xls",
     "export_timesheet_selected_employees_xls",
     "export_timesheet_audit_xlsx",
@@ -257,6 +262,7 @@ __all__ = [
     "export_employees_xlsx",
     "get_employee",
     "get_alert_filter_options",
+    "get_alert_action_plan",
     "get_alert_summary",
     "get_admin_summary",
     "get_role_modules",
@@ -320,6 +326,7 @@ __all__ = [
     "return_ppe_assignment",
     "reset_user_password",
     "restore_database_backup",
+    "run_startup_automations",
     "list_records",
     "list_report_definitions",
     "list_referential_counts",

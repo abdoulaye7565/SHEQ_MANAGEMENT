@@ -10,6 +10,7 @@ from app.services import (
     create_manual_alert,
     delete_manual_alert,
     export_rows_xlsx,
+    get_alert_action_plan,
     get_alert_filter_options,
     get_alert_summary,
     list_alerts,
@@ -33,6 +34,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     table_area = ft.Column(spacing=10)
     source_area = ft.Row(spacing=8, wrap=True)
+    action_plan_area = ft.ResponsiveRow(spacing=12, run_spacing=12)
 
     options = get_alert_filter_options()
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=260)
@@ -92,6 +94,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
         rows = current_rows()
         render_summary(summary)
         render_sources(summary)
+        render_action_plan()
         render_table(rows)
         _update()
 
@@ -173,6 +176,50 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
             for label, value in sorted(summary["by_source"].items())
         ] or [ft.Text("Aucune source en alerte.", size=12, color=SUCCESS)]
 
+    def render_action_plan() -> None:
+        plan = get_alert_action_plan()
+        action_plan_area.controls = [
+            ft.Container(
+                col={"xs": 12, "md": 6, "xl": 4},
+                bgcolor="#FFFFFF",
+                border=ft.border.all(1, LEVEL_COLORS.get(str(item.get("top_level") or ""), "#CBD5E1")),
+                border_radius=8,
+                padding=12,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                _level_badge(_level_label(str(item.get("top_level") or "bas")), LEVEL_COLORS.get(str(item.get("top_level") or ""), MUTED)),
+                                ft.Text(str(item.get("source") or "-"), color=TEXT, weight=ft.FontWeight.BOLD, expand=True),
+                                ft.Text(str(item.get("count") or 0), color=PRIMARY, weight=ft.FontWeight.BOLD),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(str(item.get("top_message") or ""), color=TEXT, size=12, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(str(item.get("action_hint") or ""), color=MUTED, size=12, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.OutlinedButton(
+                            "Ouvrir",
+                            icon=ft.Icons.OPEN_IN_NEW_OUTLINED,
+                            disabled=navigate is None or _target_key(str(item.get("source_key") or "")) is None,
+                            on_click=lambda event, key=_target_key(str(item.get("source_key") or "")): navigate(key) if navigate and key else None,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+            )
+            for item in plan
+        ] or [
+            ft.Container(
+                col={"xs": 12},
+                bgcolor="#F8FAFC",
+                border=ft.border.all(1, "#E2E8F0"),
+                border_radius=8,
+                padding=12,
+                content=ft.Text("Aucune action prioritaire ouverte.", color=SUCCESS, size=12),
+            )
+        ]
+
     def render_table(rows: list[dict[str, Any]]) -> None:
         table_area.controls = [
             ft.Row(
@@ -247,6 +294,8 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                         ),
                         summary_row,
                         source_area,
+                        ft.Text("Plan d'action automatique", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                        action_plan_area,
                     ],
                     spacing=12,
                 ),
@@ -375,6 +424,15 @@ def _level_badge(label: str, color: str) -> ft.Control:
     )
 
 
+def _level_label(value: str) -> str:
+    return {
+        "bas": "Bas",
+        "moyen": "Moyen",
+        "haut": "Haut",
+        "critique": "Critique",
+    }.get(value, value or "-")
+
+
 def _manual_id(alert_id: str) -> int:
     return int(str(alert_id).split(":", 1)[1])
 
@@ -386,4 +444,5 @@ def _target_key(source_key: str) -> str | None:
         "ppe": "Ppe",
         "maintenance": "MaintenanceActions",
         "training": "TrainingManagement",
+        "toolbox": "ToolboxTalk",
     }.get(source_key)

@@ -10,6 +10,7 @@ from app.services import (
     current_timesheet_month,
     export_timesheet_audit_xlsx,
     export_timesheet_all_employees_xls,
+    export_timesheet_annual_history_xls,
     export_timesheet_employee_xls,
     export_timesheet_xls,
     get_day_activity,
@@ -325,6 +326,14 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             notify(str(exc), DANGER)
         _update()
 
+    def export_annual_history(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_timesheet_annual_history_xls(site_id=selected_site_id())
+            notify(f"Historique annuel TimeSheet exporte: {output}", SUCCESS)
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
     def lock_month(event: ft.ControlEvent | None = None) -> None:
         confirm_action(
             page,
@@ -384,6 +393,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         summary = timesheet["summary"]
         period = timesheet["period"]
         summary_row.controls = [
+            _summary_chip("Mois TimeSheet", period["month"], PRIMARY, ft.Icons.CALENDAR_MONTH_OUTLINED),
             _summary_chip("Periode", f"{period['start']} au {period['end']}", PRIMARY, ft.Icons.DATE_RANGE_OUTLINED),
             _summary_chip("Employes", summary["employees"], PRIMARY, ft.Icons.GROUP_OUTLINED),
             _summary_chip("Jours travailles", summary["worked_days"], SUCCESS, ft.Icons.CHECK_CIRCLE_OUTLINE),
@@ -568,7 +578,19 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
 
     def render_history() -> None:
         history_area.controls = [
-            ft.Text("Historique des TimeSheets", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+            ft.Row(
+                controls=[
+                    ft.Text("Historique des TimeSheets", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                    ft.OutlinedButton(
+                        "Telecharger 12 mois",
+                        icon=ft.Icons.DOWNLOAD_FOR_OFFLINE_OUTLINED,
+                        on_click=export_annual_history,
+                    ),
+                ],
+                spacing=10,
+                wrap=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             ft.Row(
                 controls=[
                     ft.OutlinedButton(

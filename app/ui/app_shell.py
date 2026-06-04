@@ -1,6 +1,7 @@
 import flet as ft
 
 from app.services import authenticate_user, create_user, get_role_modules, has_users, list_roles
+from app.services.automation_service import run_startup_automations
 from app.services.equipment_check_service import confirm_monthly_equipment_check, get_monthly_equipment_check_status
 from app.ui.pages.admin import admin_page
 from app.ui.pages.ai_assistant import ai_assistant_page
@@ -68,6 +69,7 @@ def build_app(page: ft.Page) -> None:
 
 
 def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.Control:
+    run_startup_automations()
     user = dict(session.get("user") or {})
     allowed_keys = set(get_role_modules(str(user.get("role") or "")))
     if "MonthlyTimesheet" in allowed_keys:

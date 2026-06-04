@@ -14,6 +14,7 @@ from app.services.attendance_export_service import (
     export_ppe_inventory_xls,
     export_rows_xlsx,
     export_styled_rows_xlsx,
+    export_timesheet_annual_history_xls,
     export_timesheet_selected_employees_xls,
     export_timesheet_xls,
     export_toolbox_talk_xlsx,
@@ -118,6 +119,14 @@ def list_report_definitions() -> list[dict[str, Any]]:
             "month_param": True,
         },
         {
+            "key": "timesheet_annual_history",
+            "title": "Historique TimeSheet 12 mois",
+            "category": "TimeSheet",
+            "description": "Dossier telechargeable avec les deux TimeSheets: 21-20 et 1-25 sur 12 mois.",
+            "date_param": False,
+            "month_param": False,
+        },
+        {
             "key": "toolbox_talk",
             "title": "Toolbox Talk Meeting",
             "category": "Toolbox",
@@ -210,6 +219,8 @@ def generate_report(report_key: str, params: dict[str, Any] | None = None) -> Pa
         return export_timesheet_selected_employees_xls(month_value, employee_ids)
     if key == "monthly_10h_timesheet":
         return export_monthly_10h_timesheet_xlsx(month_value)
+    if key == "timesheet_annual_history":
+        return export_timesheet_annual_history_xls()
     if key == "toolbox_talk":
         return export_toolbox_talk_xlsx(month_value)
     if key == "ppe_inventory":

@@ -8,6 +8,7 @@ from app.db import connection
 from app.services.alert_service import (
     create_manual_alert,
     delete_manual_alert,
+    get_alert_action_plan,
     get_alert_summary,
     list_alerts,
     update_manual_alert_status,
@@ -76,6 +77,15 @@ class AlertServiceTest(unittest.TestCase):
         self.assertTrue(any("expire" in message.lower() for message in messages))
         self.assertTrue(any("Stock" in message for message in messages))
         self.assertGreaterEqual(summary["open"], 3)
+
+    def test_action_plan_groups_open_alerts_by_priority(self) -> None:
+        create_manual_alert("Incident critique", "Controle terrain immediat requis", "critique")
+
+        plan = get_alert_action_plan()
+
+        self.assertTrue(plan)
+        self.assertEqual(plan[0]["top_level"], "critique")
+        self.assertGreaterEqual(plan[0]["count"], 1)
 
     def test_generated_alerts_include_expired_badges(self) -> None:
         self._create_employee_with_badge("BAD-EXP", "2018-01-01")

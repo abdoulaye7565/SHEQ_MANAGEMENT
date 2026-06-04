@@ -6,6 +6,7 @@ import flet as ft
 
 from app.ui.components.module_header import module_header
 from app.ui.pages.alerts import alerts_page
+from app.ui.pages.automation_controls import automation_controls_page
 from app.ui.pages.reports import reports_page
 
 
@@ -28,13 +29,18 @@ def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
                 icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
                 label="Rapports",
             ),
+            ft.Segment(
+                value="automation",
+                icon=ft.Icons.AUTO_MODE_OUTLINED,
+                label="Automatisations",
+            ),
         ],
     )
 
     def change_tab(event: ft.ControlEvent | None = None) -> None:
-        selected = "reports" if "reports" in switch.selected else "alerts"
+        selected = "automation" if "automation" in switch.selected else ("reports" if "reports" in switch.selected else "alerts")
         if selected not in views:
-            views[selected] = reports_page(show_header=False)
+            views[selected] = automation_controls_page(navigate=navigate) if selected == "automation" else reports_page(show_header=False)
         content_area.content = views[selected]
         try:
             content_area.update()
@@ -46,7 +52,7 @@ def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
         controls=[
             module_header(
                 "Alertes & Rapports",
-                "Suivi des alertes QHSE et generation des rapports operationnels dans un seul module.",
+                "Control center QHSE: alertes, automatisations et rapports operationnels.",
             ),
             ft.Row(
                 controls=[switch],
