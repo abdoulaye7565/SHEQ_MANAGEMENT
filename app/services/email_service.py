@@ -181,20 +181,36 @@ param(
     [string]$AttachmentPath
 )
 $ErrorActionPreference = 'Stop'
-$outlook = New-Object -ComObject Outlook.Application
-$mail = $outlook.CreateItem(0)
-$mail.To = $To
-$mail.Subject = $Subject
-$mail.Body = $Body
-$null = $mail.Attachments.Add($AttachmentPath)
-$mail.Display()
+$outlook = $null
+$mail = $null
+try {
+    $outlook = New-Object -ComObject Outlook.Application
+    $mail = $outlook.CreateItem(0)
+    $mail.To = $To
+    $mail.Subject = $Subject
+    $mail.Body = $Body
+    $null = $mail.Attachments.Add($AttachmentPath)
+    $mail.Display($false)
+    Start-Sleep -Milliseconds 800
+}
+finally {
+    if ($mail -ne $null) {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($mail)
+    }
+    if ($outlook -ne $null) {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($outlook)
+    }
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+}
 """
     script_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8") as handle:
             handle.write(script)
             script_path = Path(handle.name)
-        result = subprocess.run(
+        subprocess.Popen(
             [
                 "powershell.exe",
                 "-NoProfile",
@@ -207,21 +223,10 @@ $mail.Display()
                 body,
                 str(attachment.resolve()),
             ],
-            capture_output=True,
-            text=True,
-            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise EmailConfigurationError(f"Impossible d'ouvrir Outlook: {exc}") from exc
-    finally:
-        if script_path is not None:
-            try:
-                script_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "Outlook ne repond pas.").strip()
-        raise EmailConfigurationError(f"Impossible de preparer le message Outlook: {detail[:300]}")
 
 
 def _open_smtp(settings: dict[str, Any]) -> smtplib.SMTP:

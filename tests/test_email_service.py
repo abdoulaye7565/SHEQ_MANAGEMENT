@@ -32,12 +32,6 @@ class FakeSMTP:
         self.closed = True
 
 
-class FakeCompletedProcess:
-    returncode = 0
-    stdout = ""
-    stderr = ""
-
-
 class EmailServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -109,11 +103,11 @@ class EmailServiceTest(unittest.TestCase):
             }
         )
 
-        with patch.object(email_service.subprocess, "run", return_value=FakeCompletedProcess()) as run_mock:
+        with patch.object(email_service.subprocess, "Popen") as popen_mock:
             result = email_service.prepare_timesheet_outlook_draft("TimeSheet 1-25", "2026-06", attachment)
 
         self.assertEqual(result["recipients"], ["manager@example.com", "somisy@example.com"])
-        command = run_mock.call_args.args[0]
+        command = popen_mock.call_args.args[0]
         self.assertIn("powershell.exe", command[0])
         self.assertIn(str(attachment.resolve()), command)
 
