@@ -11,10 +11,11 @@ from app.ui.pages.reports import reports_page
 
 
 def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
-    views: dict[str, ft.Control] = {
-        "alerts": alerts_page(navigate=navigate, show_header=False),
+    views: dict[str, ft.Container] = {
+        "alerts": ft.Container(content=alerts_page(navigate=navigate, show_header=False), visible=True),
+        "reports": ft.Container(visible=False),
+        "automation": ft.Container(visible=False),
     }
-    content_area = ft.Container(content=views["alerts"], expand=True)
     switch = ft.SegmentedButton(
         selected=["alerts"],
         allow_empty_selection=False,
@@ -39,16 +40,17 @@ def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
 
     def change_tab(event: ft.ControlEvent | None = None) -> None:
         selected = "automation" if "automation" in switch.selected else ("reports" if "reports" in switch.selected else "alerts")
-        if selected not in views:
-            views[selected] = automation_controls_page(navigate=navigate) if selected == "automation" else reports_page(show_header=False)
-        content_area.content = views[selected]
+        if views[selected].content is None:
+            views[selected].content = automation_controls_page(navigate=navigate) if selected == "automation" else reports_page(show_header=False)
+        for key, view in views.items():
+            view.visible = key == selected
         try:
-            content_area.update()
+            root.update()
         except RuntimeError:
             pass
 
     switch.on_change = change_tab
-    return ft.Column(
+    root = ft.Column(
         controls=[
             module_header(
                 "Alertes & Rapports",
@@ -60,10 +62,14 @@ def alerts_reports_page(navigate: Any | None = None) -> ft.Control:
             ),
             ft.Container(
                 padding=ft.padding.only(top=4),
-                content=content_area,
-                expand=True,
+                content=ft.Column(
+                    controls=[views["alerts"], views["reports"], views["automation"]],
+                    spacing=0,
+                ),
             ),
         ],
         spacing=16,
         expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
+    return root
