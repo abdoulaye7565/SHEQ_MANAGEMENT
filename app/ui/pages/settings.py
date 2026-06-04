@@ -291,7 +291,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                             wrap=True,
                         ),
                         ft.Text(
-                            "Utilise le SMTP de l'entreprise ou un app password. Les TimeSheets seront envoyes en pieces jointes au manager et a SOMISY.",
+                            "SMTP envoie directement. L'option Outlook prepare un brouillon avec piece jointe en utilisant Outlook installe sur ce PC.",
                             size=12,
                             color=MUTED,
                         ),

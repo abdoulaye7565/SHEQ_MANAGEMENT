@@ -4,6 +4,8 @@ import json
 import mimetypes
 import os
 import smtplib
+import subprocess
+import tempfile
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
@@ -126,6 +128,28 @@ def send_timesheet_email(timesheet_type: str, month: str, attachment_path: Path 
     return {"recipients": recipients, "attachment": str(attachment)}
 
 
+def prepare_timesheet_outlook_draft(timesheet_type: str, month: str, attachment_path: Path | str, site_label: str | None = None) -> dict[str, Any]:
+    settings = get_email_settings()
+    recipients = _configured_recipients(settings)
+    if not recipients:
+        raise EmailConfigurationError("Configure au moins l'email du manager ou de SOMISY dans Parametres.")
+    attachment = Path(attachment_path)
+    if not attachment.exists():
+        raise EmailConfigurationError(f"Fichier introuvable: {attachment}")
+    subject = f"OREZONE QHSE - {timesheet_type} - {month}"
+    if site_label:
+        subject = f"{subject} - {site_label}"
+    body = (
+        "Bonjour,\r\n\r\n"
+        f"Veuillez trouver ci-joint le {timesheet_type} du mois {month}.\r\n\r\n"
+        "Ce fichier a ete genere automatiquement depuis l'application OREZONE QHSE.\r\n"
+        "Merci de verifier et confirmer la reception.\r\n\r\n"
+        "Cordialement,\r\nOREZONE QHSE"
+    )
+    _open_outlook_draft(recipients, subject, body, attachment)
+    return {"recipients": recipients, "attachment": str(attachment)}
+
+
 def send_email_with_attachments(subject: str, body: str, recipients: list[str], attachments: list[Path]) -> None:
     settings = get_email_settings()
     _validate_ready(settings)
@@ -146,6 +170,58 @@ def send_email_with_attachments(subject: str, body: str, recipients: list[str], 
         smtp.send_message(message)
     finally:
         smtp.quit()
+
+
+def _open_outlook_draft(recipients: list[str], subject: str, body: str, attachment: Path) -> None:
+    script = """
+param(
+    [string]$To,
+    [string]$Subject,
+    [string]$Body,
+    [string]$AttachmentPath
+)
+$ErrorActionPreference = 'Stop'
+$outlook = New-Object -ComObject Outlook.Application
+$mail = $outlook.CreateItem(0)
+$mail.To = $To
+$mail.Subject = $Subject
+$mail.Body = $Body
+$null = $mail.Attachments.Add($AttachmentPath)
+$mail.Display()
+"""
+    script_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8") as handle:
+            handle.write(script)
+            script_path = Path(handle.name)
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "; ".join(recipients),
+                subject,
+                body,
+                str(attachment.resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise EmailConfigurationError(f"Impossible d'ouvrir Outlook: {exc}") from exc
+    finally:
+        if script_path is not None:
+            try:
+                script_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "Outlook ne repond pas.").strip()
+        raise EmailConfigurationError(f"Impossible de preparer le message Outlook: {detail[:300]}")
 
 
 def _open_smtp(settings: dict[str, Any]) -> smtplib.SMTP:

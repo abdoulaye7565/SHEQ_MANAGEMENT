@@ -32,6 +32,12 @@ class FakeSMTP:
         self.closed = True
 
 
+class FakeCompletedProcess:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+
+
 class EmailServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -87,6 +93,29 @@ class EmailServiceTest(unittest.TestCase):
         message = FakeSMTP.sent_messages[0]
         self.assertIn("manager@example.com", message["To"])
         self.assertIn("timesheet.xlsx", str(message))
+
+    def test_prepare_timesheet_outlook_draft_uses_configured_recipients(self) -> None:
+        attachment = Path(self.temp_dir.name) / "timesheet.xlsx"
+        attachment.write_bytes(b"xlsx")
+        email_service.save_email_settings(
+            {
+                "enabled": False,
+                "smtp_host": "",
+                "smtp_port": "587",
+                "sender_email": "",
+                "password": "",
+                "manager_email": "manager@example.com",
+                "somisy_email": "somisy@example.com",
+            }
+        )
+
+        with patch.object(email_service.subprocess, "run", return_value=FakeCompletedProcess()) as run_mock:
+            result = email_service.prepare_timesheet_outlook_draft("TimeSheet 1-25", "2026-06", attachment)
+
+        self.assertEqual(result["recipients"], ["manager@example.com", "somisy@example.com"])
+        command = run_mock.call_args.args[0]
+        self.assertIn("powershell.exe", command[0])
+        self.assertIn(str(attachment.resolve()), command)
 
 
 if __name__ == "__main__":

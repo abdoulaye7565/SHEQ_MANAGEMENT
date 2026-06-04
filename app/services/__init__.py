@@ -20,6 +20,7 @@ from app.services.dashboard_service import get_dashboard_summary
 from app.services.email_service import (
     EmailConfigurationError,
     get_email_settings,
+    prepare_timesheet_outlook_draft,
     record_email_test_status,
     save_email_settings,
     send_timesheet_email,
@@ -271,6 +272,7 @@ __all__ = [
     "export_employees_xlsx",
     "get_employee",
     "get_email_settings",
+    "prepare_timesheet_outlook_draft",
     "get_alert_filter_options",
     "get_alert_action_plan",
     "get_alert_summary",

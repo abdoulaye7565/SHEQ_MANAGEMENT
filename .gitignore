@@ -10,6 +10,7 @@ dist_*/
 *.db
 data/*.db
 data/ai_config.json
+data/email_config.json
 *.db-wal
 *.db-shm
 data/*.db-wal

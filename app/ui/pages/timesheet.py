@@ -20,6 +20,7 @@ from app.services import (
     list_timesheet_history,
     list_timesheet_site_options,
     lock_timesheet_month,
+    prepare_timesheet_outlook_draft,
     set_day_activity,
     set_day_activity_range,
     send_timesheet_email,
@@ -319,6 +320,20 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 site_label=selected_site_label(),
             )
             notify(f"TimeSheet envoye par email a {', '.join(result['recipients'])}.", SUCCESS)
+        except (ValueError, EmailConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def prepare_timesheet_in_outlook(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_timesheet_xls(selected_month(), site_id=selected_site_id())
+            result = prepare_timesheet_outlook_draft(
+                "TimeSheet 21-20",
+                selected_month(),
+                output,
+                site_label=selected_site_label(),
+            )
+            notify(f"Brouillon Outlook prepare pour {', '.join(result['recipients'])}.", SUCCESS)
         except (ValueError, EmailConfigurationError) as exc:
             notify(str(exc), DANGER)
         _update()
@@ -713,6 +728,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                         ft.PopupMenuItem(
                                             content=ft.Text("Envoyer TimeSheet par email"),
                                             on_click=send_timesheet_by_email,
+                                        ),
+                                        ft.PopupMenuItem(
+                                            content=ft.Text("Preparer dans Outlook"),
+                                            on_click=prepare_timesheet_in_outlook,
                                         ),
                                         ft.PopupMenuItem(
                                             content=ft.Text("TimeSheet individuel Excel"),
