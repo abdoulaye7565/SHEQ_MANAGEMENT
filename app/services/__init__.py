@@ -17,6 +17,14 @@ from app.services.admin_service import (
     update_user_status,
 )
 from app.services.dashboard_service import get_dashboard_summary
+from app.services.email_service import (
+    EmailConfigurationError,
+    get_email_settings,
+    record_email_test_status,
+    save_email_settings,
+    send_timesheet_email,
+    test_email_connection,
+)
 from app.services.automation_service import run_startup_automations
 from app.services.alert_service import (
     create_manual_alert,
@@ -204,6 +212,7 @@ __all__ = [
     "create_record",
     "create_manual_alert",
     "create_employee",
+    "EmailConfigurationError",
     "create_break",
     "create_break_for_employees",
     "create_training",
@@ -261,6 +270,7 @@ __all__ = [
     "export_active_breaks_xlsx",
     "export_employees_xlsx",
     "get_employee",
+    "get_email_settings",
     "get_alert_filter_options",
     "get_alert_action_plan",
     "get_alert_summary",
@@ -346,16 +356,20 @@ __all__ = [
     "lock_timesheet_month",
     "generate_report",
     "save_attendance_day",
+    "save_email_settings",
     "save_toolbox_topic",
     "save_theme_catalog",
+    "record_email_test_status",
     "record_ppe_inspection",
     "record_stock_movement",
     "save_ppe_requirement",
     "set_attendance_status",
     "set_day_activity",
     "set_day_activity_range",
+    "send_timesheet_email",
     "update_timesheet_day_status",
     "today_iso",
+    "test_email_connection",
     "unlock_attendance_day",
     "unlock_timesheet_month",
     "validate_attendance_day",

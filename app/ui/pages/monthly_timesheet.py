@@ -11,7 +11,12 @@ from app.services.monthly_timesheet_service import (
     get_monthly_10h_timesheet,
     list_monthly_timesheet_site_options,
 )
-from app.services import export_monthly_10h_timesheet_xlsx, export_timesheet_annual_history_xls
+from app.services import (
+    EmailConfigurationError,
+    export_monthly_10h_timesheet_xlsx,
+    export_timesheet_annual_history_xls,
+    send_timesheet_email,
+)
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
@@ -55,6 +60,13 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
         value = str(site_field.value or "all")
         return None if value == "all" else int(value)
 
+    def selected_site_label() -> str:
+        value = str(site_field.value or "all")
+        for option in site_field.options or []:
+            if str(option.key) == value:
+                return str(option.text or "Tous les sites")
+        return "Tous les sites"
+
     def load_site_options() -> None:
         options = list_monthly_timesheet_site_options()
         current = str(site_field.value or "all")
@@ -93,6 +105,27 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             )
             notify(f"Export Excel TimeSheet 1-25 cree: {output}", SUCCESS)
         except ValueError as exc:
+            notify(str(exc), DANGER)
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
+    def send_timesheet_by_email(event: ft.ControlEvent | None = None) -> None:
+        try:
+            month_field.value = current_monthly_timesheet_month()
+            output = export_monthly_10h_timesheet_xlsx(
+                current_monthly_timesheet_month(),
+                site_id=selected_site_id(),
+            )
+            result = send_timesheet_email(
+                "TimeSheet 1-25",
+                current_monthly_timesheet_month(),
+                output,
+                site_label=selected_site_label(),
+            )
+            notify(f"TimeSheet 1-25 envoye par email a {', '.join(result['recipients'])}.", SUCCESS)
+        except (ValueError, EmailConfigurationError) as exc:
             notify(str(exc), DANGER)
         try:
             root.update()
@@ -278,6 +311,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                 search_field,
                                 ft.ElevatedButton("Actualiser", icon=ft.Icons.SYNC_OUTLINED, on_click=refresh),
                                 ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_excel),
+                                ft.OutlinedButton("Envoyer email", icon=ft.Icons.SEND_OUTLINED, on_click=send_timesheet_by_email),
                                 ft.OutlinedButton("Historique 12 mois", icon=ft.Icons.HISTORY_OUTLINED, on_click=export_history),
                             ],
                             spacing=10,

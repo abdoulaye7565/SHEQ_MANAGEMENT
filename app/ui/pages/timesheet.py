@@ -13,6 +13,7 @@ from app.services import (
     export_timesheet_annual_history_xls,
     export_timesheet_employee_xls,
     export_timesheet_xls,
+    EmailConfigurationError,
     get_day_activity,
     get_timesheet,
     list_timesheet_audit,
@@ -21,6 +22,7 @@ from app.services import (
     lock_timesheet_month,
     set_day_activity,
     set_day_activity_range,
+    send_timesheet_email,
     unlock_timesheet_month,
     update_timesheet_day_status,
 )
@@ -153,6 +155,13 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     def selected_site_id() -> int | None:
         value = str(site_scope_field.value or "all")
         return None if value == "all" else int(value)
+
+    def selected_site_label() -> str:
+        value = str(site_scope_field.value or "all")
+        for option in site_scope_field.options or []:
+            if str(option.key) == value:
+                return str(option.text or "Tous les sites")
+        return "Tous les sites"
 
     def load_site_scope_options() -> None:
         options = list_timesheet_site_options()
@@ -297,6 +306,20 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             output = export_timesheet_xls(selected_month(), site_id=selected_site_id())
             notify(f"Export Excel TimeSheet complet: {len(timesheet['rows'])} employe(s) exporte(s) - {output}", SUCCESS)
         except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def send_timesheet_by_email(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_timesheet_xls(selected_month(), site_id=selected_site_id())
+            result = send_timesheet_email(
+                "TimeSheet 21-20",
+                selected_month(),
+                output,
+                site_label=selected_site_label(),
+            )
+            notify(f"TimeSheet envoye par email a {', '.join(result['recipients'])}.", SUCCESS)
+        except (ValueError, EmailConfigurationError) as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -686,6 +709,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                                         ft.PopupMenuItem(
                                             content=ft.Text("TimeSheet complet Excel"),
                                             on_click=export_excel,
+                                        ),
+                                        ft.PopupMenuItem(
+                                            content=ft.Text("Envoyer TimeSheet par email"),
+                                            on_click=send_timesheet_by_email,
                                         ),
                                         ft.PopupMenuItem(
                                             content=ft.Text("TimeSheet individuel Excel"),
