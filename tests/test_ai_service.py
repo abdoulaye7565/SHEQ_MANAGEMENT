@@ -60,7 +60,7 @@ class AIServiceTestCase(unittest.TestCase):
                 ai_service.AI_CONFIG_PATH = original_path
 
     def test_default_model_is_current_operational_default(self) -> None:
-        self.assertEqual(ai_service.DEFAULT_MODEL, "gpt-5.4-mini")
+        self.assertEqual(ai_service.DEFAULT_MODEL, "gpt-4o-mini")
 
 
 if __name__ == "__main__":
