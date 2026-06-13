@@ -88,6 +88,28 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS toolbox_audit (
+            id_audit INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            date_theme TEXT,
+            theme TEXT,
+            facilitateur TEXT,
+            ancienne_valeur TEXT,
+            nouvelle_valeur TEXT,
+            changed_by TEXT NOT NULL DEFAULT 'system',
+            changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            commentaire TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_toolbox_audit_date
+        ON toolbox_audit(date_theme, changed_at)
+        """
+    )
+    connection.execute(
+        """
         UPDATE training_types
         SET validite_mois = 24,
             updated_at = CURRENT_TIMESTAMP

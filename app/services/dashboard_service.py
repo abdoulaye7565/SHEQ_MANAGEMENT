@@ -71,6 +71,8 @@ def get_dashboard_summary() -> dict[str, Any]:
         summary["workforce_at_work"] = _state_value(summary["workforce_by_state"], "Au travail")
         summary["workforce_on_break"] = _state_value(summary["workforce_by_state"], "Break")
         summary["performance_indicators"] = _performance_indicators(summary)
+        summary["toolbox_today"] = _toolbox_today(connection, today_text)
+        summary["toolbox_month"] = _toolbox_month_completion(connection, today_text[:7])
 
     return summary
 
@@ -469,6 +471,52 @@ def _kpi_status(value: int, target: int, higher_is_better: bool) -> str:
     if value <= target + 2:
         return "attention"
     return "critique"
+
+
+def _toolbox_today(connection: Any, today: str) -> dict[str, Any]:
+    row = connection.execute(
+        """
+        SELECT theme, facilitateur
+        FROM themes_securite
+        WHERE date_theme = ?
+          AND COALESCE(theme, '') <> ''
+        """,
+        (today,),
+    ).fetchone()
+    return {
+        "date": today,
+        "theme": str(row["theme"]) if row else "",
+        "facilitateur": str(row["facilitateur"] or "") if row else "",
+        "done": bool(row),
+    }
+
+
+def _toolbox_month_completion(connection: Any, month: str) -> dict[str, Any]:
+    import calendar as _cal
+    try:
+        year, month_number = map(int, month.split("-"))
+    except ValueError:
+        return {"completion": 0, "completed": 0, "days": 0}
+    days_in_month = _cal.monthrange(year, month_number)[1]
+    start = f"{month}-01"
+    end = f"{month}-{days_in_month:02d}"
+    completed = connection.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM themes_securite
+        WHERE date_theme BETWEEN ? AND ?
+          AND COALESCE(theme, '') <> ''
+        """,
+        (start, end),
+    ).fetchone()["cnt"]
+    completion = round(int(completed) * 100 / days_in_month) if days_in_month else 0
+    return {
+        "month": month,
+        "days": days_in_month,
+        "completed": int(completed),
+        "missing": days_in_month - int(completed),
+        "completion": completion,
+    }
 
 
 def _percent(value: int, total: int) -> int:
