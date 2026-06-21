@@ -220,6 +220,77 @@ def get_mobile_connection() -> sqlite3.Connection:
             downloaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(month, format)
         );
+        CREATE TABLE IF NOT EXISTS pending_permits (
+            id_pending INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            permit_date TEXT NOT NULL,
+            lieu TEXT NOT NULL,
+            type_travaux TEXT NOT NULL,
+            description TEXT NOT NULL,
+            risques TEXT,
+            mesures TEXT,
+            responsable TEXT,
+            employe_id INTEGER,
+            employe_name TEXT,
+            validite_debut TEXT,
+            validite_fin TEXT,
+            statut TEXT DEFAULT 'brouillon'
+        );
+        CREATE TABLE IF NOT EXISTS permit_cache (
+            id_permit INTEGER PRIMARY KEY,
+            permit_number TEXT,
+            type_travaux TEXT,
+            lieu TEXT,
+            statut TEXT,
+            validite_debut TEXT,
+            validite_fin TEXT,
+            responsable TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS pending_risk_analysis (
+            id_pending INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            analysis_date TEXT NOT NULL,
+            activite TEXT NOT NULL,
+            lieu TEXT NOT NULL,
+            risques_json TEXT NOT NULL,
+            responsable TEXT,
+            employe_id INTEGER,
+            statut TEXT DEFAULT 'brouillon'
+        );
+        CREATE TABLE IF NOT EXISTS notifications_local (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            type TEXT,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            priority TEXT DEFAULT 'info',
+            read_flag INTEGER DEFAULT 0,
+            link_key TEXT
+        );
+        CREATE TABLE IF NOT EXISTS training_cache (
+            id_training INTEGER PRIMARY KEY,
+            titre TEXT NOT NULL,
+            type_formation TEXT,
+            date_debut TEXT,
+            date_fin TEXT,
+            lieu TEXT,
+            formateur TEXT,
+            statut TEXT,
+            nb_inscrits INTEGER DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS pending_breaks (
+            id_pending INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            employe_id INTEGER,
+            employe_name TEXT,
+            break_date TEXT NOT NULL,
+            heure_debut TEXT NOT NULL,
+            heure_fin TEXT,
+            type_pause TEXT DEFAULT 'repas',
+            notes TEXT
+        );
     """)
     return con
 
@@ -399,7 +470,9 @@ def save_pending_ppe_assign(data: dict) -> int:
 def total_pending() -> int:
     return (len(list_pending()) + len(list_pending_toolbox()) + len(list_pending_maintenance())
             + len(list_pending_incidents()) + len(list_pending_ppe_checks())
-            + len(list_pending_observations()) + len(list_pending_ppe_assigns()))
+            + len(list_pending_observations()) + len(list_pending_ppe_assigns())
+            + len(list_pending_permits()) + len(list_pending_risks())
+            + len(list_pending_breaks()))
 
 
 def save_synced_month_data(month: str, attendance: list[dict], toolbox: list[dict]) -> None:
@@ -453,6 +526,132 @@ def list_saved_timesheets() -> list[dict]:
 def delete_saved_timesheet(ts_id: int) -> None:
     with get_mobile_connection() as c:
         c.execute("DELETE FROM saved_timesheets WHERE id=?", (ts_id,))
+
+
+# ─── Permits ──────────────────────────────────────────────────────────────────
+
+def save_pending_permit(data: dict[str, Any]) -> int:
+    with get_mobile_connection() as c:
+        cur = c.execute(
+            "INSERT INTO pending_permits(permit_date,lieu,type_travaux,description,"
+            "risques,mesures,responsable,employe_id,employe_name,validite_debut,validite_fin,statut)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (data.get("permit_date"), data.get("lieu"), data.get("type_travaux"),
+             data.get("description"), data.get("risques"), data.get("mesures"),
+             data.get("responsable"), data.get("employe_id"), data.get("employe_name"),
+             data.get("validite_debut"), data.get("validite_fin"), data.get("statut","brouillon")),
+        )
+        return cur.lastrowid or 0
+
+def list_pending_permits() -> list[dict[str, Any]]:
+    return [dict(r) for r in get_mobile_connection().execute(
+        "SELECT * FROM pending_permits ORDER BY id_pending DESC").fetchall()]
+
+def save_permit_cache(rows: list[dict[str, Any]]) -> None:
+    with get_mobile_connection() as c:
+        c.execute("DELETE FROM permit_cache")
+        for r in rows:
+            c.execute(
+                "INSERT OR REPLACE INTO permit_cache(id_permit,permit_number,type_travaux,"
+                "lieu,statut,validite_debut,validite_fin,responsable) VALUES(?,?,?,?,?,?,?,?)",
+                (r.get("id_permit") or r.get("id"), r.get("permit_number"),
+                 r.get("type_travaux"), r.get("lieu"), r.get("statut"),
+                 r.get("validite_debut"), r.get("validite_fin"), r.get("responsable")),
+            )
+
+def list_permit_cache() -> list[sqlite3.Row]:
+    return get_mobile_connection().execute(
+        "SELECT * FROM permit_cache ORDER BY validite_debut DESC").fetchall()
+
+
+# ─── Risk Analysis ────────────────────────────────────────────────────────────
+
+def save_pending_risk(data: dict[str, Any]) -> int:
+    with get_mobile_connection() as c:
+        cur = c.execute(
+            "INSERT INTO pending_risk_analysis(analysis_date,activite,lieu,"
+            "risques_json,responsable,employe_id,statut) VALUES(?,?,?,?,?,?,?)",
+            (data.get("analysis_date"), data.get("activite"), data.get("lieu"),
+             json.dumps(data.get("risques") or [], ensure_ascii=False),
+             data.get("responsable"), data.get("employe_id"), data.get("statut","brouillon")),
+        )
+        return cur.lastrowid or 0
+
+def list_pending_risks() -> list[dict[str, Any]]:
+    return [dict(r) for r in get_mobile_connection().execute(
+        "SELECT * FROM pending_risk_analysis ORDER BY id_pending DESC").fetchall()]
+
+
+# ─── Notifications ────────────────────────────────────────────────────────────
+
+def add_notification(title: str, message: str, ntype: str = "info",
+                     priority: str = "info", link_key: str = "") -> None:
+    with get_mobile_connection() as c:
+        c.execute(
+            "INSERT INTO notifications_local(type,title,message,priority,link_key)"
+            " VALUES(?,?,?,?,?)",
+            (ntype, title, message, priority, link_key),
+        )
+
+def list_notifications(limit: int = 50) -> list[dict[str, Any]]:
+    return [dict(r) for r in get_mobile_connection().execute(
+        "SELECT * FROM notifications_local ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
+def mark_notification_read(nid: int) -> None:
+    with get_mobile_connection() as c:
+        c.execute("UPDATE notifications_local SET read_flag=1 WHERE id=?", (nid,))
+
+def mark_all_notifications_read() -> None:
+    with get_mobile_connection() as c:
+        c.execute("UPDATE notifications_local SET read_flag=1")
+
+def count_unread_notifications() -> int:
+    row = get_mobile_connection().execute(
+        "SELECT COUNT(*) as n FROM notifications_local WHERE read_flag=0").fetchone()
+    return int(row["n"]) if row else 0
+
+def clear_old_notifications(keep: int = 100) -> None:
+    with get_mobile_connection() as c:
+        c.execute(
+            "DELETE FROM notifications_local WHERE id NOT IN "
+            "(SELECT id FROM notifications_local ORDER BY id DESC LIMIT ?)", (keep,))
+
+
+# ─── Training ─────────────────────────────────────────────────────────────────
+
+def save_training_cache(rows: list[dict[str, Any]]) -> None:
+    with get_mobile_connection() as c:
+        c.execute("DELETE FROM training_cache")
+        for r in rows:
+            c.execute(
+                "INSERT OR REPLACE INTO training_cache(id_training,titre,type_formation,"
+                "date_debut,date_fin,lieu,formateur,statut,nb_inscrits) VALUES(?,?,?,?,?,?,?,?,?)",
+                (r.get("id_training") or r.get("id"), r.get("titre",""), r.get("type_formation"),
+                 r.get("date_debut"), r.get("date_fin"), r.get("lieu"),
+                 r.get("formateur"), r.get("statut"), r.get("nb_inscrits",0)),
+            )
+
+def list_training_cache() -> list[sqlite3.Row]:
+    return get_mobile_connection().execute(
+        "SELECT * FROM training_cache ORDER BY date_debut DESC").fetchall()
+
+
+# ─── Breaks ───────────────────────────────────────────────────────────────────
+
+def save_pending_break(data: dict[str, Any]) -> int:
+    with get_mobile_connection() as c:
+        cur = c.execute(
+            "INSERT INTO pending_breaks(employe_id,employe_name,break_date,"
+            "heure_debut,heure_fin,type_pause,notes) VALUES(?,?,?,?,?,?,?)",
+            (data.get("employe_id"), data.get("employe_name"), data.get("break_date"),
+             data.get("heure_debut"), data.get("heure_fin"),
+             data.get("type_pause","repas"), data.get("notes","")),
+        )
+        return cur.lastrowid or 0
+
+def list_pending_breaks() -> list[dict[str, Any]]:
+    return [dict(r) for r in get_mobile_connection().execute(
+        "SELECT * FROM pending_breaks ORDER BY id_pending DESC").fetchall()]
 
 
 # ─── Network ──────────────────────────────────────────────────────────────────
@@ -716,6 +915,27 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
     ppa_obs  = _tf("Observations / Remarques",ml=True,lines=2)
     ppa_tail = _tf("Taille (S/M/L/XL…)",hint="ex: L")
 
+    # Permis de travail
+    pm_lieu     = _tf("Lieu / Zone de travail *")
+    pm_desc     = _tf("Description des travaux *",ml=True,lines=3)
+    pm_risques  = _tf("Risques identifiés",ml=True,lines=2)
+    pm_mesures  = _tf("Mesures de prévention",ml=True,lines=2)
+    pm_resp     = _tf("Responsable des travaux")
+    pm_emp      = _dd("Employé exécutant")
+    pm_debut    = _tf("Début validité",val=date.today().isoformat())
+    pm_fin      = _tf("Fin validité",val=date.today().isoformat())
+
+    # Analyse de risques
+    ra_activite = _tf("Activité / Tâche *")
+    ra_lieu     = _tf("Lieu d'exécution *")
+    ra_resp     = _tf("Responsable HSE")
+
+    # Pauses
+    br_emp     = _dd("Employé *")
+    br_debut   = _tf("Heure début pause",val=datetime.now().strftime("%H:%M"),kb=ft.KeyboardType.DATETIME)
+    br_fin     = _tf("Heure fin pause",val="",kb=ft.KeyboardType.DATETIME)
+    br_notes   = _tf("Remarques (optionnel)",ml=True,lines=2)
+
     # Dynamic
     h_stats  = ft.Container()          # compact 4-stat strip
     h_kpi1   = ft.Row(spacing=10)     # kept for compat (not shown on home)
@@ -734,10 +954,19 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
     inc_tr   = ft.Row(spacing=6,wrap=True)
     inc_gr   = ft.Row(spacing=6,wrap=True)
 
+    # New screen dynamic columns
+    pm_type_row = ft.Row(spacing=8)
+    notif_col   = ft.Column(spacing=8)
+    train_col   = ft.Column(spacing=8)
+    br_type_row = ft.Row(spacing=8)
+    ra_risk_col = ft.Column(spacing=8)
+
     ST: dict = {"screen":"login","nav":["home","maintenance","toolbox","alerts","profile"],
                 "alerts_tab":"all","attendees":0,
                 "inc_type":"accident","inc_grav":"mineur",
-                "ppe":{lbl:"na" for lbl,_ in PPE_ITEMS}}
+                "ppe":{lbl:"na" for lbl,_ in PPE_ITEMS},
+                "pm_type":"hot_work","br_type":"repas",
+                "ra_risks":[{"hazard":"","consequence":"","prob":"faible","impact":"mineur","mesure":""}]}
 
     srv_dot   = ft.Container(width=9,height=9,bgcolor=WARN,border_radius=5)
     _navref: list = []
@@ -1035,6 +1264,17 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 save_setting(k,json.dumps(data.get(k) or {},ensure_ascii=False))
             p=data.get("profile") or {}
             if p.get("label"): save_setting("profile_label",p["label"])
+            if data.get("permits"): save_permit_cache(data["permits"])
+            if data.get("trainings"): save_training_cache(data["trainings"])
+        except Exception: pass
+        # Download permits & training separately if not in bootstrap
+        try:
+            pr=request_json(f"{addr}/api/mobile/permits",tk)
+            if pr.get("permits"): save_permit_cache(pr["permits"])
+        except Exception: pass
+        try:
+            tr=request_json(f"{addr}/api/mobile/trainings",tk)
+            if tr.get("trainings"): save_training_cache(tr["trainings"])
         except Exception: pass
         # Sync attendance + toolbox for last 3 months
         from datetime import timedelta
@@ -1066,6 +1306,12 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
 
     def _enter_app():
         page.bgcolor=BG
+        unread_n = count_unread_notifications()
+        notif_icon = ft.Stack([
+            ft.Icon(ft.Icons.NOTIFICATIONS_OUTLINED, size=24),
+            ft.Container(right=0, top=0, width=10, height=10, border_radius=5,
+                bgcolor=DNG, visible=unread_n > 0),
+        ])
         nb=ft.NavigationBar(selected_index=0,bgcolor=CARD,indicator_color=f"{BLUE}18",
             destinations=[
                 ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED,
@@ -1074,7 +1320,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     selected_icon=ft.Icons.HANDYMAN_ROUNDED,label="Maintenance"),
                 ft.NavigationBarDestination(icon=ft.Icons.RECORD_VOICE_OVER_OUTLINED,
                     selected_icon=ft.Icons.RECORD_VOICE_OVER_ROUNDED,label="Toolbox"),
-                ft.NavigationBarDestination(icon=ft.Icons.NOTIFICATIONS_OUTLINED,
+                ft.NavigationBarDestination(icon=notif_icon,
                     selected_icon=ft.Icons.NOTIFICATIONS_ROUNDED,label="Alertes"),
                 ft.NavigationBarDestination(icon=ft.Icons.PERSON_OUTLINE,
                     selected_icon=ft.Icons.PERSON_ROUNDED,label="Profil"),
@@ -1121,12 +1367,49 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                             "site_id":r["site_id"],"priority":r["priority"],"observation":r["observation"]}
                             for r in pending_m],
                         "incidents":[],"ppe_checks":[],"observations":[],
+                        "permits":[{"local_id":r["id_pending"],"permit_date":r["permit_date"],
+                            "type_travaux":r["type_travaux"],"lieu":r["lieu"],
+                            "description":r["description"],"risques":r["risques"],
+                            "mesures":r["mesures"],"responsable":r["responsable"],
+                            "employe_id":r["employe_id"],"employe_name":r["employe_name"],
+                            "validite_debut":r["validite_debut"],"validite_fin":r["validite_fin"]}
+                            for r in list_pending_permits()],
+                        "risk_analyses":[{"local_id":r["id_pending"],"analysis_date":r["analysis_date"],
+                            "activite":r["activite"],"lieu":r["lieu"],
+                            "risques_json":r["risques_json"],"responsable":r["responsable"]}
+                            for r in list_pending_risks()],
+                        "breaks":[{"local_id":r["id_pending"],"employe_id":r["employe_id"],
+                            "employe_name":r["employe_name"],"break_date":r["break_date"],
+                            "heure_debut":r["heure_debut"],"heure_fin":r["heure_fin"],
+                            "type_pause":r["type_pause"],"notes":r["notes"]}
+                            for r in list_pending_breaks()],
                     }
                     result=post_json(f"{addr}/api/mobile/sync",tk,payload,timeout=20)
                     accepted=result.get("accepted") or {}
                     if accepted.get("attendances"): clear_pending(list(accepted["attendances"]),"pending_attendance")
                     if accepted.get("toolbox"): clear_pending(list(accepted["toolbox"]),"pending_toolbox")
                     if accepted.get("maintenance"): clear_pending(list(accepted["maintenance"]),"pending_maintenance")
+                    if accepted.get("permits"):
+                        with get_mobile_connection() as _c:
+                            for _id in accepted["permits"]:
+                                try: _c.execute("DELETE FROM pending_permits WHERE id_pending=?", (int(_id),))
+                                except Exception: pass
+                    if accepted.get("risk_analyses"):
+                        with get_mobile_connection() as _c:
+                            for _id in accepted["risk_analyses"]:
+                                try: _c.execute("DELETE FROM pending_risk_analysis WHERE id_pending=?", (int(_id),))
+                                except Exception: pass
+                    if accepted.get("breaks"):
+                        with get_mobile_connection() as _c:
+                            for _id in accepted["breaks"]:
+                                try: _c.execute("DELETE FROM pending_breaks WHERE id_pending=?", (int(_id),))
+                                except Exception: pass
+                    # Inject system notification on successful sync
+                    tot_sent = (len(pending_a)+len(pending_t)+len(pending_m))
+                    if tot_sent > 0:
+                        add_notification("Synchronisation réussie",
+                            f"{tot_sent} enregistrement(s) envoyé(s) au serveur.",
+                            "system", "success")
                 # Download month data
                 month=date.today().strftime("%Y-%m")
                 md=request_json(f"{addr}/api/mobile/data?month={month}",tk,timeout=20)
@@ -1699,12 +1982,18 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     _nav_item("Équipements",ft.Icons.HANDYMAN_OUTLINED,BLUE,"maintenance"),
                     _nav_grp("SÉCURITÉ"),
                     _nav_item("Pointage terrain",ft.Icons.HOW_TO_REG_ROUNDED,OK,"attendance"),
+                    _nav_item("Pauses équipe",ft.Icons.PAUSE_CIRCLE_OUTLINED,INFO,"breaks"),
                     _nav_item("Vérification EPI",ft.Icons.SAFETY_CHECK_OUTLINED,WARN,"ppe_check"),
                     _nav_item("Dotation EPI",ft.Icons.ASSIGNMENT_TURNED_IN_ROUNDED,OK,"ppe_assign"),
                     _nav_item("Incidents",ft.Icons.WARNING_ROUNDED,DNG,"incident"),
                     _nav_item("Alertes",ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED,DNG,"alerts"),
+                    _nav_grp("HSE"),
+                    _nav_item("Permis de travail",ft.Icons.ASSIGNMENT_OUTLINED,PURP,"permits"),
+                    _nav_item("Analyse de risques",ft.Icons.SECURITY_OUTLINED,DNG,"risk"),
+                    _nav_item("Notifications",ft.Icons.NOTIFICATIONS_ROUNDED,INFO,"notifications"),
                     _nav_grp("FORMATION"),
                     _nav_item("Toolbox Talk",ft.Icons.RECORD_VOICE_OVER_ROUNDED,PURP,"toolbox"),
+                    _nav_item("Calendrier formations",ft.Icons.SCHOOL_OUTLINED,OK,"training"),
                     _nav_grp("DOCUMENTS"),
                     _nav_item("Timesheets & Exports",ft.Icons.ARTICLE_OUTLINED,BLUE,"timesheet"),
                     _nav_grp("COMPTE"),
@@ -1919,6 +2208,22 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                                 ft.Container(width=10),
                                 _mod("Timesheets","Télécharger & exporter",
                                      ft.Icons.ARTICLE_OUTLINED,INFO,"timesheet"),
+                            ],spacing=0),
+                            ft.Container(height=10),
+                            ft.Row([
+                                _mod("Permis","Permis de travail",
+                                     ft.Icons.ASSIGNMENT_OUTLINED,PURP,"permits"),
+                                ft.Container(width=10),
+                                _mod("Risques","Analyse JSA",
+                                     ft.Icons.SECURITY_OUTLINED,DNG,"risk"),
+                            ],spacing=0),
+                            ft.Container(height=10),
+                            ft.Row([
+                                _mod("Formations","Calendrier & suivi",
+                                     ft.Icons.SCHOOL_OUTLINED,OK,"training"),
+                                ft.Container(width=10),
+                                _mod("Pauses","Gestion des pauses",
+                                     ft.Icons.PAUSE_CIRCLE_OUTLINED,INFO,"breaks"),
                             ],spacing=0),
                         ],spacing=0,tight=True)),
 
@@ -3208,21 +3513,751 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                         lgn_user,lgn_pass,_btn("Se connecter",ft.Icons.LOGIN_OUTLINED,BLUE,do_login,44)],
                         spacing=10),P(16,14,16,14)))],spacing=0))
 
+    # ── Permis de travail ─────────────────────────────────────────────────────
+    def _s_permits():
+        TYPES_PM = [
+            ("hot_work",    "Travail à chaud",   ft.Icons.LOCAL_FIRE_DEPARTMENT_OUTLINED, DNG),
+            ("height",      "Travail en hauteur", ft.Icons.STAIRS_OUTLINED,               WARN),
+            ("confined",    "Espace confiné",    ft.Icons.MEETING_ROOM_OUTLINED,          PURP),
+            ("electrical",  "Électrique",        ft.Icons.ELECTRICAL_SERVICES_OUTLINED,  INFO),
+            ("excavation",  "Excavation",        ft.Icons.AGRICULTURE_OUTLINED,          OK),
+            ("general",     "Général",           ft.Icons.ASSIGNMENT_OUTLINED,           MUT),
+        ]
+        STAT_COLORS = {"actif":OK,"expire":DNG,"brouillon":WARN,"suspendu":MUT,"ferme":MUT}
+
+        cached = list_permit_cache()
+        pending = list_pending_permits()
+
+        def _rebuild_type():
+            def _tc(k, lbl, ico, c):
+                active = ST["pm_type"] == k
+                def click(e, kk=k): ST["pm_type"] = kk; _rebuild_type()
+                return ft.Container(expand=True, border_radius=12,
+                    bgcolor=c if active else CARD,
+                    border=ft.border.all(1.5 if active else 1, c if active else BRD),
+                    ink=True, on_click=click, padding=P(8, 10, 8, 10),
+                    content=ft.Column([
+                        ft.Container(bgcolor="#FFFFFF25" if active else f"{c}18",
+                            border_radius=9, width=32, height=32, alignment=AL(0, 0),
+                            content=ft.Icon(ico, color="#FFFFFF" if active else c, size=16)),
+                        ft.Text(lbl, size=10, weight=ft.FontWeight.W_700,
+                                color="#FFFFFF" if active else MUT,
+                                text_align=ft.TextAlign.CENTER),
+                    ], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True))
+            row1 = [_tc(k, l, i, c) for k, l, i, c in TYPES_PM[:3]]
+            row2 = [_tc(k, l, i, c) for k, l, i, c in TYPES_PM[3:]]
+            pm_type_row.controls = [
+                ft.Row(row1, spacing=6),
+                ft.Row(row2, spacing=6),
+            ]
+            try: pm_type_row.update()
+            except Exception: pass
+
+        _rebuild_type()
+
+        def save_pm(e=None):
+            if not pm_lieu.value.strip():
+                notify("Lieu obligatoire.", DNG); return
+            if not pm_desc.value.strip():
+                notify("Description obligatoire.", DNG); return
+            emp_row = None
+            for r in list_employees():
+                if (r["nom_complet"] or "") == pm_emp.value:
+                    emp_row = r; break
+            data = {
+                "permit_date": date.today().isoformat(),
+                "type_travaux": ST["pm_type"],
+                "lieu": pm_lieu.value.strip(),
+                "description": pm_desc.value.strip(),
+                "risques": pm_risques.value.strip(),
+                "mesures": pm_mesures.value.strip(),
+                "responsable": pm_resp.value.strip(),
+                "employe_id": emp_row["id_employe"] if emp_row else None,
+                "employe_name": pm_emp.value or "",
+                "validite_debut": pm_debut.value.strip(),
+                "validite_fin": pm_fin.value.strip(),
+                "statut": "brouillon",
+            }
+            save_pending_permit(data)
+            add_notification("Permis créé", f"Permis {ST['pm_type']} — {pm_lieu.value.strip()}", "permit", "info", "permits")
+            pm_lieu.value = ""; pm_desc.value = ""; pm_risques.value = ""; pm_mesures.value = ""
+            pm_resp.value = ""; pm_emp.value = None
+            notify("Permis enregistré offline.", OK)
+            go_to("permits")
+
+        def _permit_card(r):
+            stat = str(r.get("statut") or "brouillon")
+            sc = STAT_COLORS.get(stat, MUT)
+            tt = str(r.get("type_travaux") or "general")
+            type_label = {k: l for k, l, _, _ in TYPES_PM}.get(tt, tt.replace("_", " ").title())
+            return _ac(ft.Column([
+                ft.Row([ft.Text(type_label, size=13, weight=ft.FontWeight.BOLD, color=TXT, expand=True),
+                        _badge(stat.upper(), sc)], spacing=8),
+                ft.Text(str(r.get("lieu") or "—"), size=12, color=MUT),
+                ft.Text(f"Validité : {r.get('validite_debut','—')} → {r.get('validite_fin','—')}",
+                        size=11, color=MUT),
+            ], spacing=4, tight=True), sc)
+
+        pending_section = []
+        if pending:
+            pending_section = [
+                _sec(f"En attente de sync ({len(pending)})", ft.Icons.PENDING_OUTLINED, len(pending)),
+                *[_permit_card(p) for p in pending[:5]],
+            ]
+
+        cached_section = []
+        if cached:
+            cached_section = [
+                _sec(f"Permis actifs ({len(cached)})", ft.Icons.VERIFIED_OUTLINED),
+                *[_permit_card(dict(c)) for c in cached[:10]],
+            ]
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Stack([
+                ft.Column([
+                    ft.Container(gradient=GRAD, padding=P(16, 18, 16, 22), shadow=SH(10, "20"),
+                        content=ft.Column([
+                            ft.Row([_box(ft.Icons.ASSIGNMENT_OUTLINED, "#FFFFFF", 26, 16),
+                                ft.Text("Permis de travail", size=18, weight=ft.FontWeight.BOLD,
+                                        color="#FFFFFF", expand=True),
+                                ft.Container(width=36, height=36, border_radius=18, bgcolor="#FFFFFF22",
+                                    alignment=AL(0, 0), ink=True,
+                                    on_click=lambda e: go_to("new_permit"),
+                                    content=ft.Icon(ft.Icons.ADD, color="#FFFFFF", size=20))], spacing=8),
+                            ft.Container(height=8),
+                            ft.Row([_mstat(str(len(pending)), "En attente"),
+                                ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                                _mstat(str(len(cached)), "Archivés"),
+                                ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                                _mstat(str(sum(1 for c in cached if str(c["statut"] or "") == "actif")), "Actifs")],
+                                spacing=0)], spacing=0, tight=True)),
+                    ft.Container(expand=True, padding=P(12, 12, 12, 12),
+                        content=ft.Column([
+                            *pending_section,
+                            *cached_section,
+                            ft.Container(height=80),
+                        ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)),
+                ], spacing=0, expand=True),
+                ft.Container(right=16, bottom=24,
+                    content=ft.Container(bgcolor=BLUE, border_radius=16, shadow=SH(12, "30"),
+                        padding=P(16, 14, 16, 14), ink=True, on_click=lambda e: go_to("new_permit"),
+                        content=ft.Row([ft.Icon(ft.Icons.ADD, color="#FFFFFF", size=20),
+                            ft.Text("Nouveau permis", color="#FFFFFF", size=13, weight=ft.FontWeight.W_600)],
+                            spacing=8, tight=True))),
+            ]))
+
+    def _s_new_permit():
+        emps = list_employees()
+        pm_emp.options = [ft.dropdown.Option(r["nom_complet"] or f"{r['nom']} {r['prenom']}") for r in emps]
+        try: pm_emp.update()
+        except Exception: pass
+
+        def save_pm(e=None):
+            if not pm_lieu.value or not pm_lieu.value.strip():
+                notify("Lieu obligatoire.", DNG); return
+            if not pm_desc.value or not pm_desc.value.strip():
+                notify("Description obligatoire.", DNG); return
+            emp_row = None
+            for r in emps:
+                if (r["nom_complet"] or "") == (pm_emp.value or ""):
+                    emp_row = r; break
+            data = {
+                "permit_date": date.today().isoformat(),
+                "type_travaux": ST["pm_type"],
+                "lieu": pm_lieu.value.strip(),
+                "description": pm_desc.value.strip(),
+                "risques": pm_risques.value.strip(),
+                "mesures": pm_mesures.value.strip(),
+                "responsable": pm_resp.value.strip() or get_setting("identity_username") or "",
+                "employe_id": emp_row["id_employe"] if emp_row else None,
+                "employe_name": pm_emp.value or "",
+                "validite_debut": pm_debut.value.strip(),
+                "validite_fin": pm_fin.value.strip(),
+                "statut": "brouillon",
+            }
+            save_pending_permit(data)
+            add_notification("Permis créé",
+                f"Permis {ST['pm_type']} — {pm_lieu.value.strip()}", "permit", "info", "permits")
+            pm_lieu.value = ""; pm_desc.value = ""
+            pm_risques.value = ""; pm_mesures.value = ""; pm_resp.value = ""
+            pm_emp.value = None; pm_debut.value = date.today().isoformat()
+            pm_fin.value = date.today().isoformat()
+            notify("Permis enregistré offline.", OK)
+            go_to("permits")
+
+        TYPES_PM_LABELS = [
+            ("hot_work","Travail à chaud",ft.Icons.LOCAL_FIRE_DEPARTMENT_OUTLINED,DNG),
+            ("height","Travail en hauteur",ft.Icons.STAIRS_OUTLINED,WARN),
+            ("confined","Espace confiné",ft.Icons.MEETING_ROOM_OUTLINED,PURP),
+            ("electrical","Électrique",ft.Icons.ELECTRICAL_SERVICES_OUTLINED,INFO),
+            ("excavation","Excavation",ft.Icons.AGRICULTURE_OUTLINED,OK),
+            ("general","Général",ft.Icons.ASSIGNMENT_OUTLINED,MUT),
+        ]
+        def _rebuild_pm_type():
+            def _tc(k, lbl, ico, c):
+                active = ST["pm_type"] == k
+                def click(e, kk=k): ST["pm_type"] = kk; _rebuild_pm_type()
+                return ft.Container(expand=True, border_radius=12,
+                    bgcolor=c if active else CARD,
+                    border=ft.border.all(1.5 if active else 1, c if active else BRD),
+                    ink=True, on_click=click, padding=P(8, 10, 8, 10),
+                    content=ft.Column([
+                        ft.Container(bgcolor="#FFFFFF25" if active else f"{c}18",
+                            border_radius=9, width=32, height=32, alignment=AL(0, 0),
+                            content=ft.Icon(ico, color="#FFFFFF" if active else c, size=16)),
+                        ft.Text(lbl, size=10, weight=ft.FontWeight.W_700,
+                                color="#FFFFFF" if active else MUT,
+                                text_align=ft.TextAlign.CENTER),
+                    ], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True))
+            pm_type_row.controls = [
+                ft.Row([_tc(k, l, i, c) for k, l, i, c in TYPES_PM_LABELS[:3]], spacing=6),
+                ft.Row([_tc(k, l, i, c) for k, l, i, c in TYPES_PM_LABELS[3:]], spacing=6),
+            ]
+            try: pm_type_row.update()
+            except Exception: pass
+        _rebuild_pm_type()
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Column([
+                _hdr("Nouveau permis", "permits"),
+                ft.Container(expand=True, padding=P(12, 14, 12, 0),
+                    content=ft.Column([
+                        _card(ft.Column([_sec("Type de travaux", ft.Icons.CATEGORY_OUTLINED),
+                            pm_type_row], spacing=10), P(14, 14, 14, 14)),
+                        _card(ft.Column([_sec("Localisation", ft.Icons.LOCATION_ON_OUTLINED),
+                            pm_lieu, pm_emp], spacing=10), P(14, 14, 14, 14)),
+                        _card(ft.Column([_sec("Validité", ft.Icons.SCHEDULE_OUTLINED),
+                            ft.Row([pm_debut, pm_fin], spacing=8), pm_resp], spacing=10),
+                            P(14, 14, 14, 14)),
+                        _card(ft.Column([_sec("Description des travaux", ft.Icons.DESCRIPTION_OUTLINED),
+                            pm_desc], spacing=10), P(14, 14, 14, 14)),
+                        _card(ft.Column([_sec("Sécurité", ft.Icons.SECURITY_OUTLINED),
+                            pm_risques, pm_mesures], spacing=10), P(14, 14, 14, 14)),
+                        _btn("Enregistrer offline", ft.Icons.SAVE_OUTLINED, BLUE, save_pm),
+                        ft.Container(height=80),
+                    ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)),
+            ], spacing=0))
+
+    # ── Analyse de risques ────────────────────────────────────────────────────
+    def _s_risk():
+        PROB_OPTS = [("faible","Faible",OK),("moyenne","Moyenne",WARN),("elevee","Élevée",DNG)]
+        IMP_OPTS  = [("mineur","Mineur",OK),("modere","Modéré",WARN),("grave","Grave",DNG),("fatal","Fatal",PURP)]
+
+        def _rebuild_risks():
+            def _risk_card(i, r):
+                def upd(field, val):
+                    ST["ra_risks"][i][field] = val
+                prob_row = ft.Row(spacing=4)
+                imp_row  = ft.Row(spacing=4)
+
+                def _pill(label, val, field, opts_list, row_ref):
+                    def _opts():
+                        for _, lv, c in opts_list:
+                            active = ST["ra_risks"][i].get(field) == lv
+                            yield ft.Container(border_radius=20, padding=P(10, 4, 10, 4),
+                                bgcolor=c if active else "#F1F5F9",
+                                border=ft.border.all(1, c if active else BRD),
+                                ink=True,
+                                on_click=lambda e, v=lv, f=field: [upd(f, v), _rebuild_risks()],
+                                content=ft.Text(label, size=10,
+                                    color="#FFFFFF" if active else MUT,
+                                    weight=ft.FontWeight.W_600))
+                    return list(_opts())
+
+                prob_row.controls = _pill("", "", "prob", PROB_OPTS, prob_row)
+                for _, lv, c in PROB_OPTS:
+                    active = r.get("prob") == lv
+                    prob_row.controls.append(
+                        ft.Container(border_radius=20, padding=P(10, 4, 10, 4),
+                            bgcolor=c if active else "#F1F5F9",
+                            border=ft.border.all(1, c if active else BRD),
+                            ink=True,
+                            on_click=lambda e, v=lv: [ST["ra_risks"].__setitem__(i, {**ST["ra_risks"][i],"prob":v}), _rebuild_risks()],
+                            content=ft.Text(_, size=10, color="#FFFFFF" if active else MUT, weight=ft.FontWeight.W_600)))
+                prob_row.controls = []
+                for lbl, lv, c in PROB_OPTS:
+                    active = r.get("prob") == lv
+                    prob_row.controls.append(
+                        ft.Container(border_radius=20, padding=P(10, 4, 10, 4), expand=True,
+                            bgcolor=c if active else "#F1F5F9",
+                            border=ft.border.all(1, c if active else BRD),
+                            ink=True, alignment=AL(0, 0),
+                            on_click=lambda e, v=lv, idx=i: [ST["ra_risks"][idx].__setitem__("prob", v), _rebuild_risks()],
+                            content=ft.Text(lbl, size=10, color="#FFFFFF" if active else MUT,
+                                weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER)))
+                for lbl, lv, c in IMP_OPTS:
+                    active = r.get("impact") == lv
+                    imp_row.controls.append(
+                        ft.Container(border_radius=20, padding=P(6, 4, 6, 4), expand=True,
+                            bgcolor=c if active else "#F1F5F9",
+                            border=ft.border.all(1, c if active else BRD),
+                            ink=True, alignment=AL(0, 0),
+                            on_click=lambda e, v=lv, idx=i: [ST["ra_risks"][idx].__setitem__("impact", v), _rebuild_risks()],
+                            content=ft.Text(lbl, size=10, color="#FFFFFF" if active else MUT,
+                                weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER)))
+
+                haz_tf = ft.TextField(label="Danger identifié *", value=r.get("hazard",""),
+                    border_radius=10, border_color=BRD, focused_border_color=DNG, dense=True,
+                    on_change=lambda e, idx=i: ST["ra_risks"][idx].__setitem__("hazard", e.control.value))
+                mes_tf = ft.TextField(label="Mesure de maîtrise", value=r.get("mesure",""),
+                    border_radius=10, border_color=BRD, focused_border_color=OK, dense=True,
+                    on_change=lambda e, idx=i: ST["ra_risks"][idx].__setitem__("mesure", e.control.value))
+
+                def del_risk(e, idx=i):
+                    if len(ST["ra_risks"]) > 1:
+                        ST["ra_risks"].pop(idx); _rebuild_risks()
+
+                return ft.Container(bgcolor=CARD, border_radius=14, shadow=SH(4, "06"),
+                    border=ft.border.all(1, BRD), padding=P(14, 12, 14, 12),
+                    content=ft.Column([
+                        ft.Row([
+                            _box(ft.Icons.WARNING_AMBER_ROUNDED, DNG, 32, 16),
+                            ft.Text(f"Risque #{i+1}", size=13, weight=ft.FontWeight.BOLD, color=TXT, expand=True),
+                            ft.Container(width=28, height=28, border_radius=14, bgcolor=f"{DNG}18",
+                                alignment=AL(0, 0), ink=True, on_click=del_risk,
+                                content=ft.Icon(ft.Icons.CLOSE, color=DNG, size=14)),
+                        ], spacing=8),
+                        haz_tf,
+                        ft.Text("Probabilité", size=11, color=MUT, weight=ft.FontWeight.W_500),
+                        prob_row,
+                        ft.Text("Impact", size=11, color=MUT, weight=ft.FontWeight.W_500),
+                        imp_row,
+                        mes_tf,
+                    ], spacing=8, tight=True))
+
+            ra_risk_col.controls = [_risk_card(i, r) for i, r in enumerate(ST["ra_risks"])]
+            try: ra_risk_col.update()
+            except Exception: pass
+
+        _rebuild_risks()
+
+        emps = list_employees()
+        ra_emp = _dd("Responsable analyse")
+        ra_emp.options = [ft.dropdown.Option(r["nom_complet"] or f"{r['nom']} {r['prenom']}") for r in emps]
+
+        def add_risk(e=None):
+            ST["ra_risks"].append({"hazard":"","consequence":"","prob":"faible","impact":"mineur","mesure":""})
+            _rebuild_risks()
+            try: page.update()
+            except Exception: pass
+
+        def save_ra(e=None):
+            if not ra_activite.value or not ra_activite.value.strip():
+                notify("Activité obligatoire.", DNG); return
+            if not ra_lieu.value or not ra_lieu.value.strip():
+                notify("Lieu obligatoire.", DNG); return
+            valid_risks = [r for r in ST["ra_risks"] if r.get("hazard","").strip()]
+            if not valid_risks:
+                notify("Au moins un risque requis.", DNG); return
+            emp_row = None
+            for r in emps:
+                if (r["nom_complet"] or "") == (ra_emp.value or ""):
+                    emp_row = r; break
+            data = {
+                "analysis_date": date.today().isoformat(),
+                "activite": ra_activite.value.strip(),
+                "lieu": ra_lieu.value.strip(),
+                "risques": valid_risks,
+                "responsable": ra_resp.value.strip() or get_setting("identity_username") or "",
+                "employe_id": emp_row["id_employe"] if emp_row else None,
+                "statut": "brouillon",
+            }
+            save_pending_risk(data)
+            add_notification("Analyse de risques",
+                f"JSA — {ra_activite.value.strip()}", "risk", "info", "risk")
+            ra_activite.value = ""; ra_lieu.value = ""; ra_resp.value = ""
+            ST["ra_risks"] = [{"hazard":"","consequence":"","prob":"faible","impact":"mineur","mesure":""}]
+            _rebuild_risks()
+            notify("Analyse enregistrée offline.", OK)
+            go_to("risk")
+
+        pending_risks = list_pending_risks()
+        pending_section = []
+        if pending_risks:
+            pending_section = [_sec(f"En attente ({len(pending_risks)})", ft.Icons.PENDING_OUTLINED),
+                *[_ac(ft.Column([
+                    ft.Text(r.get("activite","—"), size=13, weight=ft.FontWeight.BOLD, color=TXT),
+                    ft.Text(f"{r.get('lieu','—')} · {r.get('analysis_date','—')}", size=11, color=MUT),
+                ], spacing=3, tight=True), WARN) for r in pending_risks[:4]]]
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Column([
+                ft.Container(gradient=GRAD, padding=P(16, 18, 16, 22), shadow=SH(10, "20"),
+                    content=ft.Column([
+                        ft.Row([_box(ft.Icons.SECURITY_OUTLINED, "#FFFFFF", 26, 16),
+                            ft.Text("Analyse de risques", size=18, weight=ft.FontWeight.BOLD,
+                                    color="#FFFFFF", expand=True)], spacing=8),
+                        ft.Container(height=8),
+                        ft.Row([_mstat(str(len(pending_risks)), "En attente"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat("JSA", "Type"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(len(ST["ra_risks"])), "Risques en cours")], spacing=0),
+                    ], spacing=0, tight=True)),
+                ft.Container(expand=True, padding=P(12, 14, 12, 0),
+                    content=ft.Column([
+                        *pending_section,
+                        _card(ft.Column([_sec("Activité / Tâche", ft.Icons.WORK_OUTLINED),
+                            ra_activite, ra_lieu, ra_resp, ra_emp], spacing=10), P(14, 14, 14, 14)),
+                        ft.Row([_sec(f"Risques identifiés ({len(ST['ra_risks'])})",
+                            ft.Icons.WARNING_AMBER_OUTLINED),
+                            ft.Container(border_radius=20, padding=P(12, 4, 12, 4),
+                                bgcolor=f"{DNG}18", border=ft.border.all(1, f"{DNG}44"),
+                                ink=True, on_click=add_risk,
+                                content=ft.Row([ft.Icon(ft.Icons.ADD, color=DNG, size=14),
+                                    ft.Text("Ajouter", size=11, color=DNG, weight=ft.FontWeight.W_700)],
+                                    spacing=4, tight=True))], spacing=8),
+                        ra_risk_col,
+                        _btn("Enregistrer l'analyse", ft.Icons.SAVE_OUTLINED, DNG, save_ra),
+                        ft.Container(height=80),
+                    ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)),
+            ], spacing=0))
+
+    # ── Notifications ─────────────────────────────────────────────────────────
+    def _s_notifications():
+        notifs = list_notifications()
+        unread = sum(1 for n in notifs if not n.get("read_flag"))
+
+        PRIO_C = {"urgent": DNG, "warning": WARN, "info": INFO, "success": OK}
+        TYPE_I = {
+            "incident": ft.Icons.WARNING_AMBER_ROUNDED,
+            "permit":   ft.Icons.ASSIGNMENT_OUTLINED,
+            "risk":     ft.Icons.SECURITY_OUTLINED,
+            "maintenance": ft.Icons.BUILD_ROUNDED,
+            "ppe":      ft.Icons.SAFETY_CHECK_OUTLINED,
+            "toolbox":  ft.Icons.RECORD_VOICE_OVER_OUTLINED,
+            "system":   ft.Icons.NOTIFICATIONS_ROUNDED,
+            "info":     ft.Icons.INFO_OUTLINED,
+        }
+
+        def _notif_card(n):
+            ntype = str(n.get("type") or "info")
+            prio  = str(n.get("priority") or "info")
+            c     = PRIO_C.get(prio, INFO)
+            ico   = TYPE_I.get(ntype, ft.Icons.NOTIFICATIONS_OUTLINED)
+            read  = bool(n.get("read_flag"))
+            nid   = n.get("id")
+            lk    = n.get("link_key") or ""
+
+            def on_tap(e):
+                mark_notification_read(nid)
+                if lk:
+                    go_to(lk)
+                else:
+                    _s_notifications()
+                    try: page.update()
+                    except Exception: pass
+
+            return ft.Container(
+                bgcolor=f"{c}06" if not read else CARD,
+                border_radius=14, shadow=SH(3, "06"),
+                border=ft.border.all(1.5 if not read else 1, f"{c}44" if not read else BRD),
+                ink=True, on_click=on_tap,
+                padding=P(14, 12, 14, 12),
+                content=ft.Row([
+                    ft.Container(width=40, height=40, border_radius=20,
+                        bgcolor=f"{c}18", alignment=AL(0, 0),
+                        content=ft.Icon(ico, color=c, size=20)),
+                    ft.Column([
+                        ft.Row([
+                            ft.Text(str(n.get("title", "—")), size=13,
+                                weight=ft.FontWeight.BOLD if not read else ft.FontWeight.NORMAL,
+                                color=TXT, expand=True),
+                            ft.Container(width=8, height=8, border_radius=4,
+                                bgcolor=c, visible=not read),
+                        ], spacing=6),
+                        ft.Text(str(n.get("message", "")), size=11, color=MUT, max_lines=2),
+                        ft.Text(str(n.get("received_at", ""))[:16], size=10, color=f"{MUT}88"),
+                    ], spacing=3, expand=True),
+                ], spacing=12, tight=True))
+
+        def do_mark_all(e=None):
+            mark_all_notifications_read()
+            go_to("notifications")
+
+        def do_clear(e=None):
+            def _yes(e):
+                clear_old_notifications(0)
+                go_to("notifications")
+            confirm("Effacer les notifications", "Supprimer toutes les notifications ?",
+                    _yes, danger=True, yes_lbl="Effacer")
+
+        empty_view = ft.Column([
+            ft.Container(height=40),
+            ft.Row([_box(ft.Icons.NOTIFICATIONS_OFF_OUTLINED, MUT, 64, 30)],
+                   alignment=ft.MainAxisAlignment.CENTER),
+            ft.Container(height=12),
+            ft.Text("Aucune notification", size=14, color=MUT, weight=ft.FontWeight.W_600,
+                    text_align=ft.TextAlign.CENTER),
+            ft.Text("Les alertes et mises à jour apparaîtront ici.",
+                    size=12, color=f"{MUT}88", text_align=ft.TextAlign.CENTER),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4)
+
+        body_content = [_div()]
+        if notifs:
+            body_content = [
+                ft.Row([
+                    _sec(f"Notifications ({len(notifs)})", ft.Icons.NOTIFICATIONS_ROUNDED, unread),
+                    ft.Container(border_radius=20, padding=P(10, 4, 10, 4),
+                        bgcolor=f"{OK}18", border=ft.border.all(1, f"{OK}44"),
+                        ink=True, on_click=do_mark_all, visible=unread > 0,
+                        content=ft.Text("Tout lu", size=11, color=OK, weight=ft.FontWeight.W_600)),
+                ], spacing=8),
+                *[_notif_card(n) for n in notifs],
+                ft.Container(height=8),
+                _gbtn("Effacer tout", ft.Icons.DELETE_SWEEP_OUTLINED, DNG, do_clear, 42),
+                ft.Container(height=80),
+            ]
+        else:
+            body_content = [empty_view]
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Column([
+                ft.Container(gradient=GRAD, padding=P(16, 18, 16, 22), shadow=SH(10, "20"),
+                    content=ft.Column([
+                        ft.Row([_box(ft.Icons.NOTIFICATIONS_ROUNDED, "#FFFFFF", 26, 16),
+                            ft.Text("Notifications", size=18, weight=ft.FontWeight.BOLD,
+                                    color="#FFFFFF", expand=True),
+                            ft.Container(width=36, height=36, border_radius=18, bgcolor="#FFFFFF22",
+                                alignment=AL(0, 0), ink=True, on_click=do_mark_all,
+                                content=ft.Icon(ft.Icons.DONE_ALL_ROUNDED, color="#FFFFFF", size=18),
+                                visible=unread > 0)], spacing=8),
+                        ft.Container(height=8),
+                        ft.Row([_mstat(str(len(notifs)), "Total"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(unread), "Non lues", "#FFCCCC" if unread else "#FFFFFF"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(len(notifs) - unread), "Lues")], spacing=0),
+                    ], spacing=0, tight=True)),
+                ft.Container(expand=True, padding=P(12, 12, 12, 12),
+                    content=ft.Column(body_content, spacing=10,
+                                      scroll=ft.ScrollMode.AUTO, expand=True)),
+            ], spacing=0))
+
+    # ── Formations ────────────────────────────────────────────────────────────
+    def _s_training():
+        trainings = list_training_cache()
+        today = date.today().isoformat()
+
+        STAT_C = {"planifie": INFO, "en_cours": OK, "termine": MUT, "annule": DNG}
+        TYPE_I2 = {
+            "hse":         ft.Icons.SECURITY_OUTLINED,
+            "technique":   ft.Icons.BUILD_OUTLINED,
+            "reglementaire": ft.Icons.GAVEL_OUTLINED,
+            "premier_secours": ft.Icons.LOCAL_HOSPITAL_OUTLINED,
+        }
+
+        upcoming = [t for t in trainings if str(t["date_debut"] or "") >= today]
+        past     = [t for t in trainings if str(t["date_debut"] or "") < today]
+
+        def _train_card(t):
+            stat = str(t.get("statut") or "planifie")
+            sc   = STAT_C.get(stat, MUT)
+            tt   = str(t.get("type_formation") or "")
+            ico  = TYPE_I2.get(tt, ft.Icons.SCHOOL_OUTLINED)
+            return _card(ft.Column([
+                ft.Row([
+                    ft.Container(bgcolor=f"{sc}18", border_radius=10, width=38, height=38,
+                        alignment=AL(0, 0), content=ft.Icon(ico, color=sc, size=19)),
+                    ft.Column([
+                        ft.Text(str(t.get("titre", "—")), size=13, weight=ft.FontWeight.BOLD, color=TXT),
+                        ft.Text(f"{t.get('formateur','—')} · {t.get('lieu','—')}", size=11, color=MUT),
+                    ], spacing=2, expand=True),
+                    _badge(stat.replace("_"," ").title(), sc),
+                ], spacing=10),
+                ft.Row([
+                    ft.Icon(ft.Icons.CALENDAR_TODAY_OUTLINED, color=MUT, size=13),
+                    ft.Text(f"{t.get('date_debut','—')} → {t.get('date_fin','—')}",
+                            size=11, color=MUT),
+                    ft.Container(expand=True),
+                    ft.Row([
+                        ft.Icon(ft.Icons.PEOPLE_OUTLINED, color=INFO, size=13),
+                        ft.Text(str(t.get("nb_inscrits", 0)), size=11, color=INFO,
+                                weight=ft.FontWeight.W_600),
+                    ], spacing=4),
+                ], spacing=6),
+            ], spacing=8, tight=True))
+
+        empty_view = ft.Column([
+            ft.Container(height=40),
+            ft.Row([_box(ft.Icons.SCHOOL_OUTLINED, MUT, 64, 30)],
+                   alignment=ft.MainAxisAlignment.CENTER),
+            ft.Container(height=12),
+            ft.Text("Aucune formation disponible", size=14, color=MUT,
+                    weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER),
+            ft.Text("Synchronisez pour télécharger le calendrier.", size=12,
+                    color=f"{MUT}88", text_align=ft.TextAlign.CENTER),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4)
+
+        sections = []
+        if upcoming:
+            sections += [_sec(f"À venir ({len(upcoming)})", ft.Icons.EVENT_OUTLINED),
+                         *[_train_card(dict(t)) for t in upcoming]]
+        if past:
+            sections += [_sec(f"Passées ({len(past)})", ft.Icons.HISTORY_OUTLINED),
+                         *[_train_card(dict(t)) for t in past[:5]]]
+        if not trainings:
+            sections = [empty_view]
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Column([
+                ft.Container(gradient=GRAD, padding=P(16, 18, 16, 22), shadow=SH(10, "20"),
+                    content=ft.Column([
+                        ft.Row([_box(ft.Icons.SCHOOL_OUTLINED, "#FFFFFF", 26, 16),
+                            ft.Text("Formations", size=18, weight=ft.FontWeight.BOLD,
+                                    color="#FFFFFF", expand=True),
+                            ft.Container(width=36, height=36, border_radius=18, bgcolor="#FFFFFF22",
+                                alignment=AL(0, 0), ink=True,
+                                on_click=lambda e: notify("Sync pour télécharger les formations.", INFO),
+                                content=ft.Icon(ft.Icons.REFRESH_OUTLINED, color="#FFFFFF", size=18))],
+                            spacing=8),
+                        ft.Container(height=8),
+                        ft.Row([_mstat(str(len(trainings)), "Total"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(len(upcoming)), "À venir"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(sum(1 for t in trainings if t.get("statut") == "en_cours")), "En cours")],
+                            spacing=0)], spacing=0, tight=True)),
+                ft.Container(expand=True, padding=P(12, 12, 12, 12),
+                    content=ft.Column(sections + [ft.Container(height=80)],
+                                      spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)),
+            ], spacing=0))
+
+    # ── Gestion des pauses ────────────────────────────────────────────────────
+    def _s_breaks():
+        TYPES_BR = [
+            ("repas",   "Repas",       ft.Icons.RESTAURANT_OUTLINED,    OK),
+            ("cafe",    "Café",        ft.Icons.COFFEE_OUTLINED,         WARN),
+            ("priere",  "Prière",      ft.Icons.SELF_IMPROVEMENT_OUTLINED, PURP),
+            ("medical", "Médical",     ft.Icons.LOCAL_HOSPITAL_OUTLINED, DNG),
+            ("autre",   "Autre",       ft.Icons.PAUSE_CIRCLE_OUTLINED,  MUT),
+        ]
+        pending_br = list_pending_breaks()
+
+        emps = list_employees()
+        br_emp.options = [ft.dropdown.Option(r["nom_complet"] or f"{r['nom']} {r['prenom']}") for r in emps]
+        try: br_emp.update()
+        except Exception: pass
+
+        def _rebuild_br_type():
+            def _tc(k, lbl, ico, c):
+                active = ST["br_type"] == k
+                def click(e, kk=k): ST["br_type"] = kk; _rebuild_br_type()
+                return ft.Container(expand=True, border_radius=12,
+                    bgcolor=c if active else CARD,
+                    border=ft.border.all(1.5 if active else 1, c if active else BRD),
+                    ink=True, on_click=click, padding=P(6, 8, 6, 8),
+                    content=ft.Column([
+                        ft.Icon(ico, color="#FFFFFF" if active else c, size=20),
+                        ft.Text(lbl, size=10, weight=ft.FontWeight.W_700,
+                                color="#FFFFFF" if active else MUT,
+                                text_align=ft.TextAlign.CENTER),
+                    ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True))
+            br_type_row.controls = [_tc(k, l, i, c) for k, l, i, c in TYPES_BR]
+            try: br_type_row.update()
+            except Exception: pass
+
+        _rebuild_br_type()
+
+        def save_br(e=None):
+            if not br_emp.value:
+                notify("Employé obligatoire.", DNG); return
+            if not br_debut.value or not br_debut.value.strip():
+                notify("Heure de début obligatoire.", DNG); return
+            emp_row = None
+            for r in emps:
+                if (r["nom_complet"] or "") == (br_emp.value or ""):
+                    emp_row = r; break
+            data = {
+                "employe_id": emp_row["id_employe"] if emp_row else None,
+                "employe_name": br_emp.value or "",
+                "break_date": date.today().isoformat(),
+                "heure_debut": br_debut.value.strip(),
+                "heure_fin": br_fin.value.strip() if br_fin.value else "",
+                "type_pause": ST["br_type"],
+                "notes": br_notes.value or "",
+            }
+            save_pending_break(data)
+            br_debut.value = datetime.now().strftime("%H:%M")
+            br_fin.value = ""; br_notes.value = ""
+            notify("Pause enregistrée offline.", OK)
+            go_to("breaks")
+
+        def _br_card(r):
+            tc = {k: c for k, _, _, c in TYPES_BR}
+            tl = {k: l for k, l, _, _ in TYPES_BR}
+            c  = tc.get(str(r.get("type_pause") or ""), MUT)
+            return _ac(ft.Column([
+                ft.Row([
+                    ft.Text(str(r.get("employe_name") or "—"), size=13,
+                            weight=ft.FontWeight.BOLD, color=TXT, expand=True),
+                    _badge(tl.get(str(r.get("type_pause") or ""), "Autre"), c),
+                ], spacing=8),
+                ft.Row([
+                    ft.Icon(ft.Icons.ACCESS_TIME_OUTLINED, color=MUT, size=13),
+                    ft.Text(f"{r.get('heure_debut','—')} → {r.get('heure_fin','—') or 'En cours'}",
+                            size=11, color=MUT),
+                    ft.Container(expand=True),
+                    ft.Text(str(r.get("break_date","—")), size=10, color=f"{MUT}88"),
+                ], spacing=6),
+            ], spacing=4, tight=True), c)
+
+        pending_section = []
+        if pending_br:
+            pending_section = [
+                _sec(f"Pauses enregistrées ({len(pending_br)})", ft.Icons.PENDING_OUTLINED, len(pending_br)),
+                *[_br_card(r) for r in pending_br[:10]],
+            ]
+
+        return ft.Container(bgcolor=BG, expand=True,
+            content=ft.Column([
+                ft.Container(gradient=GRAD, padding=P(16, 18, 16, 22), shadow=SH(10, "20"),
+                    content=ft.Column([
+                        ft.Row([_box(ft.Icons.PAUSE_CIRCLE_OUTLINED, "#FFFFFF", 26, 16),
+                            ft.Text("Gestion des pauses", size=18, weight=ft.FontWeight.BOLD,
+                                    color="#FFFFFF", expand=True)], spacing=8),
+                        ft.Container(height=8),
+                        ft.Row([_mstat(str(len(pending_br)), "En attente"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(str(sum(1 for b in pending_br if not b.get("heure_fin"))), "En cours"),
+                            ft.Container(width=1, height=28, bgcolor="#FFFFFF33"),
+                            _mstat(date.today().strftime("%d/%m"), "Aujourd'hui")], spacing=0)],
+                        spacing=0, tight=True)),
+                ft.Container(expand=True, padding=P(12, 14, 12, 0),
+                    content=ft.Column([
+                        *pending_section,
+                        _card(ft.Column([_sec("Type de pause", ft.Icons.CATEGORY_OUTLINED),
+                            br_type_row], spacing=10), P(14, 14, 14, 14)),
+                        _card(ft.Column([_sec("Employé & Horaires", ft.Icons.PERSON_OUTLINED),
+                            br_emp,
+                            ft.Row([br_debut, br_fin], spacing=8),
+                            br_notes], spacing=10), P(14, 14, 14, 14)),
+                        _btn("Enregistrer la pause", ft.Icons.SAVE_OUTLINED, OK, save_br),
+                        ft.Container(height=80),
+                    ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)),
+            ], spacing=0))
+
     def _build(key):
-        if key=="login":       return _s_login()
-        if key=="home":        return _s_home()
-        if key=="maintenance": return _s_maint()
-        if key=="intervention":return _s_interv()
-        if key=="inspection":  return _s_inspect()
-        if key=="toolbox":     return _s_toolbox()
-        if key=="alerts":      return _s_alerts()
-        if key=="incident":    return _s_incident()
-        if key=="profile":     return _s_profile()
-        if key=="ppe_check":   return _s_ppe_check()
-        if key=="ppe_assign":  return _s_ppe_assign()
-        if key=="attendance":  return _s_attendance()
-        if key=="timesheet":   return _s_timesheet()
-        if key=="settings":    return _s_settings()
+        if key=="login":         return _s_login()
+        if key=="home":          return _s_home()
+        if key=="maintenance":   return _s_maint()
+        if key=="intervention":  return _s_interv()
+        if key=="inspection":    return _s_inspect()
+        if key=="toolbox":       return _s_toolbox()
+        if key=="alerts":        return _s_alerts()
+        if key=="incident":      return _s_incident()
+        if key=="profile":       return _s_profile()
+        if key=="ppe_check":     return _s_ppe_check()
+        if key=="ppe_assign":    return _s_ppe_assign()
+        if key=="attendance":    return _s_attendance()
+        if key=="timesheet":     return _s_timesheet()
+        if key=="settings":      return _s_settings()
+        if key=="permits":       return _s_permits()
+        if key=="new_permit":    return _s_new_permit()
+        if key=="risk":          return _s_risk()
+        if key=="notifications": return _s_notifications()
+        if key=="training":      return _s_training()
+        if key=="breaks":        return _s_breaks()
         return _s_home()
 
     # ── Bootstrap ─────────────────────────────────────────────────────────────
