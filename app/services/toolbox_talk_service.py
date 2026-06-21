@@ -6,8 +6,12 @@ from datetime import date, datetime
 from typing import Any
 
 from app.db.connection import db_session
+from app.services.audit_service import record_system_audit
 
 DEFAULT_TOOLBOX_FACILITATOR = "ABOU DIARRA"
+
+# Guards the one-time bilingual normalization so it never runs in a read path.
+_bilingual_normalization_done = False
 
 DEFAULT_TOOLBOX_THEMES = [
     "Mandatory PPE selection and use / Port obligatoire des EPI adaptes a la tache",
@@ -73,7 +77,6 @@ def list_toolbox_topics(month: str | None = None) -> dict[str, Any]:
     start = f"{selected_month}-01"
     end = f"{selected_month}-{days_in_month:02d}"
     with db_session() as connection:
-        _normalize_existing_bilingual_topics(connection)
         rows = connection.execute(
             """
             SELECT
@@ -122,6 +125,60 @@ def list_toolbox_topics(month: str | None = None) -> dict[str, Any]:
     }
 
 
+def get_toolbox_dashboard_snapshot(month: str | None = None) -> dict[str, Any]:
+    data = list_toolbox_topics(month)
+    selected_month = str(data["month"])
+    days = _month_days(selected_month)
+    with db_session() as connection:
+        confirmations = connection.execute(
+            """
+            SELECT mtc.*, s.nom AS site
+            FROM mobile_toolbox_confirmations mtc
+            LEFT JOIN sites s ON s.id_site = mtc.site_id
+            WHERE mtc.date_theme BETWEEN ? AND ?
+            ORDER BY mtc.date_theme DESC, mtc.synced_at DESC
+            """,
+            (days[0], days[-1]),
+        ).fetchall()
+    confirmation_rows = [dict(row) for row in confirmations]
+    confirmation_by_date = {str(row["date_theme"]): row for row in confirmation_rows}
+    completed_rows = [row for row in data["rows"] if row["status"] == "done"]
+    realized_rows = [row for row in completed_rows if row["date_theme"] in confirmation_by_date]
+    attendees = sum(int(row.get("attendees_count") or 0) for row in confirmation_rows)
+    facilitator_counts: dict[str, int] = {}
+    site_counts: dict[str, int] = {}
+    for row in completed_rows:
+        facilitator = str(row.get("facilitateur") or "Non affecte")
+        facilitator_counts[facilitator] = facilitator_counts.get(facilitator, 0) + 1
+        site = str(row.get("site") or "Non affecte")
+        site_counts[site] = site_counts.get(site, 0) + 1
+    return {
+        **data,
+        "confirmations": confirmation_rows,
+        "history": [
+            {
+                **row,
+                "attendees_count": int((confirmation_by_date.get(str(row["date_theme"])) or {}).get("attendees_count") or 0),
+                "comments": str((confirmation_by_date.get(str(row["date_theme"])) or {}).get("comments") or ""),
+                "realized": str(row["date_theme"]) in confirmation_by_date,
+            }
+            for row in reversed(completed_rows)
+        ],
+        "facilitators": dict(sorted(facilitator_counts.items(), key=lambda item: item[1], reverse=True)),
+        "sites": dict(sorted(site_counts.items(), key=lambda item: item[1], reverse=True)),
+        "analytics": {
+            "planned": len(completed_rows),
+            "realized": len(realized_rows),
+            "missing": int(data["summary"]["missing"]),
+            "participants": attendees,
+            "average_participants": round(attendees / max(len(realized_rows), 1), 1),
+            "realization_rate": round(len(realized_rows) * 100 / max(len(completed_rows), 1)),
+            "planning_rate": int(data["summary"]["completion"]),
+            "active_facilitators": len(facilitator_counts),
+        },
+    }
+
+
 def save_toolbox_topic(values: dict[str, Any]) -> int:
     payload = _clean_payload(values)
     with db_session() as connection:
@@ -147,7 +204,9 @@ def save_toolbox_topic(values: dict[str, Any]) -> int:
             "SELECT id_theme FROM themes_securite WHERE date_theme = ?",
             (payload["date_theme"],),
         ).fetchone()
-        return int(row["id_theme"] if row else cursor.lastrowid)
+        topic_id = int(row["id_theme"] if row else cursor.lastrowid)
+    record_system_audit("save_toolbox_topic", "toolbox_topic", str(topic_id), f"date={payload['date_theme']}")
+    return topic_id
 
 
 def assign_topic_to_dates(values: dict[str, Any]) -> int:
@@ -186,7 +245,6 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
 def list_theme_catalog(include_inactive: bool = False) -> list[dict[str, Any]]:
     where = "" if include_inactive else "WHERE actif = 1"
     with db_session() as connection:
-        _normalize_existing_bilingual_topics(connection)
         rows = connection.execute(
             f"""
             SELECT id_topic, theme, obligatoire, actif, created_at, updated_at
@@ -205,6 +263,7 @@ def save_theme_catalog(values: dict[str, Any]) -> int:
     topic_id = int(values.get("id_topic") or 0)
     obligatoire = 1 if bool(values.get("obligatoire")) else 0
     actif = 1 if values.get("actif", True) else 0
+    audit_action = "save_toolbox_theme"
     with db_session() as connection:
         if topic_id:
             cursor = connection.execute(
@@ -217,23 +276,27 @@ def save_theme_catalog(values: dict[str, Any]) -> int:
             )
             if not cursor.rowcount:
                 raise ValueError("Theme introuvable.")
-            return topic_id
-        cursor = connection.execute(
-            """
-            INSERT INTO toolbox_theme_catalog(theme, obligatoire, actif)
-            VALUES (?, ?, ?)
-            ON CONFLICT(theme) DO UPDATE SET
-                obligatoire = excluded.obligatoire,
-                actif = excluded.actif,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (theme, obligatoire, actif),
-        )
-        row = connection.execute(
-            "SELECT id_topic FROM toolbox_theme_catalog WHERE theme = ?",
-            (theme,),
-        ).fetchone()
-        return int(row["id_topic"] if row else cursor.lastrowid)
+            saved_id = topic_id
+            audit_action = "update_toolbox_theme"
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO toolbox_theme_catalog(theme, obligatoire, actif)
+                VALUES (?, ?, ?)
+                ON CONFLICT(theme) DO UPDATE SET
+                    obligatoire = excluded.obligatoire,
+                    actif = excluded.actif,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (theme, obligatoire, actif),
+            )
+            row = connection.execute(
+                "SELECT id_topic FROM toolbox_theme_catalog WHERE theme = ?",
+                (theme,),
+            ).fetchone()
+            saved_id = int(row["id_topic"] if row else cursor.lastrowid)
+    record_system_audit(audit_action, "toolbox_theme_catalog", str(saved_id), theme)
+    return saved_id
 
 
 def delete_theme_catalog(topic_id: int) -> None:
@@ -244,6 +307,7 @@ def delete_theme_catalog(topic_id: int) -> None:
         )
         if not cursor.rowcount:
             raise ValueError("Theme introuvable dans la banque.")
+    record_system_audit("delete_toolbox_theme", "toolbox_theme_catalog", str(topic_id), "Theme supprime")
 
 
 def generate_toolbox_theme_catalog(count: int = 31) -> int:
@@ -327,6 +391,7 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
                 (day, theme, selected_facilitator, DEFAULT_TOOLBOX_FACILITATOR, selected_facilitator),
             )
             assigned += 1
+    record_system_audit("assign_monthly_toolbox_topics", "toolbox_month", selected_month, f"assigned={assigned}")
     return assigned
 
 
@@ -381,6 +446,55 @@ def delete_toolbox_topic(date_theme: str) -> None:
     target_date = _parse_date(date_theme)
     with db_session() as connection:
         connection.execute("DELETE FROM themes_securite WHERE date_theme = ?", (target_date,))
+
+
+def save_desktop_confirmation(values: dict[str, Any]) -> int:
+    target_date = _parse_date(str(values.get("date_theme") or ""))
+    attendees = max(0, int(values.get("attendees_count") or 0))
+    comments = str(values.get("comments") or "").strip() or None
+    facilitator = str(values.get("facilitateur") or "").strip() or None
+    site_id = values.get("site_id")
+    normalized_site_id = int(site_id) if site_id not in ("", None) else None
+    with db_session() as connection:
+        topic_row = connection.execute(
+            "SELECT theme, facilitateur, site_id FROM themes_securite WHERE date_theme = ?",
+            (target_date,),
+        ).fetchone()
+        theme = str((topic_row["theme"] if topic_row else "") or "").strip()
+        resolved_facilitator = facilitator or (str(topic_row["facilitateur"] or "") if topic_row else None) or DEFAULT_TOOLBOX_FACILITATOR
+        resolved_site_id = normalized_site_id or (int(topic_row["site_id"]) if topic_row and topic_row["site_id"] else None)
+        connection.execute(
+            """
+            INSERT INTO mobile_toolbox_confirmations
+                (device_id, date_theme, theme, facilitator, site_id, attendees_count, comments, synced_at)
+            VALUES ('DESKTOP', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(date_theme) DO UPDATE SET
+                attendees_count = excluded.attendees_count,
+                comments        = excluded.comments,
+                facilitator     = excluded.facilitator,
+                site_id         = excluded.site_id,
+                theme           = excluded.theme,
+                synced_at       = CURRENT_TIMESTAMP
+            """,
+            (target_date, theme, resolved_facilitator, resolved_site_id, attendees, comments),
+        )
+        row = connection.execute(
+            "SELECT id_confirmation FROM mobile_toolbox_confirmations WHERE date_theme = ?",
+            (target_date,),
+        ).fetchone()
+        confirmation_id = int(row["id_confirmation"]) if row else 0
+    record_system_audit("save_desktop_confirmation", "mobile_toolbox_confirmations", str(confirmation_id), f"date={target_date};attendees={attendees}")
+    return confirmation_id
+
+
+def delete_desktop_confirmation(date_theme: str) -> None:
+    target_date = _parse_date(date_theme)
+    with db_session() as connection:
+        connection.execute(
+            "DELETE FROM mobile_toolbox_confirmations WHERE date_theme = ? AND device_id = 'DESKTOP'",
+            (target_date,),
+        )
+    record_system_audit("delete_desktop_confirmation", "mobile_toolbox_confirmations", target_date, "Confirmation supprimee")
 
 
 def clear_monthly_toolbox_topics(month: str | None = None) -> int:
@@ -456,6 +570,20 @@ def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
         "facilitateur": facilitator,
         "site_id": int(site_id) if site_id not in ("", None) else None,
     }
+
+
+def run_bilingual_normalization_once() -> None:
+    """Run the bilingual topic migration exactly once per process lifetime.
+
+    Call this at application startup (e.g. after initialize_database). Never
+    call it inside a read path — it performs UPDATEs on every row.
+    """
+    global _bilingual_normalization_done
+    if _bilingual_normalization_done:
+        return
+    with db_session() as connection:
+        _normalize_existing_bilingual_topics(connection)
+    _bilingual_normalization_done = True
 
 
 def _normalize_existing_bilingual_topics(connection: Any) -> None:
@@ -590,3 +718,91 @@ def _month_days(month: str) -> list[str]:
     year, month_number = map(int, selected_month.split("-"))
     days_in_month = calendar.monthrange(year, month_number)[1]
     return [f"{selected_month}-{day:02d}" for day in range(1, days_in_month + 1)]
+
+
+# ── Nouvelles fonctions analytiques ─────────────────────────────────────────
+
+def get_today_toolbox_session() -> dict[str, Any]:
+    today = date.today().isoformat()
+    with db_session() as connection:
+        topic = connection.execute(
+            """
+            SELECT ts.id_theme, ts.date_theme, ts.theme, ts.facilitateur, ts.site_id, s.nom AS site
+            FROM themes_securite ts
+            LEFT JOIN sites s ON s.id_site = ts.site_id
+            WHERE ts.date_theme = ?
+            """,
+            (today,),
+        ).fetchone()
+        conf = connection.execute(
+            "SELECT attendees_count, comments, device_id FROM mobile_toolbox_confirmations WHERE date_theme = ?",
+            (today,),
+        ).fetchone()
+    topic_dict = dict(topic) if topic else None
+    return {
+        "date": today,
+        "weekday": _weekday_label(today),
+        "has_topic": bool(topic_dict and str(topic_dict.get("theme") or "").strip()),
+        "topic": topic_dict,
+        "confirmed": bool(conf),
+        "attendees": int((conf or {}).get("attendees_count") or 0) if conf else 0,
+        "device": str((conf or {}).get("device_id") or "") if conf else "",
+    }
+
+
+def detect_facilitator_conflicts(month: str | None = None) -> list[dict[str, Any]]:
+    selected_month = _parse_month(month or current_toolbox_month())
+    days = _month_days(selected_month)
+    with db_session() as connection:
+        rows = connection.execute(
+            """
+            SELECT ts.date_theme, ts.facilitateur,
+                   GROUP_CONCAT(COALESCE(s.nom, 'Site inconnu'), ' | ') AS sites,
+                   COUNT(DISTINCT COALESCE(ts.site_id, -ts.id_theme)) AS site_count
+            FROM themes_securite ts
+            LEFT JOIN sites s ON s.id_site = ts.site_id
+            WHERE ts.date_theme BETWEEN ? AND ?
+              AND COALESCE(ts.facilitateur, '') <> ''
+              AND ts.site_id IS NOT NULL
+            GROUP BY ts.date_theme, ts.facilitateur
+            HAVING COUNT(DISTINCT ts.site_id) > 1
+            ORDER BY ts.date_theme
+            """,
+            (days[0], days[-1]),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_toolbox_trend_data(months: int = 6) -> list[dict[str, Any]]:
+    today = date.today()
+    result: list[dict[str, Any]] = []
+    for i in range(months - 1, -1, -1):
+        total_months = today.year * 12 + today.month - 1 - i
+        y = total_months // 12
+        m = total_months % 12 + 1
+        month_str = f"{y}-{m:02d}"
+        try:
+            data = list_toolbox_topics(month_str)
+        except ValueError:
+            continue
+        days = _month_days(month_str)
+        with db_session() as connection:
+            confs = connection.execute(
+                "SELECT COUNT(*) AS count, SUM(attendees_count) AS total FROM mobile_toolbox_confirmations WHERE date_theme BETWEEN ? AND ?",
+                (days[0], days[-1]),
+            ).fetchone()
+        completed = int(data["summary"]["completed"])
+        total_days = int(data["summary"]["days"])
+        realized = int(confs["count"] or 0) if confs else 0
+        participants = int(confs["total"] or 0) if confs else 0
+        result.append({
+            "month": month_str,
+            "label": f"{calendar.month_abbr[m]}",
+            "planned": completed,
+            "realized": realized,
+            "participants": participants,
+            "completion_rate": int(data["summary"]["completion"]),
+            "realization_rate": round(realized * 100 / max(completed, 1)),
+            "days": total_days,
+        })
+    return result

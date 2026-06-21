@@ -4,11 +4,14 @@ import hashlib
 import hmac
 import secrets
 import shutil
+import sqlite3
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.config import BASE_DIR
+from app.config import ALL_MODULES, BASE_DIR, ROLE_MODULES
 from app.db import connection as db_connection
 from app.db.connection import db_session
 
@@ -19,43 +22,12 @@ HASH_ITERATIONS = 260_000
 BACKUPS_DIR = BASE_DIR / "backups"
 ADMIN_ROLE_NAME = "Administrateur"
 
-ALL_MODULES = [
-    "Dashboard",
-    "Referentials",
-    "EmployeeManagement",
-    "TrainingManagement",
-    "ToolboxTalk",
-    "TimeSheet",
-    "MonthlyTimesheet",
-    "Ppe",
-    "MaintenanceActions",
-    "Alerts",
-    "AiAssistant",
-    "Settings",
-    "Admin",
-]
+_LOGIN_LOCK = threading.Lock()
+_LOGIN_ATTEMPTS: dict[str, dict[str, Any]] = {}
+_MAX_LOGIN_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECONDS = 60
 
-ROLE_MODULES = {
-    "Administrateur": [
-        "Dashboard",
-        "Referentials",
-        "EmployeeManagement",
-        "TrainingManagement",
-        "ToolboxTalk",
-        "TimeSheet",
-        "MonthlyTimesheet",
-        "Ppe",
-        "MaintenanceActions",
-        "Alerts",
-        "AiAssistant",
-        "Settings",
-        "Admin",
-    ],
-    "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
-    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
-    "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
-    "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "AiAssistant"],
-}
+_PERMISSIONS_SEEDED = False
 
 
 def get_admin_summary() -> dict[str, int]:
@@ -125,6 +97,9 @@ def list_roles() -> list[dict[str, Any]]:
 
 
 def ensure_default_role_permissions() -> None:
+    global _PERMISSIONS_SEEDED
+    if _PERMISSIONS_SEEDED:
+        return
     with db_session() as connection:
         for role_name, modules in ROLE_MODULES.items():
             role = connection.execute(
@@ -147,6 +122,7 @@ def ensure_default_role_permissions() -> None:
                     """,
                     (role["id_role"], module),
                 )
+    _PERMISSIONS_SEEDED = True
 
 
 def list_role_permissions() -> list[dict[str, Any]]:
@@ -405,10 +381,38 @@ def update_user_status(user_id: int, statut: str, changed_by: str = "system") ->
         )
 
 
+def _check_login_lockout(user_name: str) -> None:
+    with _LOGIN_LOCK:
+        state = _LOGIN_ATTEMPTS.get(user_name)
+        if state is None:
+            return
+        locked_until = state.get("locked_until", 0)
+        if locked_until and time.monotonic() < locked_until:
+            remaining = int(locked_until - time.monotonic()) + 1
+            raise ValueError(f"Compte temporairement verrouille. Reessayez dans {remaining}s.")
+        if locked_until and time.monotonic() >= locked_until:
+            _LOGIN_ATTEMPTS.pop(user_name, None)
+
+
+def _record_login_failure(user_name: str) -> None:
+    with _LOGIN_LOCK:
+        state = _LOGIN_ATTEMPTS.setdefault(user_name, {"attempts": 0, "locked_until": 0})
+        state["attempts"] += 1
+        if state["attempts"] >= _MAX_LOGIN_ATTEMPTS:
+            state["locked_until"] = time.monotonic() + _LOGIN_LOCKOUT_SECONDS
+            state["attempts"] = 0
+
+
+def _clear_login_failures(user_name: str) -> None:
+    with _LOGIN_LOCK:
+        _LOGIN_ATTEMPTS.pop(user_name, None)
+
+
 def authenticate_user(username: str, password: str) -> dict[str, Any]:
     user_name = str(username or "").strip()
     if not user_name or not password:
         raise ValueError("Nom utilisateur et mot de passe obligatoires.")
+    _check_login_lockout(user_name)
     with db_session() as connection:
         row = connection.execute(
             """
@@ -425,9 +429,11 @@ def authenticate_user(username: str, password: str) -> dict[str, Any]:
             (user_name,),
         ).fetchone()
     if row is None or not verify_password(password, row["password_hash"]):
+        _record_login_failure(user_name)
         raise ValueError("Identifiants invalides.")
     if row["statut"] != "actif":
         raise ValueError("Utilisateur inactif.")
+    _clear_login_failures(user_name)
     return {
         "id_user": int(row["id_user"]),
         "username": row["username"],
@@ -443,7 +449,7 @@ def create_database_backup(label: str | None = None, changed_by: str = "system")
     suffix = _safe_backup_label(label)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output = BACKUPS_DIR / f"orezone_backup_{timestamp}{suffix}.db"
-    shutil.copy2(db_connection.DATABASE_PATH, output)
+    _backup_database_to(output)
     with db_session() as connection:
         _insert_admin_audit(
             connection,
@@ -467,8 +473,17 @@ def restore_database_backup(backup_name: str, changed_by: str = "system") -> Pat
         raise ValueError("Base de donnees introuvable.")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safety_copy = BACKUPS_DIR / f"orezone_backup_{timestamp}_avant_restauration.db"
-    shutil.copy2(db_connection.DATABASE_PATH, safety_copy)
-    shutil.copy2(source, db_connection.DATABASE_PATH)
+    _validate_sqlite_database(source)
+    _backup_database_to(safety_copy)
+    restore_staging = db_connection.DATABASE_PATH.with_suffix(".restore.db")
+    shutil.copy2(source, restore_staging)
+    _validate_sqlite_database(restore_staging)
+    for sidecar in (
+        db_connection.DATABASE_PATH.with_name(db_connection.DATABASE_PATH.name + "-wal"),
+        db_connection.DATABASE_PATH.with_name(db_connection.DATABASE_PATH.name + "-shm"),
+    ):
+        sidecar.unlink(missing_ok=True)
+    restore_staging.replace(db_connection.DATABASE_PATH)
     db_connection.initialize_database()
     with db_session() as connection:
         _insert_admin_audit(
@@ -566,6 +581,8 @@ def _clean_password(password: str) -> str:
     clean = str(password or "")
     if len(clean) < 8:
         raise ValueError("Mot de passe trop court: minimum 8 caracteres.")
+    if not any(char.isalpha() for char in clean) or not any(char.isdigit() for char in clean):
+        raise ValueError("Mot de passe insuffisant: utilise au moins une lettre et un chiffre.")
     return clean
 
 
@@ -627,6 +644,44 @@ def _resolve_backup_path(backup_name: str) -> Path:
     if resolved_backups not in [resolved_candidate, *resolved_candidate.parents]:
         raise ValueError("Sauvegarde invalide.")
     return resolved_candidate
+
+
+def _backup_database_to(output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    source = sqlite3.connect(db_connection.DATABASE_PATH)
+    destination = sqlite3.connect(output)
+    try:
+        source.backup(destination)
+        destination.commit()
+    except Exception:
+        destination.close()
+        source.close()
+        output.unlink(missing_ok=True)
+        raise
+    finally:
+        try:
+            destination.close()
+        except Exception:
+            pass
+        try:
+            source.close()
+        except Exception:
+            pass
+    _validate_sqlite_database(output)
+
+
+def _validate_sqlite_database(path: Path) -> None:
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        result = connection.execute("PRAGMA integrity_check").fetchone()
+    except sqlite3.DatabaseError as exc:
+        raise ValueError("Sauvegarde SQLite invalide ou corrompue.") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+    if not result or str(result[0]).lower() != "ok":
+        raise ValueError("Sauvegarde SQLite invalide ou corrompue.")
 
 
 def _insert_admin_audit(

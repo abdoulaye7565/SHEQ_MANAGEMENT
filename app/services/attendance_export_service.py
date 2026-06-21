@@ -8,15 +8,26 @@ from app.config import EXPORTS_DIR
 from app.services.attendance_service import get_attendance_list
 from app.services.employee_service import list_employees
 from app.services.break_service import list_active_break_employees
-from app.services.ppe_service import get_ppe_export_data
+from app.services.ppe_service import (
+    get_ppe_export_data,
+    list_ppe_assignments,
+    list_ppe_employee_compliance_summary,
+    list_ppe_inspections,
+)
 from app.services.monthly_timesheet_service import current_monthly_timesheet_month, get_monthly_10h_timesheet
 from app.services.timesheet_service import get_timesheet, list_timesheet_audit, list_timesheet_history
+from app.services.timesheet_period_service import (
+    TIMESHEET_1_25,
+    TIMESHEET_21_20,
+    validate_timesheet_export_payload,
+)
 from app.services.toolbox_talk_service import list_toolbox_topics
 from app.services.xlsx_service import (
     write_attendance_list_xlsx as write_attendance_list_workbook,
     write_daily_lineup_xlsx as write_daily_lineup_workbook,
-    write_simple_xlsx,
+    write_monthly_timesheet_report_xlsx,
     write_styled_xlsx,
+    write_timesheet_21_20_report_xlsx,
     write_toolbox_talk_xlsx as write_toolbox_talk_workbook,
 )
 
@@ -50,19 +61,6 @@ def export_styled_rows_xlsx(
 def export_attendance_xlsx(date_presence: str) -> Path:
     rows = get_attendance_list(date_presence)
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = _unique_export_path(f"liste_presence_{date_presence}.xlsx")
-
-    headers = [
-        "Date",
-        "Nom",
-        "Prenom",
-        "Numero badge",
-        "Fonction",
-        "Statut presence",
-        "Heure entree",
-        "Heure sortie",
-        "Heures travaillees",
-    ]
     return export_attendance_records_xlsx(date_presence, [
         {
             "nom": row.get("nom") or "",
@@ -238,6 +236,7 @@ def export_training_matrix_xls(
 def export_timesheet_xls(month: str, site_id: int | None = None) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     timesheet = get_timesheet(month, site_id=site_id)
+    validate_timesheet_export_payload(timesheet, TIMESHEET_21_20)
     site_suffix = ""
     if timesheet.get("site"):
         site_suffix = "_" + "".join(
@@ -256,6 +255,7 @@ def export_timesheet_xls(month: str, site_id: int | None = None) -> Path:
 
 def export_timesheet_employee_xls(month: str, employee_id: int) -> Path:
     timesheet = get_timesheet(month)
+    validate_timesheet_export_payload(timesheet, TIMESHEET_21_20)
     employee_id = int(employee_id or 0)
     if not employee_id:
         raise ValueError("Employe obligatoire pour l'export TimeSheet individuel.")
@@ -291,6 +291,7 @@ def export_timesheet_employee_xls(month: str, employee_id: int) -> Path:
 def export_timesheet_all_employees_xls(month: str) -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     timesheet = get_timesheet(month)
+    validate_timesheet_export_payload(timesheet, TIMESHEET_21_20)
     rows = list(timesheet.get("rows") or [])
     if not rows:
         raise ValueError("Aucun employe disponible pour cet export TimeSheet.")
@@ -404,6 +405,7 @@ def export_timesheet_selected_employees_xls(month: str, employee_ids: list[int])
     if not selected_ids:
         raise ValueError("Selectionne au moins un employe pour l'export TimeSheet.")
     timesheet = get_timesheet(month)
+    validate_timesheet_export_payload(timesheet, TIMESHEET_21_20)
     rows = [
         row
         for row in timesheet.get("rows", [])
@@ -471,19 +473,39 @@ def export_timesheet_audit_xlsx(month: str) -> Path:
     )
 
 
-def export_monthly_10h_timesheet_xlsx(month: str | None = None, site_id: int | None = None) -> Path:
-    selected_month = current_monthly_timesheet_month()
-    timesheet = get_monthly_10h_timesheet(selected_month, site_id=site_id)
-    expatriates = get_monthly_10h_timesheet(selected_month, site_id=site_id, employee_type="expatriate")
+def export_monthly_10h_timesheet_xlsx(
+    month: str | None = None,
+    site_id: int | None = None,
+    ts_type: str | None = None,
+    employee_id: int | None = None,
+) -> Path:
+    resolved_ts_type = TIMESHEET_21_20 if ts_type == "21_20" else TIMESHEET_1_25
+    selected_month = month or current_monthly_timesheet_month()
+    timesheet = get_monthly_10h_timesheet(selected_month, site_id=site_id, ts_type=resolved_ts_type)
+    validate_timesheet_export_payload(timesheet, resolved_ts_type)
+    expatriates = get_monthly_10h_timesheet(selected_month, site_id=site_id,
+                                            employee_type="expatriate", ts_type=resolved_ts_type)
+    # Filter to a single employee if requested
+    if employee_id is not None:
+        timesheet["rows"] = [r for r in timesheet["rows"]
+                             if int(r["employee"].get("id_employe") or 0) == employee_id]
+        expatriates["rows"] = [r for r in expatriates["rows"]
+                               if int(r["employee"].get("id_employe") or 0) == employee_id]
+    type_tag = "21_20" if ts_type == "21_20" else "1_25"
+    emp_suffix = f"_emp{employee_id}" if employee_id else ""
     site_suffix = ""
     if timesheet.get("site"):
         site_suffix = "_" + _safe_name(timesheet["site"].get("nom") or "")
-    output_path = _unique_export_path(f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}.xlsx")
+    output_path = _unique_export_path(
+        f"timesheet_10h_{type_tag}{site_suffix}{emp_suffix}_{timesheet['period']['month']}.xlsx"
+    )
     try:
         _write_monthly_10h_timesheet_xlsx(output_path, timesheet, expatriates)
         return output_path
     except PermissionError:
-        fallback = _unique_export_path(f"timesheet_10h_1_25{site_suffix}_{timesheet['period']['month']}_nouveau.xlsx")
+        fallback = _unique_export_path(
+            f"timesheet_10h_{type_tag}{site_suffix}{emp_suffix}_{timesheet['period']['month']}_nouveau.xlsx"
+        )
         _write_monthly_10h_timesheet_xlsx(fallback, timesheet, expatriates)
         return fallback
 
@@ -493,48 +515,11 @@ def _write_monthly_10h_timesheet_xlsx(
     timesheet: dict[str, Any],
     expatriates: dict[str, Any],
 ) -> None:
-    headers = [
-        "Employe",
-        "Badge",
-        "Fonction",
-        "Site",
-        *[f"{day['day']} {day['weekday']}" for day in timesheet["days"]],
-        "Jours travailles",
-        "Repos",
-        "Break normal",
-        "Permission",
-        "Sick",
-        "Break annuel",
-        "Absents",
-        "Non renseignes",
-        "Heures",
-    ]
-    rows = []
-    styles = []
-    for row in timesheet["rows"]:
-        rows.append(_monthly_10h_export_row(row))
-        styles.append(_monthly_10h_export_style(row))
-    rows.append(["EXPATRIES - RESERVE", *["" for _ in headers[1:]]])
-    styles.append(["section" for _ in headers])
-    rows.append(headers)
-    styles.append(["section" for _ in headers])
-    if expatriates["rows"]:
-        for row in expatriates["rows"]:
-            rows.append(_monthly_10h_export_row(row))
-            styles.append(_monthly_10h_export_style(row))
-    else:
-        rows.append(["Aucun employe expatrie actif pour cette periode.", *["" for _ in headers[1:]]])
-        styles.append([None for _ in headers])
-    write_styled_xlsx(
+    write_monthly_timesheet_report_xlsx(
         path,
-        "MONTHLY TIMESHEET 1-25",
-        headers,
-        rows,
-        styles,
-        document_title=(
-            f"MONTHLY TIMESHEET 1-25 | CURRENT MONTH {timesheet['period']['month']} "
-            f"| PERIOD {timesheet['period']['start']} TO {timesheet['period']['end']}"
-        ),
+        timesheet,
+        expatriates,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
 
@@ -719,6 +704,190 @@ def export_ppe_inventory_xls() -> Path:
         return fallback
 
 
+def export_ppe_equipped_employees_xlsx() -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    assignments = list_ppe_assignments(active_only=True)
+    output_path = _unique_export_path("liste_employes_dotes_epi_orezone.xlsx")
+    headers = [
+        "N",
+        "Matricule",
+        "Nom",
+        "Prenom",
+        "Badge",
+        "Fonction",
+        "Site",
+        "Type EPI",
+        "EPI",
+        "Quantite",
+        "Date remise",
+        "Statut",
+        "Observations",
+    ]
+    rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    for index, item in enumerate(assignments, start=1):
+        rows.append(
+            [
+                index,
+                item.get("matricule") or "",
+                item.get("nom") or "",
+                item.get("prenom") or "",
+                item.get("numero_badge") or "",
+                item.get("fonction") or "",
+                item.get("site") or "",
+                item.get("type_epi") or "",
+                item.get("epi") or "",
+                item.get("quantite") or 0,
+                item.get("date_remise") or "",
+                item.get("statut") or "",
+                item.get("observations") or "",
+            ]
+        )
+        styles.append([None] * 11 + ["done"] + [None])
+    rows.extend(
+        [
+            [],
+            ["LEGENDE", "Vert = dotation en service", "Jaune = controle ou renouvellement requis", "Rouge = EPI manquant, perdu ou endommage"],
+            [],
+            ["Prepared by", "", "", "", "Checked by", "", "", "", "Approved by", "", "", "", ""],
+            ["Name / Date / Signature", "", "", "", "Name / Date / Signature", "", "", "", "Name / Date / Signature", "", "", "", ""],
+        ]
+    )
+    styles.extend(
+        [
+            [],
+            ["section", "done", "soon", "danger"],
+            [],
+            ["section"] * 13,
+            [None] * 13,
+        ]
+    )
+    write_styled_xlsx(
+        output_path,
+        "Employes dotes EPI",
+        headers,
+        rows,
+        styles,
+        include_company_description=True,
+        document_title="OREZONE QHSE - Liste detaillee des employes dotes en EPI",
+    )
+    return output_path
+
+
+def export_ppe_compliance_xlsx() -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_export_path("conformite_employes_epi_orezone.xlsx")
+    headers = [
+        "N",
+        "Employe",
+        "Fonction",
+        "Site",
+        "EPI requis",
+        "EPI recus",
+        "EPI manquants",
+        "Conformite",
+        "Statut",
+    ]
+    rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    for index, item in enumerate(list_ppe_employee_compliance_summary(), start=1):
+        status = str(item.get("statut") or "manquant")
+        rows.append(
+            [
+                index,
+                f"{item.get('nom') or ''} {item.get('prenom') or ''}".strip(),
+                item.get("fonction") or "",
+                item.get("site") or "",
+                item.get("requis") or 0,
+                item.get("recus") or 0,
+                item.get("epi_manquants") or "-",
+                f"{item.get('pourcentage') or 0}%",
+                status,
+            ]
+        )
+        styles.append([None] * 7 + ["done" if status == "conforme" else "danger"] * 2)
+    _append_ppe_legend_and_signatures(rows, styles, len(headers))
+    write_styled_xlsx(
+        output_path,
+        "Conformite EPI",
+        headers,
+        rows,
+        styles,
+        include_company_description=True,
+        document_title="OREZONE QHSE - Conformite des employes aux EPI obligatoires",
+    )
+    return output_path
+
+
+def export_ppe_inspections_xlsx() -> Path:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_export_path("inspections_epi_orezone.xlsx")
+    headers = [
+        "N",
+        "Date inspection",
+        "Type EPI",
+        "EPI",
+        "Etat",
+        "Inspecteur",
+        "Prochaine inspection",
+        "Observation",
+    ]
+    rows: list[list[Any]] = []
+    styles: list[list[str | None]] = []
+    for index, item in enumerate(list_ppe_inspections(limit=10000), start=1):
+        status = str(item.get("statut") or "")
+        style = "danger" if status in {"endommage", "hors_service"} else "soon" if status == "a_surveiller" else "done"
+        rows.append(
+            [
+                index,
+                item.get("date_inspection") or "",
+                item.get("type_epi") or "",
+                item.get("epi") or "",
+                status,
+                item.get("inspecteur") or "",
+                item.get("prochaine_inspection") or "",
+                item.get("observations") or "",
+            ]
+        )
+        styles.append([None] * 4 + [style] + [None] * 3)
+    _append_ppe_legend_and_signatures(rows, styles, len(headers))
+    write_styled_xlsx(
+        output_path,
+        "Inspections EPI",
+        headers,
+        rows,
+        styles,
+        include_company_description=True,
+        document_title="OREZONE QHSE - Registre professionnel des inspections EPI",
+    )
+    return output_path
+
+
+def _append_ppe_legend_and_signatures(
+    rows: list[list[Any]],
+    styles: list[list[str | None]],
+    column_count: int,
+) -> None:
+    rows.extend(
+        [
+            [],
+            ["LEGENDE", "Vert = conforme / OK", "Jaune = attention / a surveiller", "Rouge = critique / non conforme"],
+            [],
+            ["Prepared by", "", "Checked by", "", "Approved by", "", "", ""],
+            ["Name / Date / Signature", "", "Name / Date / Signature", "", "Name / Date / Signature", "", "", ""],
+        ]
+    )
+    styles.extend(
+        [
+            [],
+            ["section", "done", "soon", "danger"],
+            [],
+            ["section"] * column_count,
+            [None] * column_count,
+        ]
+    )
+
+
 def export_active_breaks_xlsx() -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = _unique_export_path("liste_employes_en_break.xlsx")
@@ -737,6 +906,52 @@ def export_active_breaks_xlsx() -> Path:
         for row in list_active_break_employees()
     ]
     return _write_xlsx_safely(output_path, "Employes en break", headers, rows)
+
+
+def export_session_attendance_xlsx(date_theme: str) -> Path:
+    """Generate a single-session attendance sheet with signature rows."""
+    from app.db.connection import db_session as _db_session
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    with _db_session() as conn:
+        topic_row = conn.execute(
+            """
+            SELECT ts.theme, ts.facilitateur, ts.date_theme, s.nom AS site
+            FROM themes_securite ts
+            LEFT JOIN sites s ON s.id_site = ts.site_id
+            WHERE ts.date_theme = ?
+            """,
+            (date_theme,),
+        ).fetchone()
+        conf_row = conn.execute(
+            "SELECT attendees_count, comments FROM mobile_toolbox_confirmations WHERE date_theme = ?",
+            (date_theme,),
+        ).fetchone()
+    topic_dict = dict(topic_row) if topic_row else {}
+    theme_raw = str(topic_dict.get("theme") or "—")
+    topic_en = theme_raw.split(" / ")[0] if " / " in theme_raw else theme_raw
+    theme_fr = theme_raw.split(" / ")[1] if " / " in theme_raw else theme_raw
+    facilitator = str(topic_dict.get("facilitateur") or "—")
+    site = str(topic_dict.get("site") or "—")
+    attendees = int((conf_row or {}).get("attendees_count") or 0) if conf_row else 0
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    headers = ["N°", "Nom & Prénom", "Matricule", "Poste / Fonction", "Signature"]
+    rows: list[list[Any]] = [
+        ["", f"TOOLBOX TALK — FICHE DE PRESENCE", "", "", ""],
+        ["Date :", date_theme, "Site :", site, ""],
+        ["Topic EN :", topic_en, "", "", ""],
+        ["Theme FR :", theme_fr, "", "", ""],
+        ["Facilitateur :", facilitator, "Participants :", str(attendees) if attendees else "—", ""],
+        ["", "", "", "", ""],
+    ]
+    for i in range(1, 31):
+        rows.append([str(i), "", "", "", ""])
+    rows.append(["", "", "", "", ""])
+    rows.append(["Signature facilitateur :", "", "Date :", generated_at, ""])
+
+    safe_date = date_theme.replace("-", "")
+    output_path = _unique_export_path(f"toolbox_fiche_presence_{safe_date}.xlsx")
+    return _write_xlsx_safely(output_path, "Fiche Presence", headers, rows)
 
 
 def _unique_export_path(filename: str) -> Path:
@@ -1099,7 +1314,6 @@ def _write_training_matrix_xls(
     soon = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "soon")
     expired = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "expired")
     missing = sum(1 for row in rows for cell in row.get("cells", []) if cell.get("status") == "missing")
-    risk = soon + expired + missing
     completion = round((done / total_cells) * 100) if total_cells else 0
     body_rows = []
     for index, row in enumerate(rows, start=1):
@@ -1181,95 +1395,10 @@ th {{ background: #1e3a8a; color: #fff; font-weight: bold; text-align: center; }
 
 
 def _write_timesheet_xlsx(path: Path, timesheet: dict[str, Any]) -> None:
-    days = timesheet["days"]
-    period = timesheet["period"]
-    summary = timesheet["summary"]
-    headers = [
-        "MLE",
-        "NOM",
-        "PRENOMS",
-        "FONCTION",
-        *[f"{day['day']:02d}" for day in days],
-        "TOTAL",
-        "12H",
-        "8H",
-        "R",
-        "A",
-        "B",
-        "P",
-        "S",
-        "H",
-    ]
-    rows: list[list[Any]] = []
-    styles: list[list[str | None]] = []
-    for row in timesheet["rows"]:
-        employee = row["employee"]
-        rows.append(
-            [
-                _timesheet_employee_code(employee),
-                employee.get("nom") or employee.get("nom_complet") or "-",
-                employee.get("prenom") or "",
-                employee.get("fonction") or "-",
-                *[_timesheet_compact_cell_label(cell) for cell in row["cells"]],
-                row["worked_days"],
-                row.get("drilling_hours", 0),
-                row.get("standard_hours", 0),
-                row["rest_days"],
-                row.get("absent_days", 0),
-                row["break_days"],
-                row.get("permission_days", 0),
-                row.get("sick_days", 0),
-                row["hours"],
-            ]
-        )
-        styles.append(
-            [
-                None,
-                None,
-                None,
-                None,
-                *[_timesheet_xlsx_cell_style(cell) for cell in row["cells"]],
-                None,
-                "drilling",
-                "standard",
-                "rest",
-                "danger",
-                "break",
-                "permission",
-                "sick",
-                None,
-            ]
-        )
-    rows.extend(
-        [
-            [],
-            ["Legende", "R = OFF DAYS", "8 = JOURS FERIES & CHOMES PAYES", "12 = JOURS DRILLING", "B = BREAK", "P = PERMISSION", "S = SICK LEAVE", "AL = ANNUAL LEAVE"],
-            ["Regles", "Les dimanches sont R par defaut mais peuvent etre travailles si une presence est saisie.", "Jour ferie ou chome paye = 8H", "Presence drilling = 12H", "Presence sans drilling = 8H"],
-            ["Resume", f"Employes: {summary.get('employees', 0)}", f"Heures: {summary.get('hours', 0)}", f"Jours travailles: {summary.get('worked_days', 0)}", f"Repos: {summary.get('rest_days', 0)}"],
-            ["Prepared by", "", "Checked by", "", "Approved by", ""],
-        ]
-    )
-    styles.extend(
-        [
-            [],
-            ["section", "rest", "holiday", "drilling", "break", "permission", "sick", "annual"],
-            ["section", None, "holiday", "drilling", "standard"],
-            ["section", None, None, None, None],
-            ["section", None, "section", None, "section", None],
-        ]
-    )
-    title = "MONTHLY TIMESHEET"
-    if timesheet.get("site"):
-        title += f" {timesheet['site'].get('nom') or ''}"
-    sheet_name = f"{title} {period['month']}"[:31]
-    write_styled_xlsx(
+    write_timesheet_21_20_report_xlsx(
         path,
-        sheet_name,
-        headers,
-        rows,
-        styles,
-        include_company_description=True,
-        document_title=title,
+        timesheet,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
 
@@ -1774,6 +1903,24 @@ def _write_ppe_inventory_xlsx(path: Path, data: dict[str, Any]) -> None:
     for item in data["alerts"]:
         rows.append(["Alerts", item.get("alerte") or "", item.get("type_epi") or "", item.get("nom") or "", item.get("quantite_disponible") or "", item.get("seuil_minimum") or "", item.get("date_expiration") or "", item.get("etat") or "", ""])
         styles.append(["danger"] * 9)
+    rows.extend(
+        [
+            [],
+            ["Legend", "Green = compliant / available", "Yellow = inspection or renewal soon", "Red = low stock, missing or expired", "", "", "", "", ""],
+            [],
+            ["Prepared by", "", "", "Checked by", "", "", "Approved by", "", ""],
+            ["Name / Date / Signature", "", "", "Name / Date / Signature", "", "", "Name / Date / Signature", "", ""],
+        ]
+    )
+    styles.extend(
+        [
+            [],
+            ["section", "done", "soon", "danger", None, None, None, None, None],
+            [],
+            ["section"] * 9,
+            [None] * 9,
+        ]
+    )
     write_styled_xlsx(
         path,
         "PPE Inventory",

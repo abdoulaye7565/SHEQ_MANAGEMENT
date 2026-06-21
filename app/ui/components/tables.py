@@ -4,7 +4,7 @@ from typing import Any
 
 import flet as ft
 
-from app.ui.theme import BORDER, MUTED, PANEL, PANEL_ALT, PRIMARY, TEXT
+from app.ui.theme import BORDER, MUTED, PANEL, PANEL_ALT, TEXT
 
 
 def professional_data_table(*args: Any, **kwargs: Any) -> ft.DataTable:
@@ -61,13 +61,27 @@ def _enable_single_row_selection(table: ft.DataTable, rows: list[ft.DataRow]) ->
         row.on_select_changed = select_row(row, previous_handler)
 
 
-def empty_table_state(message: str = "Aucune donnee disponible.") -> ft.Control:
+def empty_table_state(message: str = "Aucune donnee disponible.", icon: str | None = None) -> ft.Control:
     return ft.Container(
         bgcolor=PANEL_ALT,
         border=ft.border.all(1, BORDER),
         border_radius=8,
-        padding=24,
-        alignment=ft.alignment.center,
-        content=ft.Text(message, color=MUTED, size=13),
+        padding=ft.padding.symmetric(horizontal=24, vertical=28),
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            controls=[
+                ft.Container(
+                    width=44, height=44,
+                    bgcolor="#E2E8F0",
+                    border_radius=22,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Icon(icon or ft.Icons.INBOX_OUTLINED, color=MUTED, size=22),
+                ),
+                ft.Text(message, color=MUTED, size=13),
+            ],
+            spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        ),
     )
 

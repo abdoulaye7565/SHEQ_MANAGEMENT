@@ -19,17 +19,19 @@ class AIServiceTestCase(unittest.TestCase):
                     settings = ai_service.save_ai_settings(
                         {
                             "enabled": True,
-                            "model": "test-model",
+                            "model": ai_service.DEFAULT_MODEL,
                             "api_key": "sk-local-test",
                         }
                     )
                     self.assertTrue(settings["enabled"])
-                    self.assertEqual(settings["model"], "test-model")
+                    self.assertEqual(settings["model"], ai_service.DEFAULT_MODEL)
                     self.assertTrue(settings["api_key_configured"])
                     self.assertTrue(settings["ready"])
                     self.assertFalse(settings["operational"])
                     self.assertNotIn("sk-local-test", str(settings))
-                    self.assertIn("sk-local-test", ai_service.AI_CONFIG_PATH.read_text(encoding="utf-8"))
+                    stored_config = ai_service.AI_CONFIG_PATH.read_text(encoding="utf-8")
+                    self.assertNotIn("sk-local-test", stored_config)
+                    self.assertIn("api_key", stored_config)
             finally:
                 ai_service.AI_CONFIG_PATH = original_path
 
@@ -39,7 +41,7 @@ class AIServiceTestCase(unittest.TestCase):
             ai_service.AI_CONFIG_PATH = Path(tmpdir) / "ai_config.json"
             try:
                 with patch.dict(os.environ, {}, clear=True):
-                    ai_service.save_ai_settings({"enabled": True, "model": "test-model", "api_key": "sk-local-test"})
+                    ai_service.save_ai_settings({"enabled": True, "model": ai_service.DEFAULT_MODEL, "api_key": "sk-local-test"})
                     errored = ai_service.record_ai_test_status("error", "Quota OpenAI depasse")
                     self.assertFalse(errored["operational"])
                     ok = ai_service.record_ai_test_status("ok", "Connexion IA confirmee")
@@ -53,14 +55,15 @@ class AIServiceTestCase(unittest.TestCase):
             ai_service.AI_CONFIG_PATH = Path(tmpdir) / "ai_config.json"
             try:
                 with patch.dict(os.environ, {}, clear=True):
-                    ai_service.save_ai_settings({"enabled": False, "model": "test-model", "api_key": "sk-local-test"})
+                    ai_service.save_ai_settings({"enabled": False, "model": ai_service.DEFAULT_MODEL, "api_key": "sk-local-test"})
                     with self.assertRaises(ai_service.AIConfigurationError):
                         ai_service.generate_ai_text("system", "user")
             finally:
                 ai_service.AI_CONFIG_PATH = original_path
 
     def test_default_model_is_current_operational_default(self) -> None:
-        self.assertEqual(ai_service.DEFAULT_MODEL, "gpt-5.4-mini")
+        self.assertEqual(ai_service.DEFAULT_MODEL, "gpt-4.1-mini")
+        self.assertIn(ai_service.DEFAULT_MODEL, ai_service.KNOWN_MODELS)
 
 
 if __name__ == "__main__":

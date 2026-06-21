@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
@@ -22,17 +22,34 @@ from app.ui.components.confirm import confirm_action
 from app.ui.components.module_header import module_header
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
+# Dark cockpit palette
+_DK_CARD   = "#0D2040"
+_DK_CARD2  = "#0A1929"
+_DK_HEAD   = "#112240"
+_DK_BORDER = "#1E3A5F"
+_DK_TEXT   = "#E2E8F0"
+_DK_MUTED  = "#9DB0C5"
+_DK_TRACK  = "#1A3050"
+
+_dk_overlays = {
+    PRIMARY: "#0F2D5E",
+    SUCCESS: "#052E16",
+    DANGER:  "#3B0F0F",
+    WARNING: "#2D1600",
+}
+
 
 def breaks_page(page: ft.Page | None = None) -> ft.Control:
     employees = list_employees()
     state: dict[str, Any] = {"records": []}
     controls: dict[str, ft.Control] = {}
-    status = ft.Text("", size=12, color=MUTED)
+    status = ft.Text("", size=12, color=_DK_MUTED)
     alerts_area = ft.Column(spacing=10)
     history_area = ft.Column(spacing=12)
     form_area = ft.Column(spacing=14)
     history_search = ft.TextField(label="Recherche historique", prefix_icon=ft.Icons.SEARCH, width=280)
     history_type_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Type",
         value="all",
         width=170,
@@ -45,6 +62,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         ],
     )
     history_status_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Statut",
         value="all",
         width=170,
@@ -52,7 +70,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         + [ft.dropdown.Option(item, item) for item in BREAK_STATUSES],
     )
 
-    def notify(message: str, color: str = MUTED) -> None:
+    def notify(message: str, color: str = _DK_MUTED) -> None:
         status.value = message
         status.color = color
 
@@ -123,7 +141,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         next_end = next_start + timedelta(days=duration)
         start_field = ft.TextField(label="Nouvelle date debut", value=next_start.isoformat(), hint_text="AAAA-MM-JJ")
         end_field = ft.TextField(label="Nouvelle date fin", value=next_end.isoformat(), hint_text="AAAA-MM-JJ")
-        dialog_status = ft.Text("", size=12, color=MUTED)
+        dialog_status = ft.Text("", size=12, color=_DK_MUTED)
 
         def close(event: ft.ControlEvent | None = None) -> None:
             if page is not None:
@@ -155,7 +173,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Reporter le break", color=TEXT, weight=ft.FontWeight.BOLD),
+                title=ft.Text("Reporter le break", color=_DK_TEXT, weight=ft.FontWeight.BOLD),
                 content=ft.Column(controls=[start_field, end_field, dialog_status], spacing=10, width=360),
                 actions=[
                     ft.TextButton("Fermer", on_click=close),
@@ -230,7 +248,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
 
     def _remove(break_id: int) -> None:
         delete_break(break_id)
-        notify("Break/conge supprime.", MUTED)
+        notify("Break/conge supprime.", _DK_MUTED)
         render_alerts()
         render_history()
         root.update()
@@ -254,8 +272,9 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
             for employee in employees
         ]
         controls.clear()
-        controls["employe_id"] = ft.Dropdown(label="Employe", value=values["employe_id"], options=employee_options)
+        controls["employe_id"] = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Employe", value=values["employe_id"], options=employee_options)
         controls["type_break"] = ft.Dropdown(
+            fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
             label="Type",
             value=values["type_break"],
             options=[ft.dropdown.Option(kind, _break_type_label(kind)) for kind in BREAK_TYPES],
@@ -263,11 +282,12 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         controls["date_debut"] = ft.TextField(label="Date debut", value=values["date_debut"], hint_text="AAAA-MM-JJ")
         controls["date_fin"] = ft.TextField(label="Date fin", value=values["date_fin"], hint_text="AAAA-MM-JJ")
         controls["statut"] = ft.Dropdown(
+            fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
             label="Statut",
             value=values["statut"],
             options=[ft.dropdown.Option(item) for item in BREAK_STATUSES],
         )
-        controls["commentaire"] = ft.TextField(label="Commentaire", value=values["commentaire"])
+        controls["commentaire"] = ft.TextField(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Commentaire", value=values["commentaire"])
 
         form_area.controls = [
             ft.ResponsiveRow(
@@ -298,7 +318,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         due = alerts["due_breaks"]
         ending = alerts["ending_tomorrow"]
         alerts_area.controls = [
-            ft.Text("Alertes", size=18, weight=ft.FontWeight.BOLD, color=TEXT),
+            ft.Text("Alertes", size=18, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
             _alert_block(
                 "Employes a envoyer en break",
                 "Apres deux semaines de travail sans break planifie.",
@@ -318,55 +338,71 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         state["records"] = list_breaks()
         records = filtered_history()
         history_area.controls = [
-            ft.Text("Historique des breaks et permissions", size=18, weight=ft.FontWeight.BOLD, color=TEXT),
-            ft.Row(
-                controls=[
-                    history_search,
-                    history_type_filter,
-                    history_status_filter,
-                    ft.IconButton(icon=ft.Icons.FILTER_ALT_OUTLINED, tooltip="Appliquer", on_click=refresh_history_filters),
-                    ft.IconButton(icon=ft.Icons.RESTART_ALT_OUTLINED, tooltip="Reinitialiser", on_click=reset_history_filters),
-                    ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_history),
-                    ft.Text(f"{len(records)} ligne(s)", size=12, color=MUTED),
-                ],
-                spacing=10,
-                wrap=True,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ft.Text("Historique des breaks et permissions", size=18, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
+            ft.Container(
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
+                border_radius=12,
+                padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                content=ft.Row(
+                    controls=[
+                        history_search,
+                        history_type_filter,
+                        history_status_filter,
+                        ft.IconButton(icon=ft.Icons.FILTER_ALT_OUTLINED, tooltip="Appliquer", on_click=refresh_history_filters),
+                        ft.IconButton(icon=ft.Icons.RESTART_ALT_OUTLINED, tooltip="Reinitialiser", on_click=reset_history_filters),
+                        ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_history),
+                        ft.Text(f"{len(records)} ligne(s)", size=12, color=_DK_MUTED),
+                    ],
+                    spacing=10,
+                    wrap=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ),
-            ft.Row(
-                controls=[
-                    professional_data_table(
-                        columns=[
-                            ft.DataColumn(ft.Text("Employe")),
-                            ft.DataColumn(ft.Text("Badge")),
-                            ft.DataColumn(ft.Text("Fonction")),
-                            ft.DataColumn(ft.Text("Type")),
-                            ft.DataColumn(ft.Text("Debut")),
-                            ft.DataColumn(ft.Text("Fin")),
-                            ft.DataColumn(ft.Text("Statut")),
-                            ft.DataColumn(ft.Text("Actions")),
-                        ],
-                        rows=[
-                            ft.DataRow(
-                                cells=[
-                                    ft.DataCell(ft.Text(f"{record.get('nom') or '-'} {record.get('prenom') or ''}")),
-                                    ft.DataCell(ft.Text(str(record.get("numero_badge") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("fonction") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("type_break") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("date_debut") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("date_fin") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("statut") or "-"))),
-                                    ft.DataCell(_break_actions(record, confirm_break, cancel_break, open_postpone_dialog, remove)),
-                                ]
-                            )
-                            for record in records
-                        ],
-                        border=ft.border.all(1, "#E2E8F0"),
-                        border_radius=8,
-                        heading_row_color="#F1F5F9",
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
+            ft.Container(
+                bgcolor=_DK_CARD,
+                content=ft.Row(
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        ft.DataTable(
+                            bgcolor=_DK_CARD,
+                            heading_row_color=_DK_HEAD,
+                            horizontal_lines=ft.BorderSide(1, _DK_BORDER),
+                            vertical_lines=ft.BorderSide(0, "transparent"),
+                            data_row_color={
+                                ft.ControlState.DEFAULT: _DK_CARD,
+                                ft.ControlState.HOVERED: _DK_CARD2,
+                            },
+                            heading_text_style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD, size=11),
+                            data_text_style=ft.TextStyle(color=_DK_TEXT, size=11),
+                            columns=[
+                                ft.DataColumn(ft.Text("Employe", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Badge", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Fonction", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Type", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Debut", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Fin", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Statut", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Actions", color=_DK_MUTED, weight=ft.FontWeight.BOLD)),
+                            ],
+                            rows=[
+                                ft.DataRow(
+                                    cells=[
+                                        ft.DataCell(ft.Text(f"{record.get('nom') or '-'} {record.get('prenom') or ''}", color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("numero_badge") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("fonction") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("type_break") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("date_debut") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("date_fin") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(ft.Text(str(record.get("statut") or "-"), color=_DK_TEXT)),
+                                        ft.DataCell(_break_actions(record, confirm_break, cancel_break, open_postpone_dialog, remove)),
+                                    ]
+                                )
+                                for record in records
+                            ],
+                        )
+                    ],
+                ),
             ),
         ]
 
@@ -376,47 +412,69 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
                 "Breaks et permissions",
                 "Planification des breaks, permissions et conges annuels avec regles de duree.",
             ),
+            # Rules info panel
             ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=14,
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Regles appliquees", size=14, weight=ft.FontWeight.BOLD, color=TEXT),
-                        ft.Text(
-                            "Permission: 3 jours maximum comptabilises en permission; a partir du 4e jour, le TimeSheet marque l'employe en absence sans heures.",
-                            size=12,
-                            color=MUTED,
-                        ),
-                        ft.Text(
-                            "Break annuel / annual leave: duree maximale autorisee de 30 jours.",
-                            size=12,
-                            color=MUTED,
-                        ),
-                    ],
-                    spacing=4,
-                ),
+                bgcolor=_DK_CARD, border=ft.border.all(1, _DK_BORDER),
+                border_radius=12, padding=0,
+                content=ft.Column([
+                    ft.Container(
+                        bgcolor=_DK_HEAD,
+                        border=ft.border.only(bottom=ft.BorderSide(1, _DK_BORDER)),
+                        padding=ft.padding.symmetric(horizontal=16, vertical=10),
+                        content=ft.Row([
+                            ft.Container(width=3, height=14, bgcolor=PRIMARY, border_radius=2),
+                            ft.Icon(ft.Icons.INFO_OUTLINE, color=PRIMARY, size=16),
+                            ft.Text("Regles appliquees", color=_DK_TEXT, size=14, weight=ft.FontWeight.BOLD),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                        content=ft.Column([
+                            ft.Text(
+                                "Permission: 3 jours maximum comptabilises en permission; a partir du 4e jour, le TimeSheet marque l'employe en absence sans heures.",
+                                size=12,
+                                color=_DK_MUTED,
+                            ),
+                            ft.Text(
+                                "Break annuel / annual leave: duree maximale autorisee de 30 jours.",
+                                size=12,
+                                color=_DK_MUTED,
+                            ),
+                        ], spacing=4),
+                    ),
+                ], spacing=0),
             ),
+            # Form panel
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#E2E8F0"),
-                border_radius=8,
-                padding=18,
-                content=form_area,
+                bgcolor=_DK_CARD, border=ft.border.all(1, _DK_BORDER),
+                border_radius=12, padding=0,
+                content=ft.Column([
+                    ft.Container(
+                        bgcolor=_DK_HEAD,
+                        border=ft.border.only(bottom=ft.BorderSide(1, _DK_BORDER)),
+                        padding=ft.padding.symmetric(horizontal=16, vertical=10),
+                        content=ft.Row([
+                            ft.Container(width=3, height=14, bgcolor=SUCCESS, border_radius=2),
+                            ft.Icon(ft.Icons.EVENT_AVAILABLE_OUTLINED, color=SUCCESS, size=16),
+                            ft.Text("Planifier un break / permission", color=_DK_TEXT, size=14, weight=ft.FontWeight.BOLD),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                        content=form_area,
+                    ),
+                ], spacing=0),
             ),
+            # Alerts panel
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#E2E8F0"),
-                border_radius=8,
-                padding=18,
+                bgcolor=_DK_CARD, border=ft.border.all(1, _DK_BORDER),
+                border_radius=12, padding=18,
                 content=alerts_area,
             ),
+            # History panel
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#E2E8F0"),
-                border_radius=8,
-                padding=18,
+                bgcolor=_DK_CARD, border=ft.border.all(1, _DK_BORDER),
+                border_radius=12, padding=18,
                 content=history_area,
             ),
         ],
@@ -428,7 +486,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
     render_form(default_values())
     render_alerts()
     render_history()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
 
 
 def _break_actions(
@@ -483,21 +541,22 @@ def _alert_block(
     action: Any | None = None,
 ) -> ft.Control:
     if not rows:
-        content = ft.Text("Aucune alerte.", color=MUTED)
+        content = ft.Text("Aucune alerte.", color=_DK_MUTED)
     else:
         content = ft.Column(
             controls=[
                 ft.Container(
-                    border=ft.border.all(1, "#E2E8F0"),
+                    bgcolor=_DK_CARD2,
+                    border=ft.border.all(1, _DK_BORDER),
                     border_radius=8,
                     padding=10,
                     content=ft.Row(
                         controls=[
                             ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, color=color),
-                            ft.Text(f"{row.get('nom') or '-'} {row.get('prenom') or ''}", width=180),
-                            ft.Text(str(row.get("numero_badge") or "-"), width=120),
-                            ft.Text(str(row.get("fonction") or "-"), expand=True),
-                            ft.Text(_alert_detail(row), width=180, color=MUTED),
+                            ft.Text(f"{row.get('nom') or '-'} {row.get('prenom') or ''}", width=180, color=_DK_TEXT),
+                            ft.Text(str(row.get("numero_badge") or "-"), width=120, color=_DK_TEXT),
+                            ft.Text(str(row.get("fonction") or "-"), expand=True, color=_DK_TEXT),
+                            ft.Text(_alert_detail(row), width=180, color=_DK_MUTED),
                             ft.ElevatedButton(
                                 "Planifier",
                                 icon=ft.Icons.ADD_OUTLINED,
@@ -515,8 +574,8 @@ def _alert_block(
         )
     return ft.Column(
         controls=[
-            ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=TEXT),
-            ft.Text(subtitle, size=12, color=MUTED),
+            ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
+            ft.Text(subtitle, size=12, color=_DK_MUTED),
             content,
         ],
         spacing=8,
@@ -534,4 +593,3 @@ def _alert_detail(row: dict[str, Any]) -> str:
 def _break_type_label(kind: str) -> str:
     labels = {"break": "Break", "annual": "Break annuel", "permission": "Permission", "sick": "Malade"}
     return labels.get(kind, kind)
-

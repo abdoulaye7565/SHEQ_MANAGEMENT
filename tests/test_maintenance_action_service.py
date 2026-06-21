@@ -15,10 +15,18 @@ from app.services.maintenance_action_service import (
     export_equipment_maintenance_xlsx,
     export_risk_assessments_xlsx,
     get_maintenance_action_summary,
+    get_maintenance_cost_analysis,
+    get_maintenance_management_snapshot,
     list_action_tracker,
     list_equipment_maintenance,
+    list_maintenance_equipment_catalog,
     list_maintenance_action_alerts,
+    list_maintenance_inspections,
+    list_maintenance_parts,
+    list_maintenance_plans,
     list_risk_assessments,
+    record_maintenance_inspection,
+    save_maintenance_part,
     update_action,
     update_equipment_maintenance,
     update_risk_assessment,
@@ -107,6 +115,79 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertEqual(summary["maintenance_odometer_due"], 1)
         self.assertTrue(any(item["id_maintenance"] == maintenance_id for item in alerts))
 
+    def test_synchronized_management_views_share_equipment_plan_alerts_and_costs(self) -> None:
+        create_equipment_maintenance(
+            {
+                "equipment_code": "SYNC-01",
+                "equipment_name": "Synchronous loader",
+                "category": "Heavy equipment",
+                "site_id": self.site_id,
+                "responsible_employee_id": self.employee_id,
+                "maintenance_type": "preventive",
+                "priority": "haute",
+                "status": "planifiee",
+                "planned_date": "2026-12-01",
+                "current_odometer": 4900,
+                "last_service_odometer": 4000,
+                "service_interval_km": 1000,
+                "cost": 75000,
+            }
+        )
+
+        equipment = list_maintenance_equipment_catalog()
+        plans = list_maintenance_plans()
+        costs = get_maintenance_cost_analysis()
+        snapshot = get_maintenance_management_snapshot()
+
+        self.assertTrue(any(row["equipment_code"] == "SYNC-01" for row in equipment))
+        self.assertTrue(any(row["equipment_code"] == "SYNC-01" and row["next_due_odometer"] == 5000 for row in plans))
+        self.assertEqual(costs["total"], 75000)
+        self.assertIn("summary", snapshot)
+        self.assertIn("alerts", snapshot)
+        self.assertIn("costs", snapshot)
+
+    def test_parts_and_inspections_feed_synchronized_alerts(self) -> None:
+        part_id = save_maintenance_part(
+            {
+                "reference": "FLT-01",
+                "name": "Filtre huile",
+                "category": "Filtration",
+                "quantity_available": 2,
+                "minimum_threshold": 5,
+                "unit_cost": 15000,
+            }
+        )
+        inspection_id = record_maintenance_inspection(
+            {
+                "equipment_code": "RIG-ALERT",
+                "equipment_name": "Foreuse alerte",
+                "inspection_date": "2026-01-01",
+                "status": "critique",
+                "next_inspection_date": "2026-01-02",
+                "inspector": "Maintenance",
+                "observations": "Fuite hydraulique",
+            }
+        )
+
+        parts = list_maintenance_parts()
+        inspections = list_maintenance_inspections()
+        alerts = list_maintenance_action_alerts()
+
+        self.assertTrue(any(row["id_part"] == part_id and row["low_stock"] == 1 for row in parts))
+        self.assertTrue(
+            any(row["id_inspection"] == inspection_id and row["computed_status"] == "critique" for row in inspections)
+        )
+        self.assertTrue(any(row["id_part"] == part_id for row in alerts["parts"]))
+        self.assertTrue(any(row["id_inspection"] == inspection_id for row in alerts["inspections"]))
+        self.assertTrue(
+            any(
+                row["source"] == "Maintenance Inspection"
+                and f"#{inspection_id}" in row["title"]
+                and row["priority"] == "critique"
+                for row in list_action_tracker()
+            )
+        )
+
     def test_action_tracker_lifecycle_and_export(self) -> None:
         action_id = create_action(
             {
@@ -144,8 +225,12 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertGreater(maintenance_export.stat().st_size, 0)
         self.assertGreater(action_export.stat().st_size, 0)
         with zipfile.ZipFile(maintenance_export) as workbook:
-            sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            dashboard = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            sheet = workbook.read("xl/worksheets/sheet2.xml").decode("utf-8")
             styles = workbook.read("xl/styles.xml").decode("utf-8")
+            workbook_xml = workbook.read("xl/workbook.xml").decode("utf-8")
+            chart = workbook.read("xl/charts/chart1.xml").decode("utf-8")
+        self.assertIn("TABLEAU DE BORD EXECUTIF", dashboard)
         self.assertIn("EQUIPMENT MAINTENANCE REGISTER", sheet)
         self.assertIn("Next maintenance km", sheet)
         self.assertIn("Prepared by", sheet)
@@ -153,6 +238,11 @@ class MaintenanceActionServiceTest(unittest.TestCase):
         self.assertIn("DUE KM", sheet)
         self.assertNotIn("DATEVALUE", sheet)
         self.assertIn("FF1E3A8A", styles)
+        self.assertIn("Dashboard Executif", workbook_xml)
+        self.assertIn("Registre Maintenance", workbook_xml)
+        self.assertIn("Analyse Couts Alertes", workbook_xml)
+        self.assertIn("Controle Signatures", workbook_xml)
+        self.assertIn("EVOLUTION DES COUTS ET RETARDS", chart)
 
     def test_risk_assessment_calculates_levels_and_exports(self) -> None:
         risk_id = create_risk_assessment(

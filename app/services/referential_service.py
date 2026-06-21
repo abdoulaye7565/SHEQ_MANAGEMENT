@@ -166,6 +166,30 @@ def get_config(key: str) -> dict[str, Any]:
         raise ValueError(f"Referentiel inconnu: {key}") from exc
 
 
+def _safe_identifiers() -> frozenset[str]:
+    """Construit l'ensemble des noms de tables et colonnes autorises depuis REFERENTIAL_CONFIGS."""
+    ids: set[str] = set()
+    for cfg in REFERENTIAL_CONFIGS.values():
+        ids.add(cfg["table"])
+        ids.add(cfg["pk"])
+        ids.add(cfg["display"])
+        for field in cfg["fields"]:
+            ids.add(field["name"])
+            if field.get("ref_table"):
+                ids.add(field["ref_table"])
+            if field.get("ref_pk"):
+                ids.add(field["ref_pk"])
+            if field.get("ref_display"):
+                ids.add(field["ref_display"])
+    return frozenset(ids)
+
+
+def _assert_safe_identifier(value: str) -> None:
+    """Leve ValueError si l'identifiant SQL n'est pas dans la liste autorisee."""
+    if value not in _safe_identifiers():
+        raise ValueError(f"Identifiant SQL non autorise: '{value}'")
+
+
 def list_referential_counts() -> list[dict[str, str | int]]:
     rows: list[dict[str, str | int]] = []
 
@@ -174,6 +198,8 @@ def list_referential_counts() -> list[dict[str, str | int]]:
             config = get_config(key)
             table = config["table"]
             display = config["display"]
+            _assert_safe_identifier(table)
+            _assert_safe_identifier(display)
             total = connection.execute(f"SELECT COUNT(*) AS total FROM {table}").fetchone()
             preview_rows = connection.execute(
                 f"SELECT {display} FROM {table} ORDER BY {display} LIMIT 3"
@@ -195,6 +221,10 @@ def list_records(key: str) -> list[dict[str, Any]]:
     config = get_config(key)
     columns = [config["pk"], *[field["name"] for field in config["fields"]]]
     order_column = config["display"]
+    _assert_safe_identifier(config["table"])
+    for col in columns:
+        _assert_safe_identifier(col)
+    _assert_safe_identifier(order_column)
 
     with db_session() as connection:
         rows = connection.execute(
@@ -207,6 +237,9 @@ def get_foreign_key_options(key: str, field_name: str) -> list[dict[str, Any]]:
     field = _get_field(key, field_name)
     if field["type"] != "fk":
         raise ValueError(f"Champ non relationnel: {field_name}")
+    _assert_safe_identifier(field["ref_table"])
+    _assert_safe_identifier(field["ref_pk"])
+    _assert_safe_identifier(field["ref_display"])
 
     with db_session() as connection:
         rows = connection.execute(
@@ -226,6 +259,9 @@ def create_record(key: str, values: dict[str, Any]) -> int:
 
     columns = list(payload.keys())
     placeholders = ", ".join("?" for _ in columns)
+    _assert_safe_identifier(config["table"])
+    for col in columns:
+        _assert_safe_identifier(col)
 
     try:
         with db_session() as connection:
@@ -243,8 +279,14 @@ def update_record(key: str, record_id: int, values: dict[str, Any]) -> None:
     payload = _clean_values(config, values)
     _validate_payload(config, payload)
 
-    assignments = ", ".join(f"{column} = ?" for column in payload.keys())
-    params = [payload[column] for column in payload.keys()]
+    columns = list(payload.keys())
+    _assert_safe_identifier(config["table"])
+    _assert_safe_identifier(config["pk"])
+    for col in columns:
+        _assert_safe_identifier(col)
+
+    assignments = ", ".join(f"{column} = ?" for column in columns)
+    params = [payload[column] for column in columns]
     params.append(record_id)
 
     try:
@@ -259,6 +301,8 @@ def update_record(key: str, record_id: int, values: dict[str, Any]) -> None:
 
 def delete_record(key: str, record_id: int) -> None:
     config = get_config(key)
+    _assert_safe_identifier(config["table"])
+    _assert_safe_identifier(config["pk"])
 
     try:
         with db_session() as connection:

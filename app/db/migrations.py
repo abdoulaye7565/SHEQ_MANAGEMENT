@@ -2,8 +2,22 @@ from __future__ import annotations
 
 import sqlite3
 
+from app.config import ROLE_MODULES
+
 
 def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id         INTEGER PRIMARY KEY CHECK (id = 1),
+            version    INTEGER NOT NULL DEFAULT 0,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 0)"
+    )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS departments (
@@ -16,26 +30,58 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         )
         """
     )
-    _add_column_if_missing(connection, "sites", "department_id", "INTEGER")
-    _add_column_if_missing(connection, "employes", "nom", "TEXT")
-    _add_column_if_missing(connection, "employes", "prenom", "TEXT")
-    _add_column_if_missing(connection, "employes", "departure_type", "TEXT")
-    _add_column_if_missing(connection, "employes", "departure_date", "TEXT")
-    _add_column_if_missing(connection, "employes", "departure_comment", "TEXT")
-    _add_column_if_missing(connection, "timesheet_day_settings", "day_type", "TEXT NOT NULL DEFAULT 'work'")
-    _add_column_if_missing(connection, "badges", "date_expiration", "TEXT")
-    _add_column_if_missing(connection, "training_types", "department_id", "INTEGER")
-    _add_column_if_missing(
-        connection,
-        "presences",
-        "statut_presence",
-        "TEXT NOT NULL DEFAULT 'absent'",
+    _ddl_changes = sum([
+        _add_column_if_missing(connection, "sites", "department_id", "INTEGER"),
+        _add_column_if_missing(connection, "employes", "nom", "TEXT"),
+        _add_column_if_missing(connection, "employes", "prenom", "TEXT"),
+        _add_column_if_missing(connection, "employes", "departure_type", "TEXT"),
+        _add_column_if_missing(connection, "employes", "departure_date", "TEXT"),
+        _add_column_if_missing(connection, "employes", "departure_comment", "TEXT"),
+        _add_column_if_missing(connection, "timesheet_day_settings", "day_type", "TEXT NOT NULL DEFAULT 'work'"),
+        _add_column_if_missing(connection, "badges", "date_expiration", "TEXT"),
+        _add_column_if_missing(connection, "training_types", "department_id", "INTEGER"),
+        _add_column_if_missing(connection, "presences", "statut_presence", "TEXT NOT NULL DEFAULT 'absent'"),
+        _add_column_if_missing(connection, "formations", "structure_responsable", "TEXT"),
+        _add_column_if_missing(connection, "equipment_maintenance", "current_odometer", "REAL"),
+        _add_column_if_missing(connection, "equipment_maintenance", "last_service_odometer", "REAL"),
+        _add_column_if_missing(connection, "equipment_maintenance", "service_interval_km", "REAL"),
+        _add_column_if_missing(connection, "equipment_maintenance", "next_due_odometer", "REAL"),
+        _add_column_if_missing(connection, "mobile_sync_devices", "mobile_role", "TEXT NOT NULL DEFAULT 'hse'"),
+        _add_column_if_missing(connection, "mobile_sync_events", "operator_username", "TEXT"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "code_theme", "TEXT"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "category", "TEXT NOT NULL DEFAULT 'HSE General'"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "risk_level", "TEXT NOT NULL DEFAULT 'moyen'"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "topic_en", "TEXT"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "theme_fr", "TEXT"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "frequency", "TEXT NOT NULL DEFAULT 'mensuelle'"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "site_id", "INTEGER"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "department_id", "INTEGER"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "status", "TEXT NOT NULL DEFAULT 'actif'"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "last_used_at", "TEXT"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "usage_count", "INTEGER NOT NULL DEFAULT 0"),
+        _add_column_if_missing(connection, "toolbox_theme_catalog", "average_effectiveness", "REAL NOT NULL DEFAULT 0"),
+    ])
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_user_sessions (
+            id_session INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+            FOREIGN KEY (user_id) REFERENCES utilisateurs(id_user)
+        )
+        """
     )
-    _add_column_if_missing(connection, "formations", "structure_responsable", "TEXT")
-    _add_column_if_missing(connection, "equipment_maintenance", "current_odometer", "REAL")
-    _add_column_if_missing(connection, "equipment_maintenance", "last_service_odometer", "REAL")
-    _add_column_if_missing(connection, "equipment_maintenance", "service_interval_km", "REAL")
-    _add_column_if_missing(connection, "equipment_maintenance", "next_due_odometer", "REAL")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_mobile_user_sessions_device
+        ON mobile_user_sessions(device_id, expires_at)
+        """
+    )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS equipment_monthly_checks (
@@ -43,6 +89,39 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
             confirmed_by TEXT NOT NULL DEFAULT 'system',
             confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             commentaire TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maintenance_parts (
+            id_part INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            category TEXT,
+            quantity_available INTEGER NOT NULL DEFAULT 0,
+            minimum_threshold INTEGER NOT NULL DEFAULT 0,
+            unit_cost REAL NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (quantity_available >= 0),
+            CHECK (minimum_threshold >= 0),
+            CHECK (unit_cost >= 0)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maintenance_inspections (
+            id_inspection INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_code TEXT,
+            equipment_name TEXT NOT NULL,
+            inspection_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ok',
+            next_inspection_date TEXT,
+            inspector TEXT,
+            observations TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (status IN ('ok', 'a_surveiller', 'critique', 'hors_service'))
         )
         """
     )
@@ -82,6 +161,83 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS toolbox_campaigns (
+            id_campaign INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_campaign TEXT UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            site_id INTEGER,
+            department_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'planifiee',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (department_id) REFERENCES departments(id_department)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toolbox_campaign_themes (
+            id_campaign_theme INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id INTEGER NOT NULL,
+            topic_id INTEGER NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (campaign_id) REFERENCES toolbox_campaigns(id_campaign),
+            FOREIGN KEY (topic_id) REFERENCES toolbox_theme_catalog(id_topic),
+            UNIQUE (campaign_id, topic_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toolbox_theme_usage (
+            id_usage INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic_id INTEGER,
+            theme_id INTEGER,
+            usage_date TEXT NOT NULL,
+            site_id INTEGER,
+            department_id INTEGER,
+            facilitator TEXT,
+            participants_count INTEGER NOT NULL DEFAULT 0,
+            comprehension_score REAL,
+            observation TEXT,
+            source TEXT NOT NULL DEFAULT 'planning',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (topic_id) REFERENCES toolbox_theme_catalog(id_topic),
+            FOREIGN KEY (theme_id) REFERENCES themes_securite(id_theme),
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (department_id) REFERENCES departments(id_department),
+            UNIQUE (usage_date, topic_id, site_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toolbox_effectiveness_evaluations (
+            id_evaluation INTEGER PRIMARY KEY AUTOINCREMENT,
+            usage_id INTEGER NOT NULL,
+            participation_rate REAL NOT NULL DEFAULT 0,
+            comprehension_score REAL NOT NULL DEFAULT 0,
+            facilitator_rating REAL NOT NULL DEFAULT 0,
+            session_quality REAL NOT NULL DEFAULT 0,
+            global_score REAL NOT NULL DEFAULT 0,
+            comments TEXT,
+            evaluated_by TEXT,
+            evaluated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (usage_id) REFERENCES toolbox_theme_usage(id_usage),
+            UNIQUE (usage_id)
+        )
+        """
+    )
+    _migrate_toolbox_theme_bank_data(connection)
+    connection.execute(
+        """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_securite_date
         ON themes_securite(date_theme)
         """
@@ -91,7 +247,7 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         UPDATE training_types
         SET validite_mois = 24,
             updated_at = CURRENT_TIMESTAMP
-        WHERE validite_mois <> 24
+        WHERE validite_mois IS NULL OR validite_mois = 0
         """
     )
     connection.execute(
@@ -201,6 +357,103 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
             commentaire TEXT,
             FOREIGN KEY (presence_id) REFERENCES presences(id_presence),
             FOREIGN KEY (employe_id) REFERENCES employes(id_employe)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_sync_devices (
+            device_id TEXT PRIMARY KEY,
+            device_name TEXT,
+            last_seen_at TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (status IN ('active', 'blocked'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_sync_events (
+            id_event INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_hash TEXT,
+            records_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'received',
+            message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+            CHECK (status IN ('received', 'applied', 'rejected', 'error'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_toolbox_confirmations (
+            id_confirmation INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            date_theme TEXT NOT NULL,
+            theme TEXT,
+            facilitator TEXT,
+            site_id INTEGER,
+            attendees_count INTEGER NOT NULL DEFAULT 0,
+            comments TEXT,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+            FOREIGN KEY (site_id) REFERENCES sites(id_site)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_maintenance_observations (
+            id_observation INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            observation_date TEXT NOT NULL,
+            equipment_label TEXT NOT NULL,
+            site_id INTEGER,
+            priority TEXT NOT NULL DEFAULT 'moyenne',
+            observation TEXT NOT NULL,
+            action_id INTEGER,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+            FOREIGN KEY (site_id) REFERENCES sites(id_site),
+            FOREIGN KEY (action_id) REFERENCES action_tracker(id_action),
+            CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_ppe_checks (
+            id_check        INTEGER PRIMARY KEY AUTOINCREMENT,
+            check_date      TEXT NOT NULL,
+            employe_name    TEXT,
+            employe_id      INTEGER,
+            resultats_json  TEXT,
+            statut_global   TEXT NOT NULL DEFAULT 'conforme',
+            observations    TEXT,
+            synced_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employe_id) REFERENCES employes(id_employe),
+            CHECK (statut_global IN ('conforme', 'non_conforme'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_field_observations (
+            id_observation  INTEGER PRIMARY KEY AUTOINCREMENT,
+            obs_date        TEXT NOT NULL,
+            lieu            TEXT,
+            type_obs        TEXT NOT NULL DEFAULT 'condition_unsafe',
+            description     TEXT NOT NULL,
+            priorite        TEXT NOT NULL DEFAULT 'moyenne',
+            action_requise  INTEGER NOT NULL DEFAULT 0,
+            notes           TEXT,
+            synced_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (type_obs IN ('acte_unsafe', 'condition_unsafe', 'bonne_pratique', 'presqu_accident')),
+            CHECK (priorite IN ('faible', 'moyenne', 'elevee', 'critique'))
         )
         """
     )
@@ -412,6 +665,24 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_mobile_sync_events_device_date
+        ON mobile_sync_events(device_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_mobile_toolbox_confirmations_date
+        ON mobile_toolbox_confirmations(date_theme, site_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_mobile_maintenance_observations_date
+        ON mobile_maintenance_observations(observation_date, site_id)
+        """
+    )
+    connection.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_admin_audit_changed_at
         ON admin_audit(changed_at, action)
         """
@@ -556,6 +827,189 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
     )
     _ensure_default_role_permissions(connection)
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS risk_register (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            activity TEXT,
+            location TEXT,
+            zone TEXT,
+            hazard_type TEXT NOT NULL DEFAULT 'physique',
+            affected_people TEXT,
+            source_of_danger TEXT,
+            probability INTEGER NOT NULL DEFAULT 1,
+            severity INTEGER NOT NULL DEFAULT 1,
+            risk_score INTEGER NOT NULL DEFAULT 1,
+            risk_level TEXT NOT NULL DEFAULT 'faible',
+            existing_controls TEXT,
+            residual_probability INTEGER DEFAULT 1,
+            residual_severity INTEGER DEFAULT 1,
+            residual_score INTEGER DEFAULT 1,
+            residual_level TEXT DEFAULT 'faible',
+            status TEXT NOT NULL DEFAULT 'ouvert',
+            owner TEXT,
+            review_date TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS risk_controls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            risk_id INTEGER NOT NULL,
+            control_type TEXT NOT NULL DEFAULT 'administratif',
+            description TEXT NOT NULL,
+            responsible TEXT,
+            target_date TEXT,
+            status TEXT NOT NULL DEFAULT 'planifie',
+            effectiveness TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (risk_id) REFERENCES risk_register(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS risk_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            risk_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT,
+            changed_by TEXT,
+            changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS risk_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            risk_id INTEGER NOT NULL,
+            link_type TEXT NOT NULL,
+            linked_id INTEGER,
+            linked_label TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (risk_id) REFERENCES risk_register(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS accidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT NOT NULL,
+            type_evenement TEXT NOT NULL DEFAULT 'presquaccident',
+            date_evenement TEXT NOT NULL,
+            heure_evenement TEXT,
+            lieu TEXT,
+            zone TEXT,
+            description TEXT NOT NULL,
+            employe_id INTEGER,
+            tiers_implique TEXT,
+            gravite TEXT NOT NULL DEFAULT 'benin',
+            jours_arret INTEGER DEFAULT 0,
+            statut TEXT NOT NULL DEFAULT 'ouvert',
+            created_by TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            FOREIGN KEY (employe_id) REFERENCES employes(id_employe)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS causes_accidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            accident_id INTEGER NOT NULL,
+            type_cause TEXT NOT NULL DEFAULT 'immediate',
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (accident_id) REFERENCES accidents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS actions_accident (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            accident_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            responsable TEXT,
+            date_echeance TEXT,
+            statut TEXT NOT NULL DEFAULT 'planifie',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (accident_id) REFERENCES accidents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS permis_travail (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT NOT NULL,
+            type_permis TEXT NOT NULL DEFAULT 'general',
+            titre TEXT NOT NULL,
+            lieu TEXT,
+            zone TEXT,
+            date_emission TEXT NOT NULL,
+            date_debut TEXT NOT NULL,
+            date_fin TEXT NOT NULL,
+            heure_debut TEXT,
+            heure_fin TEXT,
+            description_travaux TEXT,
+            effectif INTEGER DEFAULT 1,
+            entreprise TEXT,
+            responsable_travaux TEXT,
+            risques TEXT,
+            precautions TEXT,
+            equipements_requis TEXT,
+            statut TEXT NOT NULL DEFAULT 'brouillon',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS validations_permis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            permis_id INTEGER NOT NULL,
+            role_validateur TEXT NOT NULL,
+            nom_validateur TEXT,
+            statut TEXT NOT NULL DEFAULT 'en_attente',
+            commentaire TEXT,
+            date_validation TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (permis_id) REFERENCES permis_travail(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notifications_qhse (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'general',
+            source_id TEXT,
+            priorite TEXT NOT NULL DEFAULT 'info',
+            titre TEXT NOT NULL,
+            message TEXT,
+            statut TEXT NOT NULL DEFAULT 'nouveau',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_at TEXT,
+            acknowledged_by TEXT
+        )
+        """
+    )
+    if _ddl_changes:
+        _row = connection.execute("SELECT version FROM schema_version WHERE id=1").fetchone()
+        connection.execute(
+            "UPDATE schema_version SET version=?, applied_at=datetime('now') WHERE id=1",
+            (int(_row["version"]) + 1,),
+        )
     connection.execute("PRAGMA optimize")
 
 
@@ -564,13 +1018,102 @@ def _add_column_if_missing(
     table: str,
     column: str,
     definition: str,
-) -> None:
+) -> bool:
+    """Return True if the column was added, False if it already existed."""
     columns = {
         row["name"]
         for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
     }
     if column not in columns:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        return True
+    return False
+
+
+def _migrate_toolbox_theme_bank_data(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO toolbox_theme_catalog(theme, obligatoire, actif)
+        SELECT DISTINCT TRIM(theme), 0, 1
+        FROM themes_securite
+        WHERE COALESCE(TRIM(theme), '') <> ''
+        """
+    )
+    connection.execute(
+        """
+        UPDATE toolbox_theme_catalog
+        SET code_theme = printf('TBX-%03d', id_topic)
+        WHERE COALESCE(code_theme, '') = ''
+        """
+    )
+    connection.execute(
+        """
+        UPDATE toolbox_theme_catalog
+        SET topic_en = CASE
+                WHEN instr(theme, ' / ') > 0 THEN TRIM(substr(theme, 1, instr(theme, ' / ') - 1))
+                ELSE theme
+            END,
+            theme_fr = CASE
+                WHEN instr(theme, ' / ') > 0 THEN TRIM(substr(theme, instr(theme, ' / ') + 3))
+                ELSE theme
+            END
+        WHERE COALESCE(topic_en, '') = ''
+           OR COALESCE(theme_fr, '') = ''
+        """
+    )
+    connection.execute(
+        """
+        UPDATE toolbox_theme_catalog
+        SET status = CASE WHEN actif = 1 THEN 'actif' ELSE 'inactif' END
+        WHERE COALESCE(status, '') = ''
+           OR status NOT IN ('actif', 'en_attente', 'inactif', 'obsolete')
+        """
+    )
+    connection.execute(
+        """
+        UPDATE toolbox_theme_catalog
+        SET usage_count = (
+                SELECT COUNT(*)
+                FROM themes_securite ts
+                WHERE TRIM(ts.theme) = TRIM(toolbox_theme_catalog.theme)
+            ),
+            last_used_at = (
+                SELECT MAX(ts.date_theme)
+                FROM themes_securite ts
+                WHERE TRIM(ts.theme) = TRIM(toolbox_theme_catalog.theme)
+            )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO toolbox_theme_usage (
+            topic_id, theme_id, usage_date, site_id, department_id,
+            facilitator, participants_count, observation, source
+        )
+        SELECT
+            catalog.id_topic,
+            ts.id_theme,
+            ts.date_theme,
+            ts.site_id,
+            sites.department_id,
+            ts.facilitateur,
+            COALESCE(confirmations.attendees_count, 0),
+            confirmations.comments,
+            CASE WHEN confirmations.id_confirmation IS NULL THEN 'planning' ELSE 'mobile_confirmation' END
+        FROM themes_securite ts
+        JOIN toolbox_theme_catalog catalog ON TRIM(catalog.theme) = TRIM(ts.theme)
+        LEFT JOIN sites ON sites.id_site = ts.site_id
+        LEFT JOIN mobile_toolbox_confirmations confirmations
+          ON confirmations.date_theme = ts.date_theme
+         AND (confirmations.site_id = ts.site_id OR confirmations.site_id IS NULL OR ts.site_id IS NULL)
+        WHERE COALESCE(TRIM(ts.theme), '') <> ''
+          AND NOT EXISTS (
+              SELECT 1
+              FROM toolbox_theme_usage usage
+              WHERE usage.theme_id = ts.id_theme
+          )
+        """
+    )
 
 
 def _rebuild_employee_breaks_type_check_if_needed(connection: sqlite3.Connection) -> None:
@@ -781,6 +1324,23 @@ def _ensure_performance_indexes(connection: sqlite3.Connection) -> None:
         ON toolbox_theme_catalog(actif, obligatoire, theme)
         """,
         """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_code
+        ON toolbox_theme_catalog(code_theme)
+        WHERE code_theme IS NOT NULL
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_professional_filters
+        ON toolbox_theme_catalog(status, category, risk_level, frequency, site_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_toolbox_theme_usage_topic_date
+        ON toolbox_theme_usage(topic_id, usage_date)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_toolbox_campaigns_period_status
+        ON toolbox_campaigns(start_date, end_date, status)
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_themes_securite_site_date
         ON themes_securite(site_id, date_theme)
         """,
@@ -814,28 +1374,7 @@ def _ensure_performance_indexes(connection: sqlite3.Connection) -> None:
 
 
 def _ensure_default_role_permissions(connection: sqlite3.Connection) -> None:
-    role_modules = {
-        "Administrateur": [
-            "Dashboard",
-            "Referentials",
-            "EmployeeManagement",
-            "TrainingManagement",
-            "ToolboxTalk",
-            "TimeSheet",
-            "MonthlyTimesheet",
-            "Ppe",
-            "MaintenanceActions",
-            "Alerts",
-            "AiAssistant",
-            "Settings",
-            "Admin",
-        ],
-        "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
-        "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
-        "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
-        "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "AiAssistant"],
-    }
-    for role_name, modules in role_modules.items():
+    for role_name, modules in ROLE_MODULES.items():
         role = connection.execute(
             "SELECT id_role FROM roles WHERE nom = ?",
             (role_name,),

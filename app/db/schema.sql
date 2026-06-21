@@ -240,8 +240,86 @@ CREATE TABLE IF NOT EXISTS toolbox_theme_catalog (
     theme TEXT NOT NULL UNIQUE,
     obligatoire INTEGER NOT NULL DEFAULT 0,
     actif INTEGER NOT NULL DEFAULT 1,
+    code_theme TEXT,
+    category TEXT NOT NULL DEFAULT 'HSE General',
+    risk_level TEXT NOT NULL DEFAULT 'moyen',
+    topic_en TEXT,
+    theme_fr TEXT,
+    frequency TEXT NOT NULL DEFAULT 'mensuelle',
+    site_id INTEGER,
+    department_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'actif',
+    last_used_at TEXT,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    average_effectiveness REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT
+    updated_at TEXT,
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (department_id) REFERENCES departments(id_department)
+);
+
+CREATE TABLE IF NOT EXISTS toolbox_campaigns (
+    id_campaign INTEGER PRIMARY KEY AUTOINCREMENT,
+    code_campaign TEXT UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    site_id INTEGER,
+    department_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'planifiee',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (department_id) REFERENCES departments(id_department)
+);
+
+CREATE TABLE IF NOT EXISTS toolbox_campaign_themes (
+    id_campaign_theme INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER NOT NULL,
+    topic_id INTEGER NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (campaign_id) REFERENCES toolbox_campaigns(id_campaign),
+    FOREIGN KEY (topic_id) REFERENCES toolbox_theme_catalog(id_topic),
+    UNIQUE (campaign_id, topic_id)
+);
+
+CREATE TABLE IF NOT EXISTS toolbox_theme_usage (
+    id_usage INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id INTEGER,
+    theme_id INTEGER,
+    usage_date TEXT NOT NULL,
+    site_id INTEGER,
+    department_id INTEGER,
+    facilitator TEXT,
+    participants_count INTEGER NOT NULL DEFAULT 0,
+    comprehension_score REAL,
+    observation TEXT,
+    source TEXT NOT NULL DEFAULT 'planning',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
+    FOREIGN KEY (topic_id) REFERENCES toolbox_theme_catalog(id_topic),
+    FOREIGN KEY (theme_id) REFERENCES themes_securite(id_theme),
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (department_id) REFERENCES departments(id_department),
+    UNIQUE (usage_date, topic_id, site_id)
+);
+
+CREATE TABLE IF NOT EXISTS toolbox_effectiveness_evaluations (
+    id_evaluation INTEGER PRIMARY KEY AUTOINCREMENT,
+    usage_id INTEGER NOT NULL,
+    participation_rate REAL NOT NULL DEFAULT 0,
+    comprehension_score REAL NOT NULL DEFAULT 0,
+    facilitator_rating REAL NOT NULL DEFAULT 0,
+    session_quality REAL NOT NULL DEFAULT 0,
+    global_score REAL NOT NULL DEFAULT 0,
+    comments TEXT,
+    evaluated_by TEXT,
+    evaluated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usage_id) REFERENCES toolbox_theme_usage(id_usage),
+    UNIQUE (usage_id)
 );
 
 DELETE FROM themes_securite
@@ -255,6 +333,19 @@ WHERE id_theme IN (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_themes_securite_date
     ON themes_securite(date_theme);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_code
+    ON toolbox_theme_catalog(code_theme)
+    WHERE code_theme IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_toolbox_theme_catalog_professional_filters
+    ON toolbox_theme_catalog(status, category, risk_level, frequency, site_id);
+
+CREATE INDEX IF NOT EXISTS idx_toolbox_theme_usage_topic_date
+    ON toolbox_theme_usage(topic_id, usage_date);
+
+CREATE INDEX IF NOT EXISTS idx_toolbox_campaigns_period_status
+    ON toolbox_campaigns(start_date, end_date, status);
 
 CREATE TABLE IF NOT EXISTS epi (
     id_epi INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -423,6 +514,103 @@ CREATE TABLE IF NOT EXISTS attendance_audit (
     FOREIGN KEY (employe_id) REFERENCES employes(id_employe)
 );
 
+CREATE TABLE IF NOT EXISTS mobile_sync_devices (
+    device_id TEXT PRIMARY KEY,
+    device_name TEXT,
+    last_seen_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    mobile_role TEXT NOT NULL DEFAULT 'hse',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (status IN ('active', 'blocked')),
+    CHECK (mobile_role IN ('hse', 'supervisor', 'attendance', 'maintenance'))
+);
+
+CREATE TABLE IF NOT EXISTS mobile_user_sessions (
+    id_session INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+    FOREIGN KEY (user_id) REFERENCES utilisateurs(id_user)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_user_sessions_device
+ON mobile_user_sessions(device_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS mobile_sync_events (
+    id_event INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    operator_username TEXT,
+    event_type TEXT NOT NULL,
+    payload_hash TEXT,
+    records_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'received',
+    message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+    CHECK (status IN ('received', 'applied', 'rejected', 'error'))
+);
+
+CREATE TABLE IF NOT EXISTS mobile_toolbox_confirmations (
+    id_confirmation INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    date_theme TEXT NOT NULL,
+    theme TEXT,
+    facilitator TEXT,
+    site_id INTEGER,
+    attendees_count INTEGER NOT NULL DEFAULT 0,
+    comments TEXT,
+    synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+    FOREIGN KEY (site_id) REFERENCES sites(id_site)
+);
+
+CREATE TABLE IF NOT EXISTS mobile_maintenance_observations (
+    id_observation INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    observation_date TEXT NOT NULL,
+    equipment_label TEXT NOT NULL,
+    site_id INTEGER,
+    priority TEXT NOT NULL DEFAULT 'moyenne',
+    observation TEXT NOT NULL,
+    action_id INTEGER,
+    synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES mobile_sync_devices(device_id),
+    FOREIGN KEY (site_id) REFERENCES sites(id_site),
+    FOREIGN KEY (action_id) REFERENCES action_tracker(id_action),
+    CHECK (priority IN ('basse', 'moyenne', 'haute', 'critique'))
+);
+
+CREATE TABLE IF NOT EXISTS mobile_ppe_checks (
+    id_check        INTEGER PRIMARY KEY AUTOINCREMENT,
+    check_date      TEXT NOT NULL,
+    employe_name    TEXT,
+    employe_id      INTEGER,
+    resultats_json  TEXT,
+    statut_global   TEXT NOT NULL DEFAULT 'conforme',
+    observations    TEXT,
+    synced_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employe_id) REFERENCES employes(id_employe),
+    CHECK (statut_global IN ('conforme', 'non_conforme'))
+);
+
+CREATE TABLE IF NOT EXISTS mobile_field_observations (
+    id_observation  INTEGER PRIMARY KEY AUTOINCREMENT,
+    obs_date        TEXT NOT NULL,
+    lieu            TEXT,
+    type_obs        TEXT NOT NULL DEFAULT 'condition_unsafe',
+    description     TEXT NOT NULL,
+    priorite        TEXT NOT NULL DEFAULT 'moyenne',
+    action_requise  INTEGER NOT NULL DEFAULT 0,
+    notes           TEXT,
+    synced_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (type_obs IN ('acte_unsafe', 'condition_unsafe', 'bonne_pratique', 'presqu_accident')),
+    CHECK (priorite IN ('faible', 'moyenne', 'elevee', 'critique'))
+);
+
 CREATE TABLE IF NOT EXISTS timesheet_day_settings (
     date_presence TEXT PRIMARY KEY,
     has_drilling INTEGER NOT NULL DEFAULT 0,
@@ -505,6 +693,33 @@ CREATE TABLE IF NOT EXISTS equipment_maintenance (
     CHECK (completed_date IS NULL OR completed_date >= planned_date)
 );
 
+CREATE TABLE IF NOT EXISTS maintenance_parts (
+    id_part INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    category TEXT,
+    quantity_available INTEGER NOT NULL DEFAULT 0,
+    minimum_threshold INTEGER NOT NULL DEFAULT 0,
+    unit_cost REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (quantity_available >= 0),
+    CHECK (minimum_threshold >= 0),
+    CHECK (unit_cost >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_inspections (
+    id_inspection INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipment_code TEXT,
+    equipment_name TEXT NOT NULL,
+    inspection_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ok',
+    next_inspection_date TEXT,
+    inspector TEXT,
+    observations TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (status IN ('ok', 'a_surveiller', 'critique', 'hors_service'))
+);
+
 CREATE TABLE IF NOT EXISTS action_tracker (
     id_action INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL DEFAULT 'HSE',
@@ -584,6 +799,15 @@ CREATE INDEX IF NOT EXISTS idx_risk_assessments_site_review
 
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_date
     ON attendance_audit(date_presence, employe_id);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_sync_events_device_date
+    ON mobile_sync_events(device_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_toolbox_confirmations_date
+    ON mobile_toolbox_confirmations(date_theme, site_id);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_maintenance_observations_date
+    ON mobile_maintenance_observations(observation_date, site_id);
 
 CREATE INDEX IF NOT EXISTS idx_timesheet_audit_month
     ON timesheet_audit(month, date_presence, employe_id);

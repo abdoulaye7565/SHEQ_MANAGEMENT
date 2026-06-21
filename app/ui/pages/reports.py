@@ -6,9 +6,24 @@ from typing import Any
 import flet as ft
 
 from app.services import generate_report, get_report_summary, list_employees, list_report_definitions
+from app.ui.components.document_share_dialog import show_document_share_dialog
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
+
+_DK_CARD   = "#0D2040"
+_DK_CARD2  = "#0A1929"
+_DK_HEAD   = "#112240"
+_DK_BORDER = "#1E3A5F"
+_DK_TEXT   = "#E2E8F0"
+_DK_MUTED  = "#9DB0C5"
+_DK_TRACK  = "#1A3050"
+_OV = {
+    "#2563EB": "#0F2D5E",  # PRIMARY
+    "#16A34A": "#052E16",  # SUCCESS
+    "#DC2626": "#3B0F0F",  # DANGER
+    "#F59E0B": "#2D1600",  # WARNING
+}
 
 
 CATEGORY_COLORS = {
@@ -30,26 +45,27 @@ def reports_page(show_header: bool = True) -> ft.Control:
     summary = get_report_summary()
     employees = list_employees()
     state: dict[str, Any] = {"generated": [], "selected_employee_ids": set()}
-    status = ft.Text("", size=12, color=MUTED)
+    status = ft.Text("", size=12, color=_DK_MUTED)
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     reports_area = ft.ResponsiveRow(spacing=12, run_spacing=12)
     generated_area = ft.Column(spacing=8)
 
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=260)
     category_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Categorie",
         value="all",
         width=210,
         options=[ft.dropdown.Option("all", "Toutes")]
         + [ft.dropdown.Option(name, name) for name in summary["category_names"]],
     )
-    date_field = ft.TextField(label="Date", value=summary["default_date"], hint_text="AAAA-MM-JJ", width=160)
-    month_field = ft.TextField(label="Mois", value=summary["default_month"], hint_text="AAAA-MM", width=140)
+    date_field = ft.TextField(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Date", value=summary["default_date"], hint_text="AAAA-MM-JJ", width=160)
+    month_field = ft.TextField(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Mois", value=summary["default_month"], hint_text="AAAA-MM", width=140)
     employee_selection_area = ft.Column(spacing=6)
     if employees:
         state["selected_employee_ids"] = {int(employees[0]["id_employe"])}
 
-    def notify(message: str, color: str = MUTED) -> None:
+    def notify(message: str, color: str = _DK_MUTED) -> None:
         status.value = message
         status.color = color
 
@@ -73,9 +89,12 @@ def reports_page(show_header: bool = True) -> ft.Control:
         return rows
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
-        render_summary()
-        render_reports()
-        render_generated()
+        try:
+            render_summary()
+            render_reports()
+            render_generated()
+        except Exception as exc:
+            notify(str(exc), DANGER)
         _update()
 
     def reset_filters(event: ft.ControlEvent | None = None) -> None:
@@ -122,7 +141,7 @@ def reports_page(show_header: bool = True) -> ft.Control:
         summary_row.controls = [
             _summary_chip("Rapports", len(visible), PRIMARY, ft.Icons.DESCRIPTION_OUTLINED),
             _summary_chip("Categories", summary["categories"], SUCCESS, ft.Icons.ACCOUNT_TREE_OUTLINED),
-            _summary_chip("Generes", len(state["generated"]), WARNING if state["generated"] else MUTED, ft.Icons.FILE_DOWNLOAD_DONE_OUTLINED),
+            _summary_chip("Generes", len(state["generated"]), WARNING if state["generated"] else _DK_MUTED, ft.Icons.FILE_DOWNLOAD_DONE_OUTLINED),
             _summary_chip("Date", date_field.value or "-", PRIMARY, ft.Icons.TODAY_OUTLINED),
             _summary_chip("Mois", month_field.value or "-", PRIMARY, ft.Icons.CALENDAR_MONTH_OUTLINED),
             _summary_chip("Employes", len(employees), SUCCESS, ft.Icons.PEOPLE_ALT_OUTLINED),
@@ -156,8 +175,8 @@ def reports_page(show_header: bool = True) -> ft.Control:
         employee_selection_area.controls = [
             ft.Row(
                 controls=[
-                    ft.Text("Employes TimeSheet", color=TEXT, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"{len(selected_ids)} selectionne(s)", color=MUTED, size=12),
+                    ft.Text("Employes TimeSheet", color=_DK_TEXT, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{len(selected_ids)} selectionne(s)", color=_DK_MUTED, size=12),
                     ft.OutlinedButton("Tous", icon=ft.Icons.SELECT_ALL_OUTLINED, on_click=lambda event: select_all_employees(True)),
                     ft.OutlinedButton("Aucun", icon=ft.Icons.CHECK_BOX_OUTLINE_BLANK, on_click=lambda event: select_all_employees(False)),
                 ],
@@ -184,7 +203,7 @@ def reports_page(show_header: bool = True) -> ft.Control:
                 spacing=6,
             )
             if employees
-            else ft.Text("Aucun employe actif disponible.", color=MUTED, size=12),
+            else ft.Text("Aucun employe actif disponible.", color=_DK_MUTED, size=12),
         ]
 
     def render_reports() -> None:
@@ -200,20 +219,26 @@ def reports_page(show_header: bool = True) -> ft.Control:
             reports_area.controls = [
                 ft.Container(
                     col={"sm": 12},
-                    bgcolor="#F8FAFC",
-                    border=ft.border.all(1, "#E2E8F0"),
-                    border_radius=8,
-                    padding=16,
-                    content=ft.Text("Aucun rapport trouve.", color=MUTED),
+                    content=_empty_state(
+                        ft.Icons.DESCRIPTION_OUTLINED,
+                        "Aucun rapport trouve",
+                        "Modifiez les filtres ou generez un nouveau rapport.",
+                    ),
                 )
             ]
+
+    def _share_generated(item: dict) -> None:
+        path = Path(item["path"])
+        pg = root.page
+        if pg:
+            show_document_share_dialog(pg, path, document_title=item["report"])
 
     def render_generated() -> None:
         generated = state["generated"][:8]
         generated_area.controls = [
             ft.Row(
                 controls=[
-                    ft.Text("Derniers fichiers", size=16, weight=ft.FontWeight.BOLD, color=TEXT, expand=True),
+                    ft.Text("Derniers fichiers", size=16, weight=ft.FontWeight.BOLD, color=_DK_TEXT, expand=True),
                     status,
                 ],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -221,15 +246,22 @@ def reports_page(show_header: bool = True) -> ft.Control:
             ft.Column(
                 controls=[
                     ft.Container(
-                        bgcolor="#F8FAFC",
-                        border=ft.border.all(1, "#E2E8F0"),
+                        bgcolor=_DK_CARD2,
+                        border=ft.border.all(1, _DK_BORDER),
                         border_radius=8,
                         padding=10,
                         content=ft.Row(
                             controls=[
                                 ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED, color=PRIMARY, size=18),
-                                ft.Text(item["report"], color=TEXT, width=220, weight=ft.FontWeight.BOLD),
-                                ft.Text(str(Path(item["path"]).name), color=MUTED, expand=True),
+                                ft.Text(item["report"], color=_DK_TEXT, width=200, weight=ft.FontWeight.BOLD),
+                                ft.Text(str(Path(item["path"]).name), color=_DK_MUTED, expand=True),
+                                ft.IconButton(
+                                    ft.Icons.SHARE_OUTLINED,
+                                    icon_color=PRIMARY,
+                                    icon_size=18,
+                                    tooltip="Partager ce document",
+                                    on_click=lambda _e, it=item: _share_generated(it),
+                                ),
                             ],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -240,7 +272,7 @@ def reports_page(show_header: bool = True) -> ft.Control:
                 spacing=8,
             )
             if generated
-            else ft.Text("Aucun fichier genere dans cette session.", size=12, color=MUTED),
+            else ft.Text("Aucun fichier genere dans cette session.", size=12, color=_DK_MUTED),
         ]
 
     for control in (search_field, category_filter):
@@ -255,12 +287,27 @@ def reports_page(show_header: bool = True) -> ft.Control:
     controls.extend(
         [
             ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=ft.Column(
                     controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.TUNE_OUTLINED, color=PRIMARY, size=20),
+                                ft.Column(
+                                    controls=[
+                                        ft.Text("Parametres de generation", color=_DK_TEXT, size=16, weight=ft.FontWeight.BOLD),
+                                        ft.Text("Choisir la periode, la categorie et les employes avant de generer.", color=_DK_MUTED, size=11),
+                                    ],
+                                    spacing=1,
+                                    expand=True,
+                                ),
+                                status,
+                            ],
+                            spacing=10,
+                        ),
                         ft.Row(
                             controls=[
                                 search_field,
@@ -286,10 +333,29 @@ def reports_page(show_header: bool = True) -> ft.Control:
                     spacing=12,
                 ),
             ),
-            reports_area,
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
+                border_radius=8,
+                padding=16,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, color=PRIMARY, size=20),
+                                ft.Text("Catalogue de rapports", color=_DK_TEXT, size=16, weight=ft.FontWeight.BOLD, expand=True),
+                                ft.Text(f"{len(definitions)} modeles operationnels", color=_DK_MUTED, size=11),
+                            ],
+                            spacing=8,
+                        ),
+                        reports_area,
+                    ],
+                    spacing=12,
+                ),
+            ),
+            ft.Container(
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=generated_area,
@@ -298,13 +364,40 @@ def reports_page(show_header: bool = True) -> ft.Control:
     )
     root = ft.Column(
         controls=controls,
-        spacing=18,
+        spacing=14,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
     refresh()
     render_employee_selection()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
+
+
+def _empty_state(icon: str, title: str, subtitle: str = "") -> ft.Control:
+    return ft.Container(
+        bgcolor=_DK_CARD,
+        border=ft.border.all(1, _DK_BORDER),
+        border_radius=12,
+        padding=ft.padding.symmetric(horizontal=24, vertical=40),
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            controls=[
+                ft.Container(
+                    width=64, height=64,
+                    bgcolor=_DK_HEAD,
+                    border_radius=32,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Icon(icon, color=_DK_MUTED, size=28),
+                ),
+                ft.Text(title, color=_DK_TEXT, size=15, weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER),
+                ft.Text(subtitle, color=_DK_MUTED, size=12,
+                        text_align=ft.TextAlign.CENTER) if subtitle else ft.Container(),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12,
+        ),
+    )
 
 
 def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
@@ -318,24 +411,31 @@ def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
     if report.get("employee_param"):
         badges.append(("Employe", ft.Icons.PERSON_OUTLINE))
     return ft.Container(
-        height=178,
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
-        border_radius=8,
+        height=170,
+        bgcolor=_DK_CARD,
+        border=ft.border.only(
+            left=ft.BorderSide(4, color),
+            top=ft.BorderSide(1, _DK_BORDER),
+            right=ft.BorderSide(1, _DK_BORDER),
+            bottom=ft.BorderSide(1, _DK_BORDER),
+        ),
+        border_radius=12,
         padding=16,
         content=ft.Column(
             controls=[
                 ft.Row(
                     controls=[
                         ft.Container(
-                            bgcolor=_soft_color(color),
-                            border_radius=8,
-                            padding=7,
-                            content=ft.Icon(_category_icon(category), color=color, size=20),
+                            width=36,
+                            height=36,
+                            bgcolor=_OV.get(color, "#0F2D5E"),
+                            border_radius=9,
+                            alignment=ft.Alignment(0, 0),
+                            content=ft.Icon(_category_icon(category), color=color, size=18),
                         ),
                         ft.Column(
                             controls=[
-                                ft.Text(str(report["title"]), color=TEXT, size=14, weight=ft.FontWeight.BOLD),
+                                ft.Text(str(report["title"]), color=_DK_TEXT, size=13, weight=ft.FontWeight.BOLD),
                                 ft.Text(category, color=color, size=11, weight=ft.FontWeight.BOLD),
                             ],
                             spacing=2,
@@ -345,7 +445,7 @@ def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=10,
                 ),
-                ft.Text(str(report.get("description") or ""), size=12, color=MUTED, max_lines=2),
+                ft.Text(str(report.get("description") or ""), size=12, color=_DK_MUTED, max_lines=2),
                 ft.Row(
                     controls=[_param_badge(label, icon) for label, icon in badges] or [_param_badge("Instantane", ft.Icons.FLASH_ON_OUTLINED)],
                     spacing=6,
@@ -353,13 +453,14 @@ def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
                 ),
                 ft.Row(
                     controls=[
+                        _param_badge("Excel / PDF", ft.Icons.INSERT_DRIVE_FILE_OUTLINED),
                         ft.ElevatedButton(
                             "Generer",
                             icon=ft.Icons.FILE_DOWNLOAD_OUTLINED,
                             on_click=lambda event, current=report: generate(current),
                         )
                     ],
-                    alignment=ft.MainAxisAlignment.END,
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
             ],
             spacing=10,
@@ -369,21 +470,38 @@ def _report_card(report: dict[str, Any], generate: Any) -> ft.Control:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        stat_card(label, value, color, icon, compact=True),
+        ft.Container(
+            bgcolor=_DK_CARD,
+            border=ft.border.only(
+                left=ft.BorderSide(4, color),
+                top=ft.BorderSide(1, _DK_BORDER),
+                right=ft.BorderSide(1, _DK_BORDER),
+                bottom=ft.BorderSide(1, _DK_BORDER),
+            ),
+            border_radius=12,
+            padding=ft.padding.only(left=14, right=14, top=12, bottom=12),
+            content=ft.Column(
+                [
+                    ft.Text(label, color=_DK_MUTED, size=10),
+                    ft.Text(str(value), color=_DK_TEXT, size=22, weight=ft.FontWeight.BOLD),
+                ],
+                spacing=4,
+            ),
+        ),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
 def _param_badge(label: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#F8FAFC",
-        border=ft.border.all(1, "#E2E8F0"),
+        bgcolor=_DK_CARD2,
+        border=ft.border.all(1, _DK_BORDER),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Row(
             controls=[
-                ft.Icon(icon, color=MUTED, size=13),
-                ft.Text(label, color=MUTED, size=11),
+                ft.Icon(icon, color=_DK_MUTED, size=13),
+                ft.Text(label, color=_DK_MUTED, size=11),
             ],
             spacing=4,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -413,13 +531,4 @@ def _employee_name(record: dict[str, Any]) -> str:
 
 
 def _soft_color(color: str) -> str:
-    return {
-        PRIMARY: "#DBEAFE",
-        SUCCESS: "#DCFCE7",
-        DANGER: "#FEE2E2",
-        WARNING: "#FEF3C7",
-        "#8B5CF6": "#EDE9FE",
-        "#0F766E": "#CCFBF1",
-        "#475569": "#E2E8F0",
-        "#EA580C": "#FFEDD5",
-    }.get(color, "#E2E8F0")
+    return _OV.get(color, "#0F2D5E")

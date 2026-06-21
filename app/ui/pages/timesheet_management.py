@@ -4,11 +4,16 @@ import flet as ft
 
 from app.ui.pages.monthly_timesheet import monthly_timesheet_page
 from app.ui.pages.timesheet import timesheet_page
-from app.ui.theme import BORDER, PANEL, PRIMARY, TEXT
+from app.ui.theme import PRIMARY
+
+
+from app.ui.components.dark_styles import BG, BORDER, CARD
+DARK_TEXT = "#FFFFFF"
+DARK_MUTED = "#9DB0C5"
 
 
 def timesheet_management_page(page: ft.Page) -> ft.Control:
-    content = ft.Container(expand=True)
+    content = ft.Container(expand=True, bgcolor="#071321")
     state = {"active": "21-20"}
 
     def render() -> None:
@@ -50,7 +55,7 @@ def timesheet_management_page(page: ft.Page) -> ft.Control:
     root = ft.Column(
         controls=[
             ft.Container(
-                bgcolor=PANEL,
+                bgcolor=CARD,
                 border=ft.border.all(1, BORDER),
                 border_radius=8,
                 padding=8,
@@ -67,13 +72,13 @@ def timesheet_management_page(page: ft.Page) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
     )
     render()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
 
 
 def _tab_style(selected: bool) -> ft.ButtonStyle:
     return ft.ButtonStyle(
-        color="#FFFFFF" if selected else TEXT,
-        bgcolor=PRIMARY if selected else "#FFFFFF",
+        color=DARK_TEXT if selected else DARK_MUTED,
+        bgcolor=PRIMARY if selected else BG,
         shape=ft.RoundedRectangleBorder(radius=8),
         padding=ft.padding.symmetric(horizontal=12, vertical=10),
     )

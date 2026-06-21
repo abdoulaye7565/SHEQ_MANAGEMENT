@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.db.connection import db_session
+from app.services.audit_service import record_system_audit
 
 
 WARNING_DAYS = 60
@@ -73,59 +74,7 @@ def list_trainings(search: str = "") -> list[dict[str, Any]]:
 def create_training(values: dict[str, Any]) -> int:
     payload = _clean_payload(values)
     with db_session() as connection:
-        expiration = _add_months(
-            payload["date_formation"],
-            _training_validity_months(connection, payload["type_training_id"]),
-        )
-        status = _status_from_expiration(expiration)
-        existing = connection.execute(
-            """
-            SELECT id_formation
-            FROM formations
-            WHERE employe_id = ? AND type_training_id = ?
-            """,
-            (payload["employe_id"], payload["type_training_id"]),
-        ).fetchone()
-        if existing:
-            connection.execute(
-                """
-                UPDATE formations
-                SET date_debut = ?,
-                    date_expiration = ?,
-                    facilitateur = ?,
-                    structure_responsable = ?,
-                    statut = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id_formation = ?
-                """,
-                (
-                    payload["date_formation"],
-                    expiration,
-                    payload["facilitateur"],
-                    payload["structure_responsable"],
-                    status,
-                    existing["id_formation"],
-                ),
-            )
-            return int(existing["id_formation"])
-        cursor = connection.execute(
-            """
-            INSERT INTO formations (
-                employe_id, type_training_id, date_debut, date_expiration,
-                facilitateur, structure_responsable, statut
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["employe_id"],
-                payload["type_training_id"],
-                payload["date_formation"],
-                expiration,
-                payload["facilitateur"],
-                payload["structure_responsable"],
-                status,
-            ),
-        )
-        return int(cursor.lastrowid)
+        return _upsert_training(connection, payload)
 
 
 def create_trainings_for_employees(values: dict[str, Any]) -> int:
@@ -135,20 +84,103 @@ def create_trainings_for_employees(values: dict[str, Any]) -> int:
         raise ValueError("Selectionne au moins un employe.")
     if not training_type_ids:
         raise ValueError("Selectionne au moins une formation.")
+    unique_employees = sorted(set(employee_ids))
+    unique_trainings = sorted(set(training_type_ids))
+    duplicate_policy = str(values.get("duplicate_policy") or "update").strip().lower()
+    if duplicate_policy not in {"update", "ignore"}:
+        raise ValueError("Politique doublon invalide. Utilise update ou ignore.")
     created_or_updated = 0
-    for employee_id in sorted(set(employee_ids)):
-        for training_type_id in sorted(set(training_type_ids)):
-            create_training(
-                {
-                    "employe_id": employee_id,
-                    "type_training_id": training_type_id,
-                    "date_formation": values.get("date_formation"),
-                    "facilitateur": values.get("facilitateur"),
-                    "structure_responsable": values.get("structure_responsable"),
-                }
-            )
-            created_or_updated += 1
+    with db_session() as connection:
+        for employee_id in unique_employees:
+            for training_type_id in unique_trainings:
+                if duplicate_policy == "ignore":
+                    existing = connection.execute(
+                        """
+                        SELECT 1 FROM formations
+                        WHERE employe_id = ? AND type_training_id = ?
+                        """,
+                        (employee_id, training_type_id),
+                    ).fetchone()
+                    if existing:
+                        continue
+                payload = _clean_payload(
+                    {
+                        "employe_id": employee_id,
+                        "type_training_id": training_type_id,
+                        "date_formation": values.get("date_formation"),
+                        "facilitateur": values.get("facilitateur"),
+                        "structure_responsable": values.get("structure_responsable"),
+                    }
+                )
+                _upsert_training(connection, payload)
+                created_or_updated += 1
+    record_system_audit(
+        "bulk_training_update",
+        "training",
+        f"{len(unique_employees)}x{len(unique_trainings)}",
+        (
+            f"Mise a jour multiple: {len(unique_employees)} employe(s), "
+            f"{len(unique_trainings)} formation(s), {created_or_updated} operation(s), "
+            f"date={values.get('date_formation') or '-'}, politique={duplicate_policy}"
+        ),
+    )
     return created_or_updated
+
+
+def _upsert_training(connection: Any, payload: dict[str, Any]) -> int:
+    expiration = _add_months(
+        payload["date_formation"],
+        _training_validity_months(connection, payload["type_training_id"]),
+    )
+    status = _status_from_expiration(expiration)
+    existing = connection.execute(
+        """
+        SELECT id_formation
+        FROM formations
+        WHERE employe_id = ? AND type_training_id = ?
+        """,
+        (payload["employe_id"], payload["type_training_id"]),
+    ).fetchone()
+    if existing:
+        connection.execute(
+            """
+            UPDATE formations
+            SET date_debut = ?,
+                date_expiration = ?,
+                facilitateur = ?,
+                structure_responsable = ?,
+                statut = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id_formation = ?
+            """,
+            (
+                payload["date_formation"],
+                expiration,
+                payload["facilitateur"],
+                payload["structure_responsable"],
+                status,
+                existing["id_formation"],
+            ),
+        )
+        return int(existing["id_formation"])
+    cursor = connection.execute(
+        """
+        INSERT INTO formations (
+            employe_id, type_training_id, date_debut, date_expiration,
+            facilitateur, structure_responsable, statut
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            payload["employe_id"],
+            payload["type_training_id"],
+            payload["date_formation"],
+            expiration,
+            payload["facilitateur"],
+            payload["structure_responsable"],
+            status,
+        ),
+    )
+    return int(cursor.lastrowid)
 
 
 def update_training(training_id: int, values: dict[str, Any]) -> None:
@@ -324,9 +356,16 @@ def get_training_options() -> dict[str, list[dict[str, Any]]]:
             """
             SELECT e.id_employe AS value,
                    COALESCE(e.nom, e.nom_complet) || ' ' || COALESCE(e.prenom, '') ||
-                   ' - ' || COALESCE(b.numero_badge, 'sans badge') AS label
+                   ' - ' || COALESCE(b.numero_badge, 'sans badge') AS label,
+                   COALESCE(e.nom, e.nom_complet) AS nom,
+                   COALESCE(e.prenom, '') AS prenom,
+                   COALESCE(b.numero_badge, '') AS numero_badge,
+                   COALESCE(fn.nom, '-') AS fonction,
+                   COALESCE(s.nom, '-') AS site
             FROM employes e
             LEFT JOIN badges b ON b.employe_id = e.id_employe
+            LEFT JOIN fonctions fn ON fn.id_fonction = e.fonction_id
+            LEFT JOIN sites s ON s.id_site = e.site_id
             WHERE e.statut = 'actif'
             ORDER BY label
             """
@@ -365,7 +404,7 @@ def get_training_matrix() -> dict[str, Any]:
     with db_session() as connection:
         employees = connection.execute(
             """
-            SELECT e.id_employe, COALESCE(e.nom, e.nom_complet) AS nom,
+            SELECT e.id_employe, e.fonction_id, COALESCE(e.nom, e.nom_complet) AS nom,
                    COALESCE(e.prenom, '') AS prenom, b.numero_badge, fn.nom AS fonction
             FROM employes e
             JOIN fonctions fn ON fn.id_fonction = e.fonction_id
@@ -397,7 +436,17 @@ def get_training_matrix() -> dict[str, Any]:
              AND latest.max_exp = f.date_expiration
             """
         ).fetchall()
+        required_rows = connection.execute(
+            """
+            SELECT fonction_id, type_training_id
+            FROM formations_requises_fonction
+            WHERE obligatoire = 1
+            """
+        ).fetchall()
     lookup = {(row["employe_id"], row["type_training_id"]): dict(row) for row in latest}
+    required_by_function: dict[int, set[int]] = {}
+    for row in required_rows:
+        required_by_function.setdefault(int(row["fonction_id"]), set()).add(int(row["type_training_id"]))
     matrix_rows = []
     stats_by_type = {
         int(training_type["id_training_type"]): {
@@ -417,9 +466,24 @@ def get_training_matrix() -> dict[str, Any]:
     }
     for employee in employees:
         cells = []
+        required_types = required_by_function.get(int(employee["fonction_id"]), set())
         for training_type in types:
             training_type_id = int(training_type["id_training_type"])
             stats = stats_by_type[training_type_id]
+            if required_types and training_type_id not in required_types:
+                cells.append(
+                    {
+                        "status": "not_applicable",
+                        "label": "N/A",
+                        "date_expiration": "",
+                        "date_formation": "",
+                        "days_left": None,
+                        "type_training_id": training_type["id_training_type"],
+                        "training_name": training_type["nom"],
+                        "training_department": training_type["department"],
+                    }
+                )
+                continue
             stats["total"] += 1
             training = lookup.get((employee["id_employe"], training_type["id_training_type"]))
             if not training:
@@ -469,7 +533,7 @@ def get_training_matrix() -> dict[str, Any]:
         matrix_rows.append({"employee": dict(employee), "cells": cells})
     for stats in stats_by_type.values():
         stats["compliance"] = round(stats["valid"] * 100 / stats["total"]) if stats["total"] else 0
-    total_cells = len(matrix_rows) * len(types)
+    total_cells = sum(stats["total"] for stats in stats_by_type.values())
     valid = sum(stats["valid"] for stats in stats_by_type.values())
     soon = sum(stats["soon"] for stats in stats_by_type.values())
     expired = sum(stats["expired"] for stats in stats_by_type.values())
@@ -531,7 +595,7 @@ def _int_list(value: Any) -> list[int]:
 def _training_validity_months(connection: Any, training_type_id: int) -> int:
     row = connection.execute(
         """
-        SELECT id_training_type
+        SELECT validite_mois
         FROM training_types
         WHERE id_training_type = ?
         """,
@@ -539,7 +603,7 @@ def _training_validity_months(connection: Any, training_type_id: int) -> int:
     ).fetchone()
     if row is None:
         raise ValueError("Nom de la formation introuvable.")
-    return TRAINING_VALIDITY_MONTHS
+    return int(row["validite_mois"] or TRAINING_VALIDITY_MONTHS)
 
 
 def _resolve_training_department_id(connection: Any, department: Any) -> int | None:

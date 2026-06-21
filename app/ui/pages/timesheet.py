@@ -12,10 +12,13 @@ from app.services import (
     export_timesheet_all_employees_xls,
     export_timesheet_annual_history_xls,
     export_timesheet_employee_xls,
+    export_timesheet_selected_employees_xls,
     export_timesheet_xls,
     EmailConfigurationError,
     get_day_activity,
     get_timesheet,
+    get_timesheet_lock,
+    is_timesheet_locked,
     list_timesheet_audit,
     list_timesheet_history,
     list_timesheet_site_options,
@@ -30,33 +33,51 @@ from app.services import (
 )
 from app.ui.components.feedback import show_feedback
 from app.ui.components.confirm import confirm_action
-from app.ui.components.module_header import module_header
-from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
 WORK_DRILLING = "#2563EB"
 WORK_STANDARD = "#16A34A"
 HOLIDAY = "#22C55E"
-REST = "#CBD5E1"
-ABSENT = "#FCA5A5"
-UNFILLED = "#E5E7EB"
+REST = "#334155"
+ABSENT = "#DC4545"
+UNFILLED = "#475569"
 BREAK = "#F59E0B"
 PERMISSION = "#A855F7"
 SICK = "#DC2626"
+from app.ui.components.dark_styles import BG, BORDER, CARD, FIELD
+DARK_TEXT = "#FFFFFF"
+DARK_MUTED = "#9DB0C5"
 PAGE_SIZE = 10
-TIMESHEET_DAY_WIDTH = 34
-TIMESHEET_DAY_HEIGHT = 28
+TIMESHEET_DAY_WIDTH = 38
+TIMESHEET_DAY_HEIGHT = 31
 
 
 def timesheet_page(page: ft.Page | None = None) -> ft.Control:
-    state: dict[str, Any] = {"timesheet": None, "history": [], "active": True, "page": 0}
+    state: dict[str, Any] = {"timesheet": None, "history": [], "active": True, "page": 0, "view": "dashboard", "selected_emp_ids": []}
     status = ft.Text("", size=12, color=MUTED)
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
     calendar_area = ft.Column(spacing=10)
     history_area = ft.Column(spacing=8)
     audit_area = ft.Column(spacing=8)
     validation_area = ft.Column(spacing=6)
+    dashboard_area = ft.Column(spacing=12)
+    anomalies_area = ft.Column(spacing=10)
+    content_area = ft.Container()
+    nav_buttons: dict[str, ft.TextButton] = {}
+    loading_overlay = ft.Container(
+        visible=False,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Row(
+            controls=[
+                ft.ProgressRing(color=PRIMARY, width=22, height=22, stroke_width=2.5),
+                ft.Text("Chargement...", color=DARK_MUTED, size=12),
+            ],
+            spacing=10,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
 
     month_field = ft.TextField(
         label="Mois TimeSheet",
@@ -68,6 +89,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     activity_date_field = ft.TextField(label="Date activite", hint_text="AAAA-MM-JJ", width=170)
     drilling_switch = ft.Switch(label="Drilling actif", value=False, active_color=PRIMARY)
     day_type_field = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Type de jour",
         value="work",
         width=190,
@@ -78,8 +100,9 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     )
     comment_field = ft.TextField(label="Commentaire", width=260)
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=240)
-    function_filter = ft.Dropdown(label="Fonction", value="all", width=220)
+    function_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Fonction", value="all", width=220)
     status_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Statut",
         value="all",
         width=180,
@@ -97,11 +120,12 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("sick", "Sick"),
         ],
     )
-    week_filter = ft.Dropdown(label="Semaine", value="all", width=140)
-    site_filter = ft.Dropdown(label="Site", value="all", width=160)
-    group_filter = ft.Dropdown(label="Groupe", value="all", width=180)
-    shift_filter = ft.Dropdown(label="Shift", value="all", width=150)
+    week_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Semaine", value="all", width=140)
+    site_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Site", value="all", width=160)
+    group_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Groupe", value="all", width=180)
+    shift_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Shift", value="all", width=150)
     badge_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Badge",
         value="all",
         width=160,
@@ -113,8 +137,27 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
     )
     bulk_start_field = ft.TextField(label="Debut drilling", hint_text="AAAA-MM-JJ", width=170)
     bulk_end_field = ft.TextField(label="Fin drilling", hint_text="AAAA-MM-JJ", width=170)
+    bulk_status_start_field = ft.TextField(label="Debut statut", hint_text="AAAA-MM-JJ", width=170)
+    bulk_status_end_field = ft.TextField(label="Fin statut", hint_text="AAAA-MM-JJ", width=170)
+    bulk_status_value_field = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
+        label="Statut a appliquer",
+        value="rest",
+        width=190,
+        options=[
+            ft.dropdown.Option("present", "Present"),
+            ft.dropdown.Option("rest", "Repos"),
+            ft.dropdown.Option("absent", "Absent"),
+            ft.dropdown.Option("break", "Break"),
+            ft.dropdown.Option("annual", "Annual leave"),
+            ft.dropdown.Option("permission", "Permission"),
+            ft.dropdown.Option("sick", "Sick"),
+        ],
+    )
+    selection_count_text = ft.Text("0 employe(s) dans la selection", size=11, color=MUTED)
     bulk_drilling_switch = ft.Switch(label="Drilling", value=True, active_color=PRIMARY)
     bulk_day_type_field = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Type periode",
         value="work",
         width=190,
@@ -123,9 +166,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("holiday", "Jours chomes 8H"),
         ],
     )
-    edit_employee_field = ft.Dropdown(label="Employe", width=260)
+    edit_employee_field = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Employe", width=260)
     edit_date_field = ft.TextField(label="Date", hint_text="AAAA-MM-JJ", width=170)
     edit_status_field = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Statut",
         value="present",
         width=170,
@@ -139,6 +183,35 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("sick", "Sick"),
         ],
     )
+    for control in (
+        month_field,
+        site_scope_field,
+        activity_date_field,
+        day_type_field,
+        comment_field,
+        search_field,
+        function_filter,
+        status_filter,
+        week_filter,
+        site_filter,
+        group_filter,
+        shift_filter,
+        badge_filter,
+        bulk_start_field,
+        bulk_end_field,
+        bulk_day_type_field,
+        bulk_status_start_field,
+        bulk_status_end_field,
+        bulk_status_value_field,
+        edit_employee_field,
+        edit_date_field,
+        edit_status_field,
+    ):
+        control.bgcolor = FIELD
+        control.color = DARK_TEXT
+        control.border_color = BORDER
+        control.focused_border_color = PRIMARY
+        control.label_style = ft.TextStyle(color=DARK_MUTED)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -177,6 +250,11 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         site_scope_field.value = current if current in {"all", *values} else "all"
 
     def refresh(event: ft.ControlEvent | None = None, automatic: bool = False) -> None:
+        loading_overlay.visible = True
+        try:
+            loading_overlay.update()
+        except RuntimeError:
+            pass
         try:
             load_site_scope_options()
             state["timesheet"] = get_timesheet(selected_month(), site_id=selected_site_id())
@@ -199,6 +277,11 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             )
         except ValueError as exc:
             notify(str(exc), DANGER)
+        loading_overlay.visible = False
+        try:
+            loading_overlay.update()
+        except RuntimeError:
+            pass
         _update()
 
     def refresh_filter_options() -> None:
@@ -363,6 +446,84 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             notify(str(exc), DANGER)
         _update()
 
+    def _update_selection_text() -> None:
+        n = len(state["selected_emp_ids"])
+        selection_count_text.value = f"{n} employe(s) dans la selection"
+        selection_count_text.color = PRIMARY if n else MUTED
+
+    def add_to_selection(event: ft.ControlEvent | None = None) -> None:
+        try:
+            emp_id = int(edit_employee_field.value or 0)
+            if not emp_id:
+                notify("Choisis un employe.", DANGER)
+                return
+            if emp_id not in state["selected_emp_ids"]:
+                state["selected_emp_ids"].append(emp_id)
+            _update_selection_text()
+            notify(f"Employe {emp_id} ajoute a la selection ({len(state['selected_emp_ids'])} total).", SUCCESS)
+        except (ValueError, TypeError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def clear_selection(event: ft.ControlEvent | None = None) -> None:
+        state["selected_emp_ids"].clear()
+        _update_selection_text()
+        notify("Selection videe.", MUTED)
+        _update()
+
+    def export_selection(event: ft.ControlEvent | None = None) -> None:
+        try:
+            ids = list(state["selected_emp_ids"])
+            if not ids:
+                notify("La selection est vide. Ajoute au moins un employe.", DANGER)
+                return
+            output = export_timesheet_selected_employees_xls(selected_month(), ids)
+            notify(f"Export Excel pour {len(ids)} employe(s) cree: {output}", SUCCESS)
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def apply_bulk_status_range(event: ft.ControlEvent | None = None) -> None:
+        from datetime import date as _date, timedelta
+        try:
+            start_str = str(bulk_status_start_field.value or "").strip()
+            end_str = str(bulk_status_end_field.value or "").strip()
+            status_val = str(bulk_status_value_field.value or "rest")
+            if not start_str or not end_str:
+                raise ValueError("Renseigne la date de debut et la date de fin.")
+            start_dt = _date.fromisoformat(start_str)
+            end_dt = _date.fromisoformat(end_str)
+            if end_dt < start_dt:
+                raise ValueError("La date de fin doit etre superieure ou egale a la date de debut.")
+            timesheet = state.get("timesheet") or {}
+            emp_rows = filtered_rows(timesheet)
+            if not emp_rows:
+                raise ValueError("Aucun employe dans la vue courante (applique tes filtres).")
+            dates = []
+            current = start_dt
+            while current <= end_dt:
+                dates.append(current.isoformat())
+                current += timedelta(days=1)
+            total = 0
+            errors = 0
+            for row in emp_rows:
+                emp_id = int(row["employee"]["id_employe"])
+                for day_str in dates:
+                    try:
+                        update_timesheet_day_status(emp_id, day_str, status_val)
+                        total += 1
+                    except Exception:
+                        errors += 1
+            notify(
+                f"Statut '{status_val}' applique sur {total} cellule(s). {errors} erreur(s)."
+                if errors else f"Statut '{status_val}' applique sur {total} cellule(s) — {len(emp_rows)} employe(s) x {len(dates)} jour(s).",
+                SUCCESS if not errors else WARNING,
+            )
+            refresh()
+        except ValueError as exc:
+            notify(str(exc), DANGER)
+            _update()
+
     def export_all_employee_excels(event: ft.ControlEvent | None = None) -> None:
         try:
             output = export_timesheet_all_employees_xls(selected_month())
@@ -441,26 +602,117 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         render_history()
         render_validation(timesheet)
         render_audit()
+        render_dashboard(timesheet)
+        render_anomalies(timesheet)
+        render_view()
 
     def render_summary(timesheet: dict[str, Any]) -> None:
         summary = timesheet["summary"]
-        period = timesheet["period"]
+        validation = timesheet.get("validation") or {"issues": []}
+        synchronization = timesheet.get("synchronization") or {}
+        total_controlled = int(summary.get("worked_days", 0)) + int(summary.get("rest_days", 0)) + int(summary.get("break_days", 0)) + int(summary.get("absent_days", 0))
+        conformity = round((total_controlled - len(validation["issues"])) / total_controlled * 100) if total_controlled else 100
         summary_row.controls = [
-            _summary_chip("Mois TimeSheet", period["month"], PRIMARY, ft.Icons.CALENDAR_MONTH_OUTLINED),
-            _summary_chip("Periode", f"{period['start']} au {period['end']}", PRIMARY, ft.Icons.DATE_RANGE_OUTLINED),
+            _summary_chip(
+                "Presence synchronisee",
+                f"{synchronization.get('days_with_data', 0)} j / {synchronization.get('validated_days', 0)} valides",
+                SUCCESS,
+                ft.Icons.SYNC_OUTLINED,
+            ),
             _summary_chip("Employes", summary["employees"], PRIMARY, ft.Icons.GROUP_OUTLINED),
-            _summary_chip("Jours travailles", summary["worked_days"], SUCCESS, ft.Icons.CHECK_CIRCLE_OUTLINE),
-            _summary_chip("Repos", summary["rest_days"], MUTED, ft.Icons.EVENT_BUSY_OUTLINED),
+            _summary_chip("Heures reelles", summary.get("actual_hours", 0), SUCCESS, ft.Icons.TIMER_OUTLINED),
+            _summary_chip("Breaks", summary["break_days"], WARNING, ft.Icons.FREE_BREAKFAST_OUTLINED),
             _summary_chip("Absents", summary.get("absent_days", 0), DANGER, ft.Icons.PERSON_OFF_OUTLINED),
-            _summary_chip("Non renseignes", summary.get("unfilled_days", 0), WARNING, ft.Icons.HELP_OUTLINE),
-            _summary_chip("Break", summary["break_days"], WARNING, ft.Icons.FREE_BREAKFAST_OUTLINED),
-            _summary_chip("Permission", summary.get("permission_days", 0), PRIMARY, ft.Icons.EVENT_NOTE_OUTLINED),
-            _summary_chip("Sick", summary.get("sick_days", 0), DANGER, ft.Icons.HEALING_OUTLINED),
-            _summary_chip("Heures 12H", summary.get("drilling_hours", 0), PRIMARY, ft.Icons.ACCESS_TIME_OUTLINED),
-            _summary_chip("Heures 8H", summary.get("standard_hours", 0), SUCCESS, ft.Icons.ACCESS_TIME_OUTLINED),
-            _summary_chip("Heures", summary["hours"], PRIMARY, ft.Icons.ACCESS_TIME_OUTLINED),
-            _summary_chip("Heures reelles", summary.get("actual_hours", 0), WARNING, ft.Icons.TIMER_OUTLINED),
+            _summary_chip("Anomalies", len(validation["issues"]), DANGER if validation["issues"] else SUCCESS, ft.Icons.WARNING_AMBER_OUTLINED),
+            _summary_chip("Taux conformite", f"{conformity}%", SUCCESS if conformity >= 90 else WARNING, ft.Icons.VERIFIED_OUTLINED),
         ]
+
+    def render_dashboard(timesheet: dict[str, Any]) -> None:
+        validation = timesheet.get("validation") or {"issues": []}
+        weekly: dict[int, float] = {}
+        statuses: dict[str, int] = {}
+        for row in timesheet["rows"]:
+            for cell in row["cells"]:
+                weekly[int(cell.get("week_index") or 1)] = weekly.get(int(cell.get("week_index") or 1), 0) + float(cell.get("hours") or 0)
+                key = str(cell.get("status") or "unfilled")
+                statuses[key] = statuses.get(key, 0) + 1
+        max_hours = max(weekly.values(), default=1)
+        dashboard_area.controls = [
+            summary_row,
+            ft.ResponsiveRow(
+                controls=[
+                    ft.Container(
+                        col={"xs": 12, "lg": 7},
+                        content=_dark_panel(
+                            "Heures travaillees par semaine",
+                            [
+                                ft.Row(
+                                    controls=[
+                                        _week_bar(f"S{week}", hours, max_hours)
+                                        for week, hours in sorted(weekly.items())
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                                    vertical_alignment=ft.CrossAxisAlignment.END,
+                                )
+                            ],
+                        ),
+                    ),
+                    ft.Container(
+                        col={"xs": 12, "lg": 5},
+                        content=_dark_panel(
+                            "Repartition des statuts",
+                            [
+                                _distribution_line("12h Drilling", statuses.get("worked_drilling", 0), WORK_DRILLING),
+                                _distribution_line("8h Standard", statuses.get("worked_standard", 0), WORK_STANDARD),
+                                _distribution_line("Break", statuses.get("break", 0), BREAK),
+                                _distribution_line("Absences", statuses.get("absent", 0), DANGER),
+                                _distribution_line("Non renseigne", statuses.get("unfilled", 0), UNFILLED),
+                            ],
+                        ),
+                    ),
+                ],
+                spacing=12,
+                run_spacing=12,
+            ),
+            _dark_panel(
+                "Alertes critiques",
+                [
+                    *[
+                        _issue_row(str(issue.get("message") or "Anomalie TimeSheet"), DANGER if issue in validation.get("blocking", []) else WARNING)
+                        for issue in validation["issues"][:6]
+                    ],
+                    *([] if validation["issues"] else [ft.Text("Aucune anomalie critique detectee.", color=SUCCESS, size=11)]),
+                ],
+            ),
+        ]
+
+    def render_anomalies(timesheet: dict[str, Any]) -> None:
+        validation = timesheet.get("validation") or {"issues": [], "blocking": [], "warnings": []}
+        anomalies_area.controls = [
+            _dark_panel(
+                f"Anomalies detectees ({len(validation['issues'])})",
+                [
+                    _issue_row(str(issue.get("message") or "-"), DANGER if issue in validation["blocking"] else WARNING)
+                    for issue in validation["issues"]
+                ] or [ft.Text("Aucune anomalie. Le TimeSheet est coherent.", color=SUCCESS, size=11)],
+            )
+        ]
+
+    def set_view(view: str) -> None:
+        state["view"] = view
+        render_view()
+        _update()
+
+    def render_view() -> None:
+        view = str(state["view"])
+        for key, button in nav_buttons.items():
+            selected = key == view
+            button.style = ft.ButtonStyle(
+                color="#FFFFFF" if selected else DARK_MUTED,
+                bgcolor=PRIMARY if selected else FIELD,
+                shape=ft.RoundedRectangleBorder(radius=8),
+            )
+        content_area.content = views[view]
 
     def render_calendar(timesheet: dict[str, Any]) -> None:
         days = timesheet["days"]
@@ -471,17 +723,16 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         page_rows = rows[start : start + PAGE_SIZE]
         columns = [
             ft.DataColumn(ft.Text("Employe")),
-            ft.DataColumn(ft.Text("Badge")),
             ft.DataColumn(ft.Text("Fonction")),
+            ft.DataColumn(ft.Text("JT")),
+            ft.DataColumn(ft.Text("Repos")),
+            ft.DataColumn(ft.Text("Abs.")),
+            ft.DataColumn(ft.Text("Break")),
+            ft.DataColumn(ft.Text("H. reelles")),
             *[
                 ft.DataColumn(_day_header(day))
                 for day in days
             ],
-            ft.DataColumn(ft.Text("JT")),
-            ft.DataColumn(ft.Text("Repos")),
-            ft.DataColumn(ft.Text("Break")),
-            ft.DataColumn(ft.Text("Heures")),
-            ft.DataColumn(ft.Text("H. reelles")),
         ]
 
         calendar_area.controls = [
@@ -534,29 +785,38 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                         rows=[
                             ft.DataRow(
                                 cells=[
-                                    ft.DataCell(ft.Text(_employee_name(row["employee"]), color=TEXT, weight=ft.FontWeight.BOLD)),
-                                    ft.DataCell(ft.Text(str(row["employee"].get("numero_badge") or "-"))),
-                                    ft.DataCell(ft.Text(str(row["employee"].get("fonction") or "-"))),
+                                    ft.DataCell(_employee_identity(row["employee"])),
+                                    ft.DataCell(ft.Text(str(row["employee"].get("fonction") or "-"), color=DARK_MUTED)),
+                                    ft.DataCell(ft.Text(str(row["worked_days"]), color=SUCCESS, weight=ft.FontWeight.BOLD)),
+                                    ft.DataCell(ft.Text(str(row["rest_days"]), color=DARK_MUTED)),
+                                    ft.DataCell(ft.Text(str(row.get("absent_days", 0)), color=DANGER, weight=ft.FontWeight.BOLD)),
+                                    ft.DataCell(ft.Text(str(row["break_days"]), color=WARNING, weight=ft.FontWeight.BOLD)),
+                                    ft.DataCell(ft.Text(str(row.get("actual_hours", 0)), color=PRIMARY, weight=ft.FontWeight.BOLD)),
                                     *[
                                         ft.DataCell(_calendar_cell(cell, int(row["employee"]["id_employe"]), quick_edit_status))
                                         for cell in row["cells"]
                                     ],
-                                    ft.DataCell(ft.Text(str(row["worked_days"]), color=SUCCESS, weight=ft.FontWeight.BOLD)),
-                                    ft.DataCell(ft.Text(str(row["rest_days"]), color=MUTED)),
-                                    ft.DataCell(ft.Text(str(row["break_days"]), color=WARNING, weight=ft.FontWeight.BOLD)),
-                                    ft.DataCell(ft.Text(str(row["hours"]), color=PRIMARY, weight=ft.FontWeight.BOLD)),
-                                    ft.DataCell(ft.Text(str(row.get("actual_hours", 0)), color=WARNING, weight=ft.FontWeight.BOLD)),
                                 ]
                             )
                             for row in page_rows
                         ],
-                        border=ft.border.all(1, "#BFDBFE"),
+                        bgcolor=FIELD,
+                        border=ft.border.all(1, BORDER),
                         border_radius=8,
-                        heading_row_color="#DBEAFE",
+                        heading_row_color="#142B45",
                         data_row_min_height=42,
                         data_row_max_height=48,
                         column_spacing=6,
                         horizontal_margin=8,
+                        horizontal_lines=ft.BorderSide(1, BORDER),
+                        vertical_lines=ft.BorderSide(1, BORDER),
+                        heading_text_style=ft.TextStyle(size=10, weight=ft.FontWeight.BOLD, color=DARK_TEXT),
+                        data_text_style=ft.TextStyle(size=10, color=DARK_MUTED),
+                        data_row_color={
+                            ft.ControlState.HOVERED: "#142B45",
+                            ft.ControlState.PRESSED: "#17304A",
+                            ft.ControlState.SELECTED: "#123B46",
+                        },
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -633,7 +893,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         history_area.controls = [
             ft.Row(
                 controls=[
-                    ft.Text("Historique des TimeSheets", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                    ft.Text("Historique des TimeSheets", size=16, weight=ft.FontWeight.BOLD, color=DARK_TEXT),
                     ft.OutlinedButton(
                         "Telecharger 12 mois",
                         icon=ft.Icons.DOWNLOAD_FOR_OFFLINE_OUTLINED,
@@ -657,47 +917,113 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 spacing=8,
             )
             if state["history"]
-            else ft.Text("Aucun historique disponible.", size=12, color=MUTED),
+            else ft.Text("Aucun historique disponible.", size=12, color=DARK_MUTED),
         ]
 
     def render_validation(timesheet: dict[str, Any]) -> None:
         lock = timesheet.get("lock")
+        if not lock:
+            try:
+                lock = get_timesheet_lock(selected_month())
+            except Exception:
+                lock = None
         validation = timesheet.get("validation") or {"issues": [], "blocking": [], "warnings": []}
+        locked = bool(lock)
+
+        lock_detail_controls: list[ft.Control] = []
+        if locked:
+            lock_detail_controls = [
+                ft.Container(
+                    bgcolor="#0F2E1E",
+                    border=ft.border.only(left=ft.BorderSide(3, SUCCESS)),
+                    border_radius=ft.border_radius.only(top_right=8, bottom_right=8),
+                    padding=ft.padding.symmetric(horizontal=14, vertical=10),
+                    content=ft.Column(
+                        controls=[
+                            ft.Row(
+                                controls=[
+                                    ft.Icon(ft.Icons.LOCK_OUTLINE, color=SUCCESS, size=16),
+                                    ft.Text("TimeSheet verrouille", color=SUCCESS, size=12, weight=ft.FontWeight.BOLD),
+                                ],
+                                spacing=6,
+                            ),
+                            ft.Text(
+                                f"Verrouille par : {lock.get('locked_by') or 'inconnu'}",
+                                size=11, color=DARK_TEXT,
+                            ),
+                            ft.Text(
+                                f"Le : {str(lock.get('locked_at') or '-')[:19]}",
+                                size=11, color=DARK_MUTED,
+                            ),
+                            ft.Text(
+                                f"Commentaire : {lock.get('commentaire') or 'Aucun commentaire'}",
+                                size=11, color=DARK_MUTED,
+                            ),
+                        ],
+                        spacing=3,
+                    ),
+                )
+            ]
+
+        blocking_count = len(validation.get("blocking") or [])
+        warnings_count = len(validation.get("warnings") or [])
+        issues_count = len(validation.get("issues") or [])
+
         validation_area.controls = [
             ft.Row(
                 controls=[
                     _status_chip(
-                        "Verrouille" if lock else "Modifiable",
-                        SUCCESS if lock else WARNING,
-                        ft.Icons.LOCK_OUTLINE if lock else ft.Icons.LOCK_OPEN_OUTLINED,
+                        "Verrouille" if locked else "Modifiable",
+                        SUCCESS if locked else WARNING,
+                        ft.Icons.LOCK_OUTLINE if locked else ft.Icons.LOCK_OPEN_OUTLINED,
                     ),
-                    ft.Text(
-                        f"{len(validation['blocking'])} bloquant(s), {len(validation['warnings'])} alerte(s)",
-                        size=12,
-                        color=DANGER if validation["blocking"] else MUTED,
+                    ft.Container(
+                        bgcolor=FIELD,
+                        border=ft.border.all(1, DANGER if blocking_count else BORDER),
+                        border_radius=8,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                        content=ft.Text(
+                            f"{blocking_count} bloquant(s)  |  {warnings_count} alerte(s)  |  {issues_count} anomalie(s)",
+                            size=11,
+                            color=DANGER if blocking_count else (WARNING if warnings_count else SUCCESS),
+                        ),
                     ),
-                    ft.ElevatedButton("Verrouiller", icon=ft.Icons.LOCK_OUTLINE, disabled=bool(lock), on_click=lock_month),
-                    ft.OutlinedButton("Deverrouiller", icon=ft.Icons.LOCK_OPEN_OUTLINED, disabled=not bool(lock), on_click=unlock_month),
+                    ft.ElevatedButton(
+                        "Verrouiller",
+                        icon=ft.Icons.LOCK_OUTLINE,
+                        disabled=locked,
+                        on_click=lock_month,
+                    ),
+                    ft.OutlinedButton(
+                        "Deverrouiller",
+                        icon=ft.Icons.LOCK_OPEN_OUTLINED,
+                        disabled=not locked,
+                        on_click=unlock_month,
+                    ),
                 ],
                 wrap=True,
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+            *lock_detail_controls,
             ft.Column(
                 controls=[
-                    ft.Text(str(issue.get("message") or ""), size=12, color=WARNING)
-                    for issue in validation["issues"][:6]
+                    _issue_row(
+                        str(issue.get("message") or ""),
+                        DANGER if issue in (validation.get("blocking") or []) else WARNING,
+                    )
+                    for issue in validation["issues"]
                 ],
-                spacing=3,
+                spacing=4,
             )
             if validation["issues"]
-            else ft.Text("Validation OK pour les controles TimeSheet.", size=12, color=SUCCESS),
+            else ft.Text("Validation OK — aucune anomalie detectee pour ce mois.", size=12, color=SUCCESS),
         ]
 
     def render_audit() -> None:
         rows = list_timesheet_audit(selected_month(), limit=12)
         audit_area.controls = [
-            ft.Text("Audit TimeSheet", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+            ft.Text("Audit TimeSheet", size=16, weight=ft.FontWeight.BOLD, color=DARK_TEXT),
             ft.Column(
                 controls=[
                     ft.Text(
@@ -705,186 +1031,207 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                         f"{row.get('nom') or ''} {row.get('prenom') or ''} "
                         f"{row.get('ancienne_valeur') or '-'} -> {row.get('nouvelle_valeur') or '-'}",
                         size=12,
-                        color=MUTED,
+                        color=DARK_MUTED,
                     )
                     for row in rows
                 ],
                 spacing=4,
             )
             if rows
-            else ft.Text("Aucune modification auditee pour ce mois.", size=12, color=MUTED),
+            else ft.Text("Aucune modification auditee pour ce mois.", size=12, color=DARK_MUTED),
         ]
 
-    root = ft.Column(
+    filters_panel = _dark_panel(
+        "Filtres de la matrice",
+        [
+            ft.Row(
+                controls=[
+                    search_field,
+                    function_filter,
+                    status_filter,
+                    week_filter,
+                    site_filter,
+                    group_filter,
+                    shift_filter,
+                    badge_filter,
+                    ft.ElevatedButton("Appliquer", icon=ft.Icons.FILTER_ALT_OUTLINED, on_click=refresh_filtered),
+                ],
+                wrap=True,
+                spacing=10,
+            )
+        ],
+    )
+    configuration_panel = ft.Column(
         controls=[
-            module_header(
-                "TimeSheet",
-                "Calendrier des heures travaillees du 21 au 20, calcule depuis la liste de presence.",
+            _dark_panel(
+                "Activite drilling",
+                [
+                    ft.Row(
+                        controls=[
+                            activity_date_field,
+                            drilling_switch,
+                            day_type_field,
+                            comment_field,
+                            ft.OutlinedButton("Charger jour", icon=ft.Icons.TODAY_OUTLINED, on_click=load_activity),
+                            ft.ElevatedButton("Enregistrer jour", icon=ft.Icons.SAVE_OUTLINED, on_click=save_activity),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                    ),
+                    ft.Row(
+                        controls=[
+                            bulk_start_field,
+                            bulk_end_field,
+                            bulk_drilling_switch,
+                            bulk_day_type_field,
+                            ft.OutlinedButton("Appliquer periode", icon=ft.Icons.DATE_RANGE_OUTLINED, on_click=save_bulk_activity),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                    ),
+                ],
             ),
-            ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=ft.Column(
-                    controls=[
-                        ft.Row(
-                            controls=[
-                                month_field,
-                                site_scope_field,
-                                ft.ElevatedButton("Actualiser", icon=ft.Icons.SYNC_OUTLINED, on_click=refresh),
-                                ft.OutlinedButton("Outlook", icon=ft.Icons.MAIL_OUTLINED, on_click=prepare_timesheet_in_outlook),
-                                ft.OutlinedButton("WhatsApp", icon=ft.Icons.CHAT_OUTLINED, on_click=prepare_timesheet_in_whatsapp),
-                                ft.PopupMenuButton(
-                                    content=ft.OutlinedButton("Exports", icon=ft.Icons.DOWNLOAD_OUTLINED),
-                                    items=[
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("TimeSheet complet Excel"),
-                                            on_click=export_excel,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("Envoyer TimeSheet par email"),
-                                            on_click=send_timesheet_by_email,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("Preparer dans Outlook"),
-                                            on_click=prepare_timesheet_in_outlook,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("Preparer dans WhatsApp"),
-                                            on_click=prepare_timesheet_in_whatsapp,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("TimeSheet individuel Excel"),
-                                            on_click=export_employee_excel,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("Tous les individuels Excel"),
-                                            on_click=export_all_employee_excels,
-                                        ),
-                                        ft.PopupMenuItem(
-                                            content=ft.Text("Exporter audit"),
-                                            on_click=export_audit,
-                                        ),
-                                    ],
+            _dark_panel(
+                "Modification manuelle — employe / jour",
+                [
+                    ft.Row(
+                        controls=[
+                            edit_employee_field,
+                            edit_date_field,
+                            edit_status_field,
+                            ft.ElevatedButton("Modifier", icon=ft.Icons.SAVE_OUTLINED, on_click=save_timesheet_edit),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                    ),
+                ],
+            ),
+            _dark_panel(
+                "Application en masse — statut sur plage de dates",
+                [
+                    ft.Text(
+                        "Applique un statut a tous les employes de la vue courante (respecte les filtres actifs) "
+                        "pour chaque jour de la periode choisie.",
+                        size=11,
+                        color=DARK_MUTED,
+                    ),
+                    ft.Row(
+                        controls=[
+                            bulk_status_start_field,
+                            bulk_status_end_field,
+                            bulk_status_value_field,
+                            ft.ElevatedButton(
+                                "Appliquer a tous les employes filtres",
+                                icon=ft.Icons.GROUPS_OUTLINED,
+                                on_click=lambda event: confirm_action(
+                                    page,
+                                    "Confirmer l'application en masse",
+                                    f"Le statut '{bulk_status_value_field.value}' sera applique a tous les employes "
+                                    f"de la vue courante du {bulk_status_start_field.value or '?'} au {bulk_status_end_field.value or '?'}. "
+                                    "Cette operation est reversible employe par employe.",
+                                    apply_bulk_status_range,
+                                    confirm_label="Appliquer",
                                 ),
-                                _summary_chip("Source", "Presence", SUCCESS, ft.Icons.AUTORENEW_OUTLINED),
-                                status,
-                            ],
-                            wrap=True,
-                            spacing=10,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.ExpansionTile(
-                            title="Filtres",
-                            leading=ft.Icons.FILTER_ALT_OUTLINED,
-                            expanded=True,
-                            controls_padding=ft.padding.only(left=10, right=10, bottom=10),
-                            controls=[
-                                ft.Row(
-                                    controls=[
-                                        search_field,
-                                        function_filter,
-                                        status_filter,
-                                        week_filter,
-                                        site_filter,
-                                        group_filter,
-                                        shift_filter,
-                                        badge_filter,
-                                        ft.ElevatedButton("Appliquer", icon=ft.Icons.FILTER_ALT_OUTLINED, on_click=refresh_filtered),
-                                    ],
-                                    wrap=True,
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                )
-                            ],
-                        ),
-                        ft.ExpansionTile(
-                            title="Activite drilling",
-                            leading=ft.Icons.DATE_RANGE_OUTLINED,
-                            controls_padding=ft.padding.only(left=10, right=10, bottom=10),
-                            controls=[
-                                ft.Row(
-                                    controls=[
-                                        activity_date_field,
-                                        drilling_switch,
-                                        day_type_field,
-                                        comment_field,
-                                        ft.OutlinedButton("Charger jour", icon=ft.Icons.TODAY_OUTLINED, on_click=load_activity),
-                                        ft.ElevatedButton("Enregistrer jour", icon=ft.Icons.SAVE_OUTLINED, on_click=save_activity),
-                                    ],
-                                    wrap=True,
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                                ft.Row(
-                                    controls=[
-                                        bulk_start_field,
-                                        bulk_end_field,
-                                        bulk_drilling_switch,
-                                        bulk_day_type_field,
-                                        ft.OutlinedButton("Appliquer periode", icon=ft.Icons.DATE_RANGE_OUTLINED, on_click=save_bulk_activity),
-                                    ],
-                                    wrap=True,
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                            ],
-                        ),
-                        ft.ExpansionTile(
-                            title="Modification manuelle",
-                            leading=ft.Icons.EDIT_CALENDAR_OUTLINED,
-                            controls_padding=ft.padding.only(left=10, right=10, bottom=10),
-                            controls=[
-                                ft.Row(
-                                    controls=[
-                                        edit_employee_field,
-                                        edit_date_field,
-                                        edit_status_field,
-                                        ft.ElevatedButton("Modifier", icon=ft.Icons.SAVE_OUTLINED, on_click=save_timesheet_edit),
-                                    ],
-                                    wrap=True,
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                )
-                            ],
-                        ),
-                        ft.ExpansionTile(
-                            title="Validation",
-                            leading=ft.Icons.VERIFIED_OUTLINED,
-                            controls_padding=ft.padding.only(left=10, right=10, bottom=10),
-                            controls=[validation_area],
-                        ),
-                        summary_row,
-                    ],
-                    spacing=14,
-                ),
+                            ),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                    ),
+                ],
             ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=calendar_area,
-            ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=history_area,
-            ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=audit_area,
+            _dark_panel(
+                "Selection d'employes — export personnalise",
+                [
+                    ft.Text(
+                        "Selectionne des employes dans le menu deroulant ci-dessus et ajoute-les "
+                        "a la selection pour exporter uniquement leurs TimeSheets individuels.",
+                        size=11,
+                        color=DARK_MUTED,
+                    ),
+                    selection_count_text,
+                    ft.Row(
+                        controls=[
+                            edit_employee_field,
+                            ft.ElevatedButton(
+                                "Ajouter a la selection",
+                                icon=ft.Icons.PLAYLIST_ADD_OUTLINED,
+                                on_click=add_to_selection,
+                            ),
+                            ft.OutlinedButton(
+                                "Vider la selection",
+                                icon=ft.Icons.CLEAR_ALL_OUTLINED,
+                                on_click=clear_selection,
+                            ),
+                            ft.ElevatedButton(
+                                "Exporter la selection",
+                                icon=ft.Icons.TABLE_VIEW_OUTLINED,
+                                on_click=export_selection,
+                            ),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                    ),
+                ],
             ),
         ],
-        spacing=18,
+        spacing=12,
+    )
+    views = {
+        "dashboard": dashboard_area,
+        "matrix": ft.Column(controls=[filters_panel, _dark_panel("Matrice TimeSheet 21 → 20", [calendar_area])], spacing=12),
+        "anomalies": anomalies_area,
+        "validation": _dark_panel("Validation du TimeSheet", [validation_area]),
+        "history": ft.Column(controls=[_dark_panel("Historique", [history_area]), _dark_panel("Audit et tracabilite", [audit_area])], spacing=12),
+        "configuration": configuration_panel,
+    }
+    for key, label, icon in [
+        ("dashboard", "Dashboard", ft.Icons.DASHBOARD_OUTLINED),
+        ("matrix", "Matrice", ft.Icons.GRID_VIEW_OUTLINED),
+        ("anomalies", "Anomalies", ft.Icons.WARNING_AMBER_OUTLINED),
+        ("validation", "Validation", ft.Icons.VERIFIED_OUTLINED),
+        ("history", "Historique", ft.Icons.HISTORY_OUTLINED),
+        ("configuration", "Configuration", ft.Icons.SETTINGS_OUTLINED),
+    ]:
+        nav_buttons[key] = ft.TextButton(label, icon=icon, on_click=lambda event, target=key: set_view(target))
+
+    root = ft.Container(
+        bgcolor=BG,
+        expand=True,
+        padding=12,
+        content=ft.Column(
+        controls=[
+            _timesheet_header(
+                month_field,
+                site_scope_field,
+                refresh,
+                lock_month,
+                export_excel,
+                prepare_timesheet_in_outlook,
+                prepare_timesheet_in_whatsapp,
+                send_timesheet_by_email,
+                export_employee_excel,
+                export_all_employee_excels,
+                export_selection,
+                export_audit,
+            ),
+            ft.Container(
+                bgcolor=CARD,
+                border=ft.border.all(1, BORDER),
+                border_radius=8,
+                padding=8,
+                content=ft.Row(controls=list(nav_buttons.values()), spacing=6, wrap=True),
+            ),
+            ft.Row(
+                controls=[status, loading_overlay],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            content_area,
+        ],
+        spacing=12,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+        ),
     )
     root.data = {"dispose": dispose}
     refresh()
@@ -895,6 +1242,31 @@ def _employee_name(employee: dict[str, Any]) -> str:
     if employee.get("nom") or employee.get("prenom"):
         return f"{employee.get('nom') or ''} {employee.get('prenom') or ''}".strip()
     return str(employee.get("nom_complet") or "-")
+
+
+def _employee_identity(employee: dict[str, Any]) -> ft.Control:
+    name = _employee_name(employee)
+    initials = "".join(part[0] for part in name.split()[:2] if part) or "?"
+    return ft.Row(
+        controls=[
+            ft.Container(
+                width=30,
+                height=30,
+                bgcolor=PRIMARY,
+                border_radius=15,
+                alignment=ft.Alignment.CENTER,
+                content=ft.Text(initials.upper(), color="#FFFFFF", size=9, weight=ft.FontWeight.BOLD),
+            ),
+            ft.Column(
+                controls=[
+                    ft.Text(name, color=DARK_TEXT, size=10, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"Badge: {employee.get('numero_badge') or '-'}", color=DARK_MUTED, size=8),
+                ],
+                spacing=0,
+            ),
+        ],
+        spacing=6,
+    )
 
 
 def _calendar_cell(cell: dict[str, Any], employee_id: int, on_status_change: object) -> ft.Control:
@@ -965,14 +1337,37 @@ def _shift_label(shift_code: str) -> str:
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        stat_card(label, value, color, icon, compact=True),
+        bgcolor=CARD,
+        border=ft.border.all(1, BORDER),
+        border_radius=8,
+        padding=12,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=42,
+                    height=42,
+                    bgcolor=color,
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, color="#FFFFFF", size=22),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, color=DARK_MUTED, size=10),
+                        ft.Text(str(value), color=DARK_TEXT, size=20, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=0,
+                ),
+            ],
+            spacing=9,
+        ),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
     )
 
 
 def _status_chip(label: str, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=FIELD,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=10, vertical=7),
@@ -1001,22 +1396,137 @@ def _day_header(day: dict[str, Any]) -> ft.Control:
     return ft.Container(
         width=TIMESHEET_DAY_WIDTH,
         padding=ft.padding.symmetric(horizontal=2, vertical=3),
-        bgcolor="#EFF6FF" if int(day["week_index"]) % 2 else "#F8FAFC",
+        bgcolor="#142B45" if int(day["week_index"]) % 2 else FIELD,
         border=ft.border.only(
-            left=ft.BorderSide(3 if day.get("week_start") else 1, "#1E3A8A" if day.get("week_start") else "#BFDBFE"),
-            right=ft.BorderSide(1, "#BFDBFE"),
-            top=ft.BorderSide(1, "#BFDBFE"),
-            bottom=ft.BorderSide(1, "#BFDBFE"),
+            left=ft.BorderSide(3 if day.get("week_start") else 1, PRIMARY if day.get("week_start") else BORDER),
+            right=ft.BorderSide(1, BORDER),
+            top=ft.BorderSide(1, BORDER),
+            bottom=ft.BorderSide(1, BORDER),
         ),
         border_radius=4,
         content=ft.Column(
             controls=[
                 ft.Text(f"S{day['week_index']}", size=10, color=PRIMARY, weight=ft.FontWeight.BOLD),
-                ft.Text(str(day["day"]), size=11, color=TEXT, weight=ft.FontWeight.BOLD),
-                ft.Text(day["weekday"], size=9, color=MUTED),
+                ft.Text(str(day["day"]), size=11, color=DARK_TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(day["weekday"], size=9, color=DARK_MUTED),
                 ft.Text("12h" if day["has_drilling"] else "8h", size=9, color=activity_color, weight=ft.FontWeight.BOLD),
             ],
             spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+
+def _dark_panel(title: str, controls: list[ft.Control]) -> ft.Control:
+    return ft.Container(
+        bgcolor=CARD,
+        border=ft.border.all(1, BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Column(
+            controls=[ft.Text(title, color=DARK_TEXT, size=15, weight=ft.FontWeight.BOLD), *controls],
+            spacing=11,
+        ),
+    )
+
+
+def _week_bar(label: str, value: float, maximum: float) -> ft.Control:
+    height = max(16, int(130 * value / maximum)) if maximum else 16
+    return ft.Column(
+        controls=[
+            ft.Text(str(round(value)), color=DARK_TEXT, size=10, weight=ft.FontWeight.BOLD),
+            ft.Container(width=54, height=height, bgcolor=WORK_DRILLING, border_radius=6),
+            ft.Text(label, color=DARK_MUTED, size=9),
+        ],
+        spacing=4,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        alignment=ft.MainAxisAlignment.END,
+    )
+
+
+def _distribution_line(label: str, value: Any, color: str) -> ft.Control:
+    return ft.Container(
+        bgcolor=FIELD,
+        border=ft.border.all(1, BORDER),
+        border_radius=8,
+        padding=9,
+        content=ft.Row(
+            controls=[
+                ft.Container(width=10, height=10, bgcolor=color, border_radius=5),
+                ft.Text(label, color=DARK_MUTED, size=10, expand=True),
+                ft.Text(str(value), color=DARK_TEXT, size=11, weight=ft.FontWeight.BOLD),
+            ],
+            spacing=8,
+        ),
+    )
+
+
+def _issue_row(message: str, color: str) -> ft.Control:
+    return ft.Container(
+        bgcolor=FIELD,
+        border=ft.border.all(1, color),
+        border_radius=8,
+        padding=10,
+        content=ft.Row(
+            controls=[
+                ft.Icon(ft.Icons.WARNING_AMBER_OUTLINED, color=color, size=18),
+                ft.Text(message, color=DARK_TEXT, size=10, expand=True),
+            ],
+            spacing=8,
+        ),
+    )
+
+
+def _timesheet_header(
+    month_field: ft.TextField,
+    site_field: ft.Dropdown,
+    refresh: Any,
+    validate: Any,
+    export_excel: Any,
+    outlook: Any,
+    whatsapp: Any,
+    email: Any,
+    export_employee: Any,
+    export_all: Any,
+    export_selection: Any,
+    export_audit: Any,
+) -> ft.Control:
+    return ft.Container(
+        bgcolor=CARD,
+        border=ft.border.all(1, BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Row(
+            controls=[
+                ft.Column(
+                    controls=[
+                        ft.Text("TimeSheet 21 → 20", color=DARK_TEXT, size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text("Pilotage, controle et validation de la periode.", color=DARK_MUTED, size=10),
+                    ],
+                    spacing=2,
+                    width=280,
+                ),
+                month_field,
+                site_field,
+                ft.IconButton(icon=ft.Icons.SYNC_OUTLINED, tooltip="Synchroniser", icon_color=PRIMARY, on_click=refresh),
+                ft.PopupMenuButton(
+                    icon=ft.Icons.DOWNLOAD_OUTLINED,
+                    tooltip="Exports et partage",
+                    items=[
+                        ft.PopupMenuItem(content=ft.Text("TimeSheet complet Excel"), on_click=export_excel),
+                        ft.PopupMenuItem(content=ft.Text("Envoyer par email"), on_click=email),
+                        ft.PopupMenuItem(content=ft.Text("Preparer dans Outlook"), on_click=outlook),
+                        ft.PopupMenuItem(content=ft.Text("Preparer dans WhatsApp"), on_click=whatsapp),
+                        ft.PopupMenuItem(content=ft.Text("TimeSheet individuel Excel"), on_click=export_employee),
+                        ft.PopupMenuItem(content=ft.Text("Tous les individuels Excel"), on_click=export_all),
+                        ft.PopupMenuItem(content=ft.Text("Exporter la selection"), on_click=export_selection),
+                        ft.PopupMenuItem(content=ft.Text("Exporter audit"), on_click=export_audit),
+                    ],
+                ),
+                ft.ElevatedButton("Valider TimeSheet", icon=ft.Icons.VERIFIED_OUTLINED, on_click=validate),
+            ],
+            spacing=10,
+            wrap=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
     )

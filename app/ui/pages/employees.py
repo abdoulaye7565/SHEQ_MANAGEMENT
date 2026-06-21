@@ -18,12 +18,13 @@ from app.services import (
     return_employees_to_service,
     update_employee_shift,
 )
-from app.ui.components.module_header import module_header
-from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
+from app.ui.components.dark_styles import BG, CARD, DARK_BORDER, DARK_MUTED, DARK_TEXT, ROW
+
 PAGE_SIZE = 10
+INNER = "#081525"
 
 
 def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = None) -> ft.Control:
@@ -31,6 +32,20 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
     status = ft.Text("", size=12, color=MUTED)
     table_area = ft.Column(spacing=10)
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
+    right_area = ft.Column(spacing=12)
+    loading_overlay = ft.Container(
+        visible=False,
+        alignment=ft.Alignment(0, 0),
+        content=ft.Row(
+            controls=[
+                ft.ProgressRing(color=PRIMARY, width=22, height=22, stroke_width=2.5),
+                ft.Text("Chargement...", color=DARK_MUTED, size=12),
+            ],
+            spacing=10,
+            tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
 
     search_field = ft.TextField(
         label="Recherche",
@@ -39,6 +54,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         on_submit=lambda event: refresh_table(),
     )
     state_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Situation",
         value="all",
         width=190,
@@ -52,10 +68,11 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             ft.dropdown.Option("planned", "Break planifie"),
         ],
     )
-    site_filter = ft.Dropdown(label="Site", value="all", width=180)
-    function_filter = ft.Dropdown(label="Fonction", value="all", width=220)
-    shift_filter = ft.Dropdown(label="Shift", value="all", width=170)
+    site_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Site", value="all", width=180)
+    function_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Fonction", value="all", width=220)
+    shift_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Shift", value="all", width=170)
     badge_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Badge",
         value="all",
         width=170,
@@ -68,6 +85,12 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             ft.dropdown.Option("expired", "Expire"),
         ],
     )
+    for control in (search_field, state_filter, site_filter, function_filter, shift_filter, badge_filter):
+        control.bgcolor = ROW
+        control.color = DARK_TEXT
+        control.border_color = DARK_BORDER
+        control.focused_border_color = PRIMARY
+        control.label_style = ft.TextStyle(color=DARK_MUTED)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -83,6 +106,11 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             pass
 
     def refresh_table(event: ft.ControlEvent | None = None) -> None:
+        loading_overlay.visible = True
+        try:
+            loading_overlay.update()
+        except RuntimeError:
+            pass
         state["page"] = 0
         state["records"] = list_employees(search_field.value or "")
         current_ids = {int(record["id_employe"]) for record in state["records"]}
@@ -90,6 +118,11 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         refresh_filter_options()
         render_summary()
         render_table()
+        loading_overlay.visible = False
+        try:
+            loading_overlay.update()
+        except RuntimeError:
+            pass
         _update()
 
     def refresh_filter_options() -> None:
@@ -217,6 +250,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             return
 
         type_field = ft.Dropdown(
+            fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
             label="Motif",
             value="demissionne",
             options=[
@@ -296,6 +330,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             return
 
         type_field = ft.Dropdown(
+            fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
             label="Type",
             value="break",
             options=[
@@ -455,29 +490,33 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
 
     def render_summary() -> None:
         records = filtered_records()
-        selected = len(state["selected"])
         active_breaks = sum(1 for record in records if record.get("current_state") != "work")
-        due_breaks = sum(
-            1
-            for record in records
-            if record.get("days_until_break_due") is not None
-            and int(record["days_until_break_due"]) <= 0
-        )
         planned = sum(1 for record in records if record.get("next_planned_break_start"))
         day_shift = sum(1 for record in records if record.get("shift_code") == "DAY")
         night_shift = sum(1 for record in records if record.get("shift_code") == "NIGHT")
-        badge_valid = sum(1 for record in records if record.get("badge_validity_state") == "valid")
         badge_risk = sum(1 for record in records if record.get("badge_validity_state") in {"soon", "expired", "unknown", "invalid", "missing"})
         summary_row.controls = [
-            _summary_chip("Affiches", len(records), PRIMARY, ft.Icons.FILTER_ALT_OUTLINED),
-            _summary_chip("Selection", selected, SUCCESS, ft.Icons.CHECKLIST_OUTLINED),
-            _summary_chip("Day", day_shift, PRIMARY, ft.Icons.WB_SUNNY_OUTLINED),
-            _summary_chip("Night", night_shift, PRIMARY, ft.Icons.NIGHTLIGHT_OUTLINED),
-            _summary_chip("Badges OK", badge_valid, SUCCESS, ft.Icons.BADGE_OUTLINED),
-            _summary_chip("Badges a voir", badge_risk, DANGER, ft.Icons.REPORT_PROBLEM_OUTLINED),
-            _summary_chip("Break", active_breaks, WARNING, ft.Icons.BEACH_ACCESS_OUTLINED),
-            _summary_chip("Dus", due_breaks, DANGER, ft.Icons.EVENT_BUSY_OUTLINED),
-            _summary_chip("Plan.", planned, PRIMARY, ft.Icons.EVENT_AVAILABLE_OUTLINED),
+            _summary_chip("Employes affiches", len(records), PRIMARY, ft.Icons.PEOPLE_ALT_OUTLINED, f"Sur {len(state['records'])} employes"),
+            _summary_chip("Day shift", day_shift, SUCCESS, ft.Icons.WB_SUNNY_OUTLINED, "Equipe de jour"),
+            _summary_chip("Night shift", night_shift, PRIMARY, ft.Icons.NIGHTLIGHT_OUTLINED, "Equipe de nuit"),
+            _summary_chip("En break", active_breaks, WARNING, ft.Icons.FREE_BREAKFAST_OUTLINED, "Actuellement"),
+            _summary_chip("Badges a voir", badge_risk, DANGER, ft.Icons.REPORT_PROBLEM_OUTLINED, "Action requise"),
+            _summary_chip("Planning", planned, "#8B5CF6", ft.Icons.CALENDAR_MONTH_OUTLINED, "Breaks planifies"),
+        ]
+        work_count = sum(1 for record in records if record.get("current_state") == "work")
+        absent_count = max(len(records) - work_count - active_breaks, 0)
+        right_area.controls = [
+            _side_panel(
+                "Informations rapides",
+                [
+                    _info_line(ft.Icons.PEOPLE_ALT_OUTLINED, "Employes actifs", len(records), DARK_TEXT),
+                    _info_line(ft.Icons.FREE_BREAKFAST_OUTLINED, "En break", active_breaks, WARNING),
+                    _info_line(ft.Icons.BADGE_OUTLINED, "Badges a renouveler", badge_risk, DANGER),
+                    _info_line(ft.Icons.CALENDAR_MONTH_OUTLINED, "Breaks planifies", planned, PRIMARY),
+                ],
+            ),
+            _distribution_panel(work_count, active_breaks, absent_count, len(records)),
+            _assistant_panel(),
         ]
 
     def render_table() -> None:
@@ -488,11 +527,11 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         page_records = records[start : start + PAGE_SIZE]
         if not records:
             table_content: ft.Control = ft.Container(
-                bgcolor="#F8FAFC",
-                border=ft.border.all(1, "#D7E7FF"),
+                bgcolor=ROW,
+                border=ft.border.all(1, DARK_BORDER),
                 border_radius=8,
                 padding=18,
-                content=ft.Text("Aucun employe ne correspond aux filtres.", color=MUTED),
+                content=ft.Text("Aucun employe ne correspond aux filtres.", color=DARK_MUTED),
             )
         else:
             table_content = ft.Row(
@@ -513,7 +552,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                         rows=[
                             ft.DataRow(
                                 selected=int(record["id_employe"]) in state["selected"],
-                                color="#D1FAE5" if int(record["id_employe"]) in state["selected"] else None,
+                                color="#123B46" if int(record["id_employe"]) in state["selected"] else None,
                                 cells=[
                                     ft.DataCell(
                                         ft.Checkbox(
@@ -527,16 +566,16 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                                     ft.DataCell(
                                         ft.Column(
                                             controls=[
-                                                ft.Text(_employee_name(record), color=TEXT, weight=ft.FontWeight.BOLD),
-                                                ft.Text(str(record.get("matricule") or "-"), size=11, color=MUTED),
+                                                ft.Text(_employee_name(record), color=DARK_TEXT, weight=ft.FontWeight.BOLD),
+                                                ft.Text(str(record.get("matricule") or "-"), size=11, color=DARK_MUTED),
                                             ],
                                             spacing=1,
                                         )
                                     ),
-                                    ft.DataCell(ft.Text(str(record.get("numero_badge") or "-"))),
+                                    ft.DataCell(ft.Text(str(record.get("numero_badge") or "-"), color=DARK_MUTED)),
                                     ft.DataCell(_badge_validity_badge(record)),
-                                    ft.DataCell(ft.Text(str(record.get("fonction") or "-"))),
-                                    ft.DataCell(ft.Text(str(record.get("site") or "-"))),
+                                    ft.DataCell(ft.Text(str(record.get("fonction") or "-"), color=DARK_TEXT)),
+                                    ft.DataCell(ft.Text(str(record.get("site") or "-"), color=DARK_MUTED)),
                                     ft.DataCell(_shift_badge(record.get("shift_code"), record.get("shift"))),
                                     ft.DataCell(_state_badge(record.get("current_state"))),
                                     ft.DataCell(ft.Text(_break_due_text(record), color=_break_due_color(record))),
@@ -589,9 +628,14 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                             )
                             for record in page_records
                         ],
-                        border=ft.border.all(1, "#BFDBFE"),
+                        bgcolor=ROW,
+                        border=ft.border.all(1, DARK_BORDER),
                         border_radius=8,
-                        heading_row_color="#DBEAFE",
+                        heading_row_color="#142B45",
+                        horizontal_lines=ft.BorderSide(1, DARK_BORDER),
+                        vertical_lines=ft.BorderSide(1, DARK_BORDER),
+                        heading_text_style=ft.TextStyle(size=12, weight=ft.FontWeight.BOLD, color=DARK_TEXT),
+                        data_text_style=ft.TextStyle(size=12, color=DARK_MUTED),
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -671,10 +715,10 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                     ),
                     ft.Container(
                         padding=ft.padding.symmetric(horizontal=8, vertical=6),
-                        bgcolor="#EFF6FF",
-                        border=ft.border.all(1, "#BFDBFE"),
+                        bgcolor=PRIMARY,
+                        border=ft.border.all(1, PRIMARY),
                         border_radius=8,
-                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                        content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color="#FFFFFF"),
                     ),
                     ft.OutlinedButton(
                         "Suivant",
@@ -689,19 +733,20 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             table_content,
         ]
 
-    root = ft.Column(
+    root = ft.Container(
+        bgcolor=BG,
+        expand=True,
+        content=ft.Column(
         controls=[
-            module_header(
-                "Liste des employes",
-                "Recherche, filtres, actions groupees et suivi des departs en break.",
-            ),
+            summary_row,
             ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=CARD,
+                border=ft.border.all(1, DARK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=ft.Column(
                     controls=[
+                        ft.Text("Recherche & filtres", color=DARK_TEXT, size=15, weight=ft.FontWeight.BOLD),
                         ft.Row(
                             controls=[
                                 search_field,
@@ -712,25 +757,51 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                                 badge_filter,
                                 ft.IconButton(icon=ft.Icons.FILTER_ALT_OUTLINED, tooltip="Appliquer", on_click=refresh_table),
                                 ft.IconButton(icon=ft.Icons.RESTART_ALT_OUTLINED, tooltip="Reinitialiser", on_click=reset_filters),
+                                loading_overlay,
                             ],
                             spacing=10,
                             wrap=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        summary_row,
                     ],
                     spacing=14,
                 ),
             ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=table_area,
+            ft.ResponsiveRow(
+                controls=[
+                    ft.Container(
+                        col={"xs": 12, "xl": 9},
+                        bgcolor=CARD,
+                        border=ft.border.all(1, DARK_BORDER),
+                        border_radius=8,
+                        padding=14,
+                        content=ft.Column(
+                            controls=[
+                                ft.Row(
+                                    controls=[
+                                        ft.Column(
+                                            controls=[
+                                                ft.Text("Liste des employes", color=DARK_TEXT, size=16, weight=ft.FontWeight.BOLD),
+                                                ft.Text("Situation, badges, shifts et prochaines actions.", color=DARK_MUTED, size=11),
+                                            ],
+                                            spacing=2,
+                                        ),
+                                        ft.Container(expand=True),
+                                    ]
+                                ),
+                                table_area,
+                            ],
+                            spacing=12,
+                        ),
+                    ),
+                    ft.Container(col={"xs": 12, "xl": 3}, content=right_area),
+                ],
+                spacing=12,
+                run_spacing=12,
             ),
         ],
-        spacing=18,
+        spacing=12,
+        ),
     )
 
     refresh_table()
@@ -752,10 +823,34 @@ def _suggested_break_start(record: dict[str, Any] | None = None) -> date:
     return date.today()
 
 
-def _summary_chip(label: str, value: int, color: str, icon: str) -> ft.Control:
+def _summary_chip(label: str, value: int, color: str, icon: str, detail: str = "") -> ft.Control:
     return ft.Container(
-        stat_card(label, value, color, icon, compact=True),
-        col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
+        col={"xs": 12, "sm": 6, "md": 4, "xl": 2},
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=42,
+                    height=42,
+                    border_radius=8,
+                    bgcolor=color,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, color="#FFFFFF", size=22),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, color=DARK_MUTED, size=11),
+                        ft.Text(str(value), color=DARK_TEXT, size=22, weight=ft.FontWeight.BOLD),
+                        ft.Text(detail, color=DARK_MUTED, size=9),
+                    ],
+                    spacing=0,
+                ),
+            ],
+            spacing=10,
+        ),
     )
 
 
@@ -763,7 +858,7 @@ def _shift_badge(shift_code: str | None, shift_label: str | None) -> ft.Control:
     color = PRIMARY if shift_code == "DAY" else WARNING if shift_code == "NIGHT" else MUTED
     label = "Day" if shift_code == "DAY" else "Night" if shift_code == "NIGHT" else str(shift_label or "-")
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=ROW,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -784,7 +879,7 @@ def _state_badge(state: str | None) -> ft.Control:
     }
     label, color = labels.get(str(state or "work"), ("Au travail", SUCCESS))
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=ROW,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -802,7 +897,7 @@ def _badge_validity_badge(record: dict[str, Any]) -> ft.Control:
         "invalid": DANGER,
         "unknown": WARNING,
     }.get(state, MUTED)
-    text_color = TEXT if state in {"soon", "unknown"} else "#FFFFFF"
+    text_color = DARK_TEXT
     label = str(record.get("badge_validity_label") or "-")
     return ft.Container(
         bgcolor=color,
@@ -847,4 +942,82 @@ def _break_due_color(record: dict[str, Any]) -> str:
         return DANGER
     if int(days) <= 3:
         return WARNING
-    return TEXT
+    return DARK_TEXT
+
+
+def _side_panel(title: str, controls: list[ft.Control]) -> ft.Control:
+    return ft.Container(
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Column(
+            controls=[
+                ft.Text(title, color=DARK_TEXT, size=14, weight=ft.FontWeight.BOLD),
+                ft.Divider(height=1, color=DARK_BORDER),
+                *controls,
+            ],
+            spacing=10,
+        ),
+    )
+
+
+def _info_line(icon: str, label: str, value: Any, color: str) -> ft.Control:
+    return ft.Row(
+        controls=[
+            ft.Icon(icon, color=color, size=17),
+            ft.Text(label, color=DARK_MUTED, size=11, expand=True),
+            ft.Text(str(value), color=color, size=13, weight=ft.FontWeight.BOLD),
+        ],
+        spacing=8,
+    )
+
+
+def _distribution_panel(work: int, breaks: int, absent: int, total: int) -> ft.Control:
+    safe_total = max(total, 1)
+    return _side_panel(
+        "Repartition par situation",
+        [
+            ft.Container(
+                height=14,
+                border_radius=7,
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                content=ft.Row(
+                    controls=[
+                        ft.Container(expand=max(work, 1), bgcolor=SUCCESS),
+                        ft.Container(expand=max(breaks, 1), bgcolor=WARNING),
+                        ft.Container(expand=max(absent, 1), bgcolor=DANGER),
+                    ],
+                    spacing=0,
+                ),
+            ),
+            _info_line(ft.Icons.WORK_OUTLINE, "Au travail", f"{work} ({round(work / safe_total * 100)}%)", SUCCESS),
+            _info_line(ft.Icons.FREE_BREAKFAST_OUTLINED, "En break", f"{breaks} ({round(breaks / safe_total * 100)}%)", WARNING),
+            _info_line(ft.Icons.PERSON_OFF_OUTLINED, "Autres situations", absent, DANGER),
+        ],
+    )
+
+
+def _assistant_panel() -> ft.Control:
+    return _side_panel(
+        "Assistant IA",
+        [
+            ft.Row(
+                controls=[
+                    ft.Container(
+                        width=42,
+                        height=42,
+                        border_radius=8,
+                        bgcolor="#123B46",
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Icon(ft.Icons.SMART_TOY_OUTLINED, color="#5EEAD4", size=24),
+                    ),
+                    ft.Text("Analyse RH rapide", color=DARK_TEXT, size=12, weight=ft.FontWeight.BOLD),
+                ],
+                spacing=10,
+            ),
+            ft.Text("Qui est en break actuellement ?", color=DARK_MUTED, size=10),
+            ft.Text("Montre les badges qui expirent bientot.", color=DARK_MUTED, size=10),
+            ft.Text("Liste les employes par fonction.", color=DARK_MUTED, size=10),
+        ],
+    )

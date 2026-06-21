@@ -20,12 +20,11 @@ from app.services import (
     update_trainings_bulk,
 )
 from app.ui.components.confirm import confirm_action
-from app.ui.components.module_header import module_header
-from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
 PAGE_SIZE = 10
+from app.ui.components.dark_styles import BG, CARD, DARK_BORDER, DARK_MUTED, DARK_TEXT, FIELD
 
 
 def training_page(page: ft.Page | None = None) -> ft.Control:
@@ -43,18 +42,22 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
     table_area = ft.Column(spacing=10)
     summary_row = ft.ResponsiveRow(spacing=12, run_spacing=12)
 
-    employee_field = ft.Dropdown(label="Employe", width=360)
-    training_field = ft.Dropdown(label="Nom de la formation", width=280)
-    department_field = ft.Dropdown(label="Departement", width=240)
+    employee_field = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Employe", width=360)
+    training_field = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Nom de la formation", width=280)
+    department_field = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Departement", width=240)
     facilitator_field = ft.TextField(label="Facilitateur", width=240)
     date_field = ft.TextField(label="Date de formation", value=today_iso(), hint_text="AAAA-MM-JJ", width=180)
     new_training_field = ft.TextField(label="Nouvelle formation", width=260)
     new_department_field = ft.TextField(label="Nouveau departement", width=260)
     bulk_employee_area = ft.Column(spacing=6)
     bulk_training_area = ft.Column(spacing=6)
+    bulk_preview_area = ft.Container()
+    employee_info = ft.Text("", size=10, color=DARK_MUTED)
+    expiration_preview = ft.Text("", size=10, color=SUCCESS)
 
     search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=260)
     state_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Etat",
         value="all",
         width=180,
@@ -65,10 +68,25 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("expiree", "Expirees"),
         ],
     )
-    training_filter = ft.Dropdown(label="Formation", value="all", width=220)
-    department_filter = ft.Dropdown(label="Departement", value="all", width=220)
+    training_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Formation", value="all", width=220)
+    department_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Departement", value="all", width=220)
     date_from_filter = ft.TextField(label="Du", hint_text="AAAA-MM-JJ", width=150)
     date_to_filter = ft.TextField(label="Au", hint_text="AAAA-MM-JJ", width=150)
+    _style_dark_inputs(
+        employee_field,
+        training_field,
+        department_field,
+        facilitator_field,
+        date_field,
+        new_training_field,
+        new_department_field,
+        search_field,
+        state_filter,
+        training_filter,
+        department_filter,
+        date_from_filter,
+        date_to_filter,
+    )
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -102,20 +120,41 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
         for item in state.get("options", {}).get("training_types", []):
             if int(item["value"]) == selected and item.get("department"):
                 department_field.value = str(item["department"])
+                validity = int(item.get("validite_mois") or 0)
+                expiration_preview.value = (
+                    f"Expiration calculee automatiquement: date formation + {validity} mois."
+                )
                 break
         if event is not None:
             _update()
 
-    training_field.on_change = sync_department_from_training
+    def sync_employee_info(event: ft.ControlEvent | None = None) -> None:
+        selected = int(employee_field.value or 0)
+        for item in state.get("options", {}).get("employees", []):
+            if int(item["value"]) == selected:
+                employee_info.value = (
+                    f"Fonction: {item.get('fonction') or '-'} | "
+                    f"Site: {item.get('site') or '-'} | "
+                    f"Badge: {item.get('numero_badge') or 'sans badge'}"
+                )
+                break
+        if event is not None:
+            _update()
+
+    training_field.on_select = sync_department_from_training
+    employee_field.on_select = sync_employee_info
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
-        state["page"] = 0
-        state["records"] = list_trainings(search_field.value or "")
-        current_ids = {int(record["id_formation"]) for record in state["records"]}
-        state["selected"] = state["selected"] & current_ids
-        refresh_filter_options()
-        render_summary()
-        render_table()
+        try:
+            state["page"] = 0
+            state["records"] = list_trainings(search_field.value or "")
+            current_ids = {int(record["id_formation"]) for record in state["records"]}
+            state["selected"] = state["selected"] & current_ids
+            refresh_filter_options()
+            render_summary()
+            render_table()
+        except Exception as exc:
+            notify(str(exc), DANGER)
         _update()
 
     def refresh_filter_options() -> None:
@@ -268,7 +307,15 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
                     "structure_responsable": department_field.value,
                 }
             )
-            notify(f"{total} validation(s) formation creee(s) ou mise(s) a jour.", SUCCESS)
+            employees_count = len(state["bulk_employee_ids"])
+            trainings_count = len(state["bulk_training_type_ids"])
+            state["bulk_employee_ids"].clear()
+            state["bulk_training_type_ids"].clear()
+            notify(
+                f"Campagne terminee: {employees_count} employe(s), "
+                f"{trainings_count} formation(s), {total} mise(s) a jour.",
+                SUCCESS,
+            )
             refresh()
         except ValueError as exc:
             notify(str(exc), DANGER)
@@ -351,6 +398,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             load_options()
             training_field.value = str(created_id)
             sync_department_from_training()
+            sync_employee_info()
             new_training_field.value = ""
             notify("Nom de formation cree et selectionne.", SUCCESS)
         except ValueError as exc:
@@ -374,6 +422,25 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
         training_types = fresh.get("training_types", [])
         selected_employees = set(state["bulk_employee_ids"])
         selected_trainings = set(state["bulk_training_type_ids"])
+        operation_count = len(selected_employees) * len(selected_trainings)
+        bulk_preview_area.content = ft.ResponsiveRow(
+            controls=[
+                ft.Container(
+                    _bulk_metric("Employes selectionnes", len(selected_employees), PRIMARY, ft.Icons.GROUPS_OUTLINED),
+                    col={"xs": 12, "sm": 4},
+                ),
+                ft.Container(
+                    _bulk_metric("Formations selectionnees", len(selected_trainings), WARNING, ft.Icons.SCHOOL_OUTLINED),
+                    col={"xs": 12, "sm": 4},
+                ),
+                ft.Container(
+                    _bulk_metric("Mises a jour prevues", operation_count, SUCCESS, ft.Icons.DONE_ALL_OUTLINED),
+                    col={"xs": 12, "sm": 4},
+                ),
+            ],
+            spacing=8,
+            run_spacing=8,
+        )
         bulk_employee_area.controls = [
             ft.Row(
                 controls=[
@@ -493,7 +560,6 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
 
     def render_form_actions() -> None:
         selected_count = len(state["selected"])
-        bulk_ready = bool(state["bulk_employee_ids"]) and bool(state["bulk_training_type_ids"])
         form_actions.controls = [
             ft.ElevatedButton(
                 "Mettre a jour" if state["editing_id"] else "Enregistrer",
@@ -505,12 +571,6 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
                 icon=ft.Icons.DONE_ALL_OUTLINED,
                 on_click=bulk_update,
                 disabled=selected_count == 0,
-            ),
-            ft.ElevatedButton(
-                "Valider groupe",
-                icon=ft.Icons.DONE_ALL_OUTLINED,
-                on_click=bulk_validate_training,
-                disabled=not bulk_ready,
             ),
             ft.OutlinedButton("Nouveau", icon=ft.Icons.ADD_OUTLINED, on_click=clear_form),
             ft.Text(
@@ -652,9 +712,14 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
                             )
                             for record in page_records
                         ],
-                        border=ft.border.all(1, "#BFDBFE"),
+                        bgcolor=FIELD,
+                        border=ft.border.all(1, DARK_BORDER),
                         border_radius=8,
-                        heading_row_color="#DBEAFE",
+                        heading_row_color=CARD,
+                        horizontal_lines=ft.BorderSide(1, DARK_BORDER),
+                        vertical_lines=ft.BorderSide(1, DARK_BORDER),
+                        heading_text_style=ft.TextStyle(size=12, weight=ft.FontWeight.BOLD, color="#60A5FA"),
+                        data_text_style=ft.TextStyle(size=12, color=DARK_TEXT),
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -666,50 +731,43 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
 
     root = ft.Column(
         controls=[
-            module_header("Formations", "Enregistrer, corriger et suivre les formations employees."),
             ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=CARD,
+                border=ft.border.all(1, DARK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=ft.Column(
                     controls=[
+                        ft.Text("Enregistrer une formation", color=DARK_TEXT, size=14, weight=ft.FontWeight.BOLD),
                         ft.Row(controls=[employee_field, training_field, date_field, facilitator_field, department_field], wrap=True, spacing=10),
-                        ft.Row(
-                            controls=[
-                                new_training_field,
-                                ft.OutlinedButton("Creer formation", icon=ft.Icons.ADD_OUTLINED, on_click=add_training_type),
-                                new_department_field,
-                                ft.OutlinedButton("Creer departement", icon=ft.Icons.ADD_BUSINESS_OUTLINED, on_click=add_department),
-                            ],
-                            wrap=True,
-                            spacing=10,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
+                        ft.Row([employee_info, expiration_preview], wrap=True, spacing=16),
                         form_actions,
                         ft.ExpansionTile(
-                            title="Validation groupee: plusieurs employes et plusieurs formations",
-                            leading=ft.Icons.PEOPLE_ALT_OUTLINED,
+                            title="Options avancees",
+                            subtitle="Creer de nouveaux types de formation ou departements.",
+                            leading=ft.Icons.TUNE_OUTLINED,
                             controls_padding=ft.padding.only(left=10, right=10, bottom=10),
                             controls=[
-                                ft.Text(
-                                    "Selectionne les employes, les formations, puis clique sur Valider groupe.",
-                                    color=MUTED,
-                                    size=12,
+                                ft.Row(
+                                    controls=[
+                                        new_training_field,
+                                        ft.OutlinedButton("Creer formation", icon=ft.Icons.ADD_OUTLINED, on_click=add_training_type),
+                                        new_department_field,
+                                        ft.OutlinedButton("Creer departement", icon=ft.Icons.ADD_BUSINESS_OUTLINED, on_click=add_department),
+                                    ],
+                                    wrap=True,
+                                    spacing=10,
                                 ),
-                                ft.Text("Employes", color=TEXT, weight=ft.FontWeight.BOLD),
-                                bulk_employee_area,
-                                ft.Text("Formations", color=TEXT, weight=ft.FontWeight.BOLD),
-                                bulk_training_area,
                             ],
+                            expanded=False,
                         ),
                     ],
                     spacing=12,
                 ),
             ),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=CARD,
+                border=ft.border.all(1, DARK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=table_area,
@@ -720,13 +778,13 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
     )
     refresh()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
 
 
 def _state_badge(state: str | None) -> ft.Control:
     color = {"valide": PRIMARY, "bientot_expiree": WARNING, "expiree": DANGER}.get(str(state), MUTED)
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=FIELD,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -736,8 +794,63 @@ def _state_badge(state: str | None) -> ft.Control:
 
 def _summary_chip(label: str, value: int, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        stat_card(label, value, color, icon, compact=True),
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=10,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=36,
+                    height=36,
+                    bgcolor=f"{color}30",
+                    border_radius=7,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, color=color, size=19),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, size=10, color=DARK_MUTED),
+                        ft.Text(str(value), size=20, color=DARK_TEXT, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=1,
+                ),
+            ],
+            spacing=9,
+        ),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
+    )
+
+
+def _style_dark_inputs(*controls: ft.Control) -> None:
+    for control in controls:
+        control.bgcolor = FIELD
+        control.color = DARK_TEXT
+        control.border_color = DARK_BORDER
+        control.focused_border_color = PRIMARY
+        control.label_style = ft.TextStyle(color=DARK_MUTED)
+        control.hint_style = ft.TextStyle(color="#6F849A")
+
+
+def _bulk_metric(label: str, value: int, color: str, icon: str) -> ft.Control:
+    return ft.Container(
+        bgcolor=FIELD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=7,
+        padding=10,
+        content=ft.Row(
+            controls=[
+                ft.Icon(icon, color=color, size=20),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, color=DARK_MUTED, size=10),
+                        ft.Text(str(value), color=DARK_TEXT, size=18, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=1,
+                ),
+            ],
+            spacing=8,
+        ),
     )
 
 

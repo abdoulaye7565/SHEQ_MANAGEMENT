@@ -9,7 +9,6 @@ from app.services.attendance_export_service import (
     export_attendance_pdf,
     export_attendance_xlsx,
     export_daily_lineup_pdf,
-    export_daily_lineup_xlsx,
     export_monthly_10h_timesheet_xlsx,
     export_ppe_inventory_xls,
     export_rows_xlsx,

@@ -15,8 +15,8 @@ ALERT_LEVELS = ["bas", "moyen", "haut", "critique"]
 ALERT_STATUSES = ["ouverte", "traitee", "ignoree"]
 
 
-def get_alert_summary() -> dict[str, Any]:
-    alerts = list_alerts()
+def get_alert_summary(alerts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    alerts = alerts if alerts is not None else list_alerts(statut="all")
     open_alerts = [row for row in alerts if row["statut"] == "ouverte"]
     return {
         "total": len(alerts),
@@ -29,8 +29,9 @@ def get_alert_summary() -> dict[str, Any]:
     }
 
 
-def get_alert_action_plan(limit: int = 6) -> list[dict[str, Any]]:
-    open_alerts = list_alerts(statut="ouverte")
+def get_alert_action_plan(limit: int = 6, alerts: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    source_rows = alerts if alerts is not None else list_alerts(statut="all")
+    open_alerts = [row for row in source_rows if row["statut"] == "ouverte"]
     grouped: dict[str, dict[str, Any]] = {}
     for row in open_alerts:
         source_key = str(row.get("source_key") or "manual")
@@ -74,12 +75,8 @@ def list_alerts(
     niveau: str = "all",
     statut: str = "ouverte",
     search: str = "",
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    source_filter = str(source or "all")
-    level_filter = str(niveau or "all")
-    status_filter = str(statut or "ouverte")
-    query = str(search or "").strip().lower()
-
     rows = [
         *_manual_alerts(),
         *_monthly_equipment_check_alerts(),
@@ -91,7 +88,23 @@ def list_alerts(
         *_toolbox_alerts(),
     ]
     rows.sort(key=lambda row: (_level_rank(row["niveau"]), str(row["date_creation"])), reverse=True)
+    filtered = filter_alert_rows(rows, source=source, niveau=niveau, statut=statut, search=search)
+    if limit is not None and limit > 0:
+        return filtered[:limit]
+    return filtered
 
+
+def filter_alert_rows(
+    rows: list[dict[str, Any]],
+    source: str = "all",
+    niveau: str = "all",
+    statut: str = "ouverte",
+    search: str = "",
+) -> list[dict[str, Any]]:
+    source_filter = str(source or "all")
+    level_filter = str(niveau or "all")
+    status_filter = str(statut or "ouverte")
+    query = str(search or "").strip().lower()
     filtered = []
     for row in rows:
         if source_filter != "all" and row["source_key"] != source_filter:

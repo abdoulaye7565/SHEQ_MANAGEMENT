@@ -13,11 +13,78 @@ from app.services.email_service import (
     save_email_settings,
     test_email_connection,
 )
+from app.services.mobile_sync_service import (
+    MobileSyncConfigurationError,
+    create_mobile_pairing_package,
+    generate_mobile_pairing_token,
+    generate_pairing_qr_path,
+    get_pairing_compact_code,
+    write_pairing_file,
+    get_mobile_sync_settings,
+    list_mobile_devices,
+    list_mobile_sync_events,
+    save_mobile_sync_settings,
+    start_mobile_sync_server,
+    stop_mobile_sync_server,
+    MOBILE_ROLES,
+    update_mobile_device_role,
+    update_mobile_device_status,
+)
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
 from app.ui.components.tables import professional_data_table
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
+
+
+def _build_pairing_panel(mobile: dict, on_copy=None) -> list:
+    """Build QR + pairing instructions. Evaluated lazily to avoid crashing at import time."""
+    qr_path = generate_pairing_qr_path()
+    server_url = mobile.get("server_url") or ""
+    token_ok = bool(mobile.get("token_configured"))
+    if qr_path:
+        return [ft.Container(
+            bgcolor="#FFFFFF",
+            border_radius=12,
+            border=ft.border.all(1, "#BFDBFE"),
+            padding=16,
+            content=ft.Row([
+                ft.Column([
+                    ft.Image(src=qr_path, width=180, height=180),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.QR_CODE_SCANNER_OUTLINED, color=PRIMARY, size=18),
+                        ft.Text("Appairage rapide", size=14, weight=ft.FontWeight.BOLD, color="#0F172A"),
+                    ], spacing=6),
+                    ft.Text(
+                        "1. Démarrer le serveur mobile ci-dessus\n"
+                        "2. Cliquer « Copier le code » ci-dessous\n"
+                        "3. App mobile → « Coller le code d'appairage »\n"
+                        "4. Connexion automatique — zéro saisie manuelle",
+                        size=12, color="#475569",
+                    ),
+                    ft.Container(height=8),
+                    ft.ElevatedButton(
+                        "Copier le code d'appairage",
+                        icon=ft.Icons.CONTENT_COPY_OUTLINED,
+                        on_click=on_copy,
+                        style=ft.ButtonStyle(bgcolor=PRIMARY, color="#FFFFFF"),
+                    ),
+                    ft.Container(height=4),
+                    ft.Text(f"URL : {server_url or '(serveur non démarré)'}",
+                            size=11, color="#64748B", selectable=True),
+                    ft.Text("Le téléphone doit être sur le même réseau Wi-Fi.",
+                            size=11, color="#D97706", weight=ft.FontWeight.BOLD),
+                ], spacing=4, expand=True),
+            ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+        )]
+    return [ft.Text(
+        f"URL serveur : {server_url or 'Démarrer le serveur pour obtenir l URL'}  |  "
+        f"Token : {'Configuré' if token_ok else 'Non configuré'}  |  "
+        "Même réseau Wi-Fi requis.",
+        size=12, color=MUTED, selectable=True,
+    )]
 
 
 def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | None = None) -> ft.Control:
@@ -50,10 +117,25 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
     )
     email_clear_password = ft.Checkbox(label="Supprimer le mot de passe local", value=False)
     email_manager = ft.TextField(label="Email manager", width=280)
-    email_somisy = ft.TextField(label="Email SOMISY", width=280)
-    whatsapp_manager = ft.TextField(label="WhatsApp manager", hint_text="Ex: 2250700000000", width=230)
-    whatsapp_somisy = ft.TextField(label="WhatsApp SOMISY", hint_text="Ex: 2250700000000", width=230)
-    whatsapp_group = ft.TextField(label="Lien groupe WhatsApp", hint_text="https://chat.whatsapp.com/...", width=320)
+    _df = dict(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"))
+    email_somisy = ft.TextField(**_df, label="Email SOMISY", width=280)
+    whatsapp_manager = ft.TextField(**_df, label="WhatsApp manager", hint_text="Ex: 2250700000000", width=230)
+    whatsapp_somisy = ft.TextField(**_df, label="WhatsApp SOMISY", hint_text="Ex: 2250700000000", width=230)
+    whatsapp_group = ft.TextField(**_df, label="Lien groupe WhatsApp", hint_text="https://chat.whatsapp.com/...", width=320)
+    mobile_enabled = ft.Switch(label="Activer serveur mobile", value=False, active_color=PRIMARY)
+    mobile_host = ft.TextField(**_df, label="Adresse serveur", value="0.0.0.0", width=170)
+    mobile_port = ft.TextField(**_df, label="Port mobile", value="8765", width=120)
+    mobile_token = ft.TextField(
+        **_df,
+        label="Token mobile",
+        hint_text="Laisser vide pour conserver",
+        password=True,
+        can_reveal_password=False,
+        width=260,
+    )
+    mobile_clear_token = ft.Checkbox(label="Supprimer token", value=False)
+    mobile_events_area = ft.Column(spacing=6)
+    mobile_devices_area = ft.Column(spacing=6)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -67,7 +149,10 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             pass
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
-        render()
+        try:
+            render()
+        except Exception as exc:
+            notify(str(exc), DANGER)
         _update()
 
     def ensure_dirs(event: ft.ControlEvent | None = None) -> None:
@@ -153,6 +238,90 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             notify(str(exc), DANGER)
         _update()
 
+    def save_mobile_config(event: ft.ControlEvent | None = None) -> None:
+        try:
+            save_mobile_sync_settings(_mobile_values())
+            mobile_token.value = ""
+            mobile_clear_token.value = False
+            notify("Configuration serveur mobile enregistree.", SUCCESS)
+            render()
+        except (ValueError, MobileSyncConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def generate_mobile_token(event: ft.ControlEvent | None = None) -> None:
+        token = generate_mobile_pairing_token()
+        notify(
+            f"Nouveau token genere: {token} | Il remplace immediatement tous les anciens tokens.",
+            WARNING,
+        )
+        mobile_token.value = ""
+        render()
+        _update()
+
+    def start_mobile_server(event: ft.ControlEvent | None = None) -> None:
+        try:
+            save_mobile_sync_settings(_mobile_values())
+            server = start_mobile_sync_server()
+            notify(f"Serveur mobile demarre: {server['server_url']}", SUCCESS)
+            render()
+        except (ValueError, MobileSyncConfigurationError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def stop_mobile_server(event: ft.ControlEvent | None = None) -> None:
+        stop_mobile_sync_server()
+        notify("Serveur mobile arrete.", WARNING)
+        render()
+        _update()
+
+    def export_pairing(event: ft.ControlEvent | None = None) -> None:
+        try:
+            package = create_mobile_pairing_package()
+            notify(f"Pack appairage cree: {package['path']}", SUCCESS)
+            render()
+        except (ValueError, MobileSyncConfigurationError, OSError) as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def copy_pairing_code(event: ft.ControlEvent | None = None) -> None:
+        import subprocess
+        code = get_pairing_compact_code()
+        if not code:
+            notify("Serveur non démarré ou token absent — impossible de copier le code.", DANGER)
+            _update()
+            return
+        # Write to shared file (primary method — works between two apps on same PC)
+        fpath = write_pairing_file()
+        # Also try clipboard as bonus
+        try:
+            subprocess.run("clip", input=code.encode("utf-16-le"), check=True, shell=True)
+        except Exception:
+            pass
+        if fpath:
+            notify(f"Code d'appairage prêt. Cliquez maintenant sur « Coller le code d'appairage » dans l'app mobile.", SUCCESS)
+        else:
+            notify("Impossible d'écrire le fichier d'appairage.", DANGER)
+        _update()
+
+    def set_device_status(device_id: str, device_status: str) -> None:
+        try:
+            update_mobile_device_status(device_id, device_status)
+            notify("Statut appareil mobile mis a jour.", SUCCESS)
+            render()
+        except MobileSyncConfigurationError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
+    def set_device_role(device_id: str, mobile_role: str) -> None:
+        try:
+            update_mobile_device_role(device_id, mobile_role)
+            notify("Role mobile mis a jour. Le telephone le recevra au prochain telechargement.", SUCCESS)
+            render()
+        except MobileSyncConfigurationError as exc:
+            notify(str(exc), DANGER)
+        _update()
+
     def _email_values() -> dict[str, Any]:
         return {
             "enabled": email_enabled.value,
@@ -170,10 +339,20 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             "whatsapp_group_link": whatsapp_group.value,
         }
 
+    def _mobile_values() -> dict[str, Any]:
+        return {
+            "enabled": mobile_enabled.value,
+            "host": mobile_host.value,
+            "port": mobile_port.value,
+            "token": mobile_token.value,
+            "clear_token": mobile_clear_token.value,
+        }
+
     def render() -> None:
         data = get_application_settings()
         ai = get_ai_settings()
         email = get_email_settings()
+        mobile = get_mobile_sync_settings()
         ai_enabled.value = bool(ai["enabled"])
         ai_model.value = str(ai["model"])
         email_enabled.value = bool(email["enabled"])
@@ -187,6 +366,9 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
         whatsapp_manager.value = str(email["manager_whatsapp"])
         whatsapp_somisy.value = str(email["somisy_whatsapp"])
         whatsapp_group.value = str(email["whatsapp_group_link"])
+        mobile_enabled.value = bool(mobile["enabled"])
+        mobile_host.value = str(mobile["host"])
+        mobile_port.value = str(mobile["port"])
         summary_row.controls = [
             _summary_chip("Version", data["version"], PRIMARY, ft.Icons.INFO_OUTLINED),
             _summary_chip("Mode", data["mode"], SUCCESS if data["mode"] == "Installee" else WARNING, ft.Icons.DESKTOP_WINDOWS_OUTLINED),
@@ -195,6 +377,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             _summary_chip("SQLite", "OK" if data["database_exists"] else "Absent", SUCCESS if data["database_exists"] else DANGER, ft.Icons.STORAGE_OUTLINED),
             _summary_chip("IA", _ai_status_label(ai), _ai_status_color(ai), ft.Icons.AUTO_AWESOME_OUTLINED),
             _summary_chip("Email", _email_status_label(email), _email_status_color(email), ft.Icons.MAIL_OUTLINED),
+            _summary_chip("Mobile", _mobile_status_label(mobile), _mobile_status_color(mobile), ft.Icons.PHONE_ANDROID_OUTLINED),
         ]
         rows = [
             ("Application", "Version", data["version"]),
@@ -231,7 +414,102 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ("Email", "Dernier test", email["last_test_message"] or "-"),
             ("Email", "Date test", email["last_test_at"] or "-"),
             ("Email", "Fichier config", email["config_path"]),
+            ("Mobile", "Serveur active", "Oui" if mobile["enabled"] else "Non"),
+            ("Mobile", "Serveur demarre", "Oui" if mobile["running"] else "Non"),
+            ("Mobile", "URL serveur", mobile["server_url"] or "-"),
+            ("Mobile", "Token", "Configure" if mobile["token_configured"] else "Non configure"),
+            ("Mobile", "Source token", mobile["token_source"]),
+            ("Mobile", "Fichier config", mobile["config_path"]),
         ]
+        mobile_events = list_mobile_sync_events(limit=6)
+        mobile_devices = list_mobile_devices(limit=8)
+        mobile_urls = list(mobile.get("server_urls") or [])
+        mobile_devices_area.controls = [
+            ft.Container(
+                bgcolor="#FFFFFF",
+                border=ft.border.all(1, "#E2E8F0"),
+                border_radius=8,
+                padding=9,
+                content=ft.Row(
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.PHONE_ANDROID_OUTLINED,
+                            color=SUCCESS if row["status"] == "active" else DANGER,
+                            size=16,
+                        ),
+                        ft.Column(
+                            controls=[
+                                ft.Text(str(row["device_name"] or row["device_id"]), color=TEXT, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Text(str(row["device_id"]), color=MUTED, size=10, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ],
+                            spacing=1,
+                            expand=True,
+                        ),
+                        ft.Text(str(row["status"]), color=SUCCESS if row["status"] == "active" else DANGER, width=70, weight=ft.FontWeight.BOLD),
+                        ft.Dropdown(
+                            fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
+                            value=str(row.get("mobile_role") or "hse"),
+                            width=190,
+                            dense=True,
+                            options=[
+                                ft.dropdown.Option(key, str(profile["label"]))
+                                for key, profile in MOBILE_ROLES.items()
+                            ],
+                            on_select=lambda event, item=row: set_device_role(
+                                str(item["device_id"]),
+                                str(event.control.value or "hse"),
+                            ),
+                        ),
+                        ft.Text(f"{row['sync_count'] or 0} sync", color=MUTED, width=58, size=11),
+                        ft.OutlinedButton(
+                            "Bloquer" if row["status"] == "active" else "Activer",
+                            icon=ft.Icons.BLOCK_OUTLINED if row["status"] == "active" else ft.Icons.CHECK_CIRCLE_OUTLINED,
+                            on_click=lambda event, item=row: set_device_status(
+                                str(item["device_id"]),
+                                "blocked" if item["status"] == "active" else "active",
+                            ),
+                        ),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+            for row in mobile_devices
+        ] or [ft.Text("Aucun telephone appaire pour le moment.", size=12, color=MUTED)]
+        mobile_events_area.controls = [
+            ft.Container(
+                bgcolor="#FFFFFF",
+                border=ft.border.all(1, "#E2E8F0"),
+                border_radius=8,
+                padding=9,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.SYNC_OUTLINED, color=SUCCESS if row["status"] == "applied" else WARNING, size=16),
+                                ft.Text(str(row["device_name"] or row["device_id"]), color=TEXT, width=160, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Text(str(row.get("operator_username") or "-"), color=TEXT, width=110, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Text(str(row["event_type"]), color=MUTED, width=90),
+                                ft.Text(str(row["records_count"]), color=PRIMARY, width=50, weight=ft.FontWeight.BOLD),
+                                ft.Text(str(row["status"]), color=SUCCESS if row["status"] == "applied" else WARNING, width=80),
+                                ft.Text(str(row["created_at"]), color=MUTED, expand=True),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(
+                            str(row["message"] or "Synchronisation sans message."),
+                            color=MUTED if row["status"] == "applied" else DANGER,
+                            size=11,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+            )
+            for row in mobile_events
+        ] or [ft.Text("Aucune synchronisation mobile pour le moment.", size=12, color=MUTED)]
         table_area.controls = [
             ft.Row(
                 controls=[
@@ -351,6 +629,72 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                     spacing=8,
                 ),
             ),
+            ft.Container(
+                bgcolor="#EFF6FF",
+                border=ft.border.all(1, "#BFDBFE"),
+                border_radius=8,
+                padding=12,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.Icons.PHONE_ANDROID_OUTLINED, color=PRIMARY, size=20),
+                                ft.Text("Serveur local pour application mobile offline", size=15, weight=ft.FontWeight.BOLD, color=TEXT),
+                                ft.Text(_mobile_status_label(mobile), color=_mobile_status_color(mobile), weight=ft.FontWeight.BOLD),
+                            ],
+                            spacing=8,
+                            wrap=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            controls=[mobile_enabled, mobile_host, mobile_port, mobile_token, mobile_clear_token],
+                            wrap=True,
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            controls=[
+                                ft.ElevatedButton("Enregistrer", icon=ft.Icons.SAVE_OUTLINED, on_click=save_mobile_config),
+                                ft.OutlinedButton("Generer token", icon=ft.Icons.KEY_OUTLINED, on_click=generate_mobile_token),
+                                ft.OutlinedButton("Demarrer", icon=ft.Icons.PLAY_CIRCLE_OUTLINED, on_click=start_mobile_server),
+                                ft.OutlinedButton("Arreter", icon=ft.Icons.STOP_CIRCLE_OUTLINED, on_click=stop_mobile_server),
+                                ft.OutlinedButton("Pack JSON", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_pairing),
+                            ],
+                            spacing=8,
+                            wrap=True,
+                        ),
+                        # ── QR code d'appairage ──────────────────────────────────
+                        *_build_pairing_panel(mobile, on_copy=copy_pairing_code),
+                        ft.Column(
+                            controls=[
+                                ft.Text("Adresses possibles", size=13, weight=ft.FontWeight.BOLD, color=TEXT),
+                                *[
+                                    ft.Container(
+                                        bgcolor="#FFFFFF",
+                                        border=ft.border.all(1, "#E2E8F0"),
+                                        border_radius=8,
+                                        padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                                        content=ft.Text(url, size=12, color=TEXT, selectable=True),
+                                    )
+                                    for url in mobile_urls
+                                ],
+                            ],
+                            spacing=6,
+                            visible=bool(mobile_urls),
+                        ),
+                        ft.Text(
+                            "Attribue un role a chaque telephone. Le mobile adapte ses ecrans et le serveur refuse les operations non autorisees.",
+                            size=12,
+                            color=MUTED,
+                        ),
+                        ft.Text("Telephones appaires", size=13, weight=ft.FontWeight.BOLD, color=TEXT),
+                        mobile_devices_area,
+                        ft.Text("Dernieres synchronisations", size=13, weight=ft.FontWeight.BOLD, color=TEXT),
+                        mobile_events_area,
+                    ],
+                    spacing=10,
+                ),
+            ),
             ft.Row(
                 controls=[
                     professional_data_table(
@@ -401,7 +745,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
         scroll=ft.ScrollMode.AUTO,
     )
     render()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
 
 
 def _summary_chip(label: str, value: Any, color: str, icon: str) -> ft.Control:
@@ -447,5 +791,23 @@ def _email_status_color(email: dict[str, Any]) -> str:
     if email.get("operational"):
         return SUCCESS
     if email.get("last_test_status") == "error":
+        return DANGER
+    return WARNING
+
+
+def _mobile_status_label(mobile: dict[str, Any]) -> str:
+    if mobile.get("running"):
+        return "Serveur actif"
+    if mobile.get("enabled") and mobile.get("token_configured"):
+        return "Pret"
+    if mobile.get("enabled"):
+        return "Token requis"
+    return "Off"
+
+
+def _mobile_status_color(mobile: dict[str, Any]) -> str:
+    if mobile.get("running"):
+        return SUCCESS
+    if mobile.get("enabled") and not mobile.get("token_configured"):
         return DANGER
     return WARNING

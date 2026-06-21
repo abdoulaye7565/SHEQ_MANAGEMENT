@@ -88,6 +88,16 @@ class AdminServiceTest(unittest.TestCase):
         self.assertNotEqual(row["password_hash"], "Password123")
         self.assertTrue(verify_password("Password123", row["password_hash"]))
 
+    def test_password_requires_letter_and_digit(self) -> None:
+        with self.assertRaisesRegex(ValueError, "lettre et un chiffre"):
+            create_user(
+                {
+                    "username": "weak_password",
+                    "password": "abcdefgh",
+                    "role_id": self._admin_role_id(),
+                }
+            )
+
     def test_backup_creation_and_summary(self) -> None:
         output = create_database_backup("manual")
         summary = get_admin_summary()
@@ -106,6 +116,14 @@ class AdminServiceTest(unittest.TestCase):
         self.assertTrue(safety.exists())
         self.assertIn("avant_restauration", safety.name)
         self.assertTrue(any(row["action"] == "restore_backup" for row in list_admin_audit()))
+
+    def test_restore_rejects_corrupted_backup(self) -> None:
+        admin_service.BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+        corrupted = admin_service.BACKUPS_DIR / "corrupted.db"
+        corrupted.write_text("not a sqlite database", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "invalide ou corrompue"):
+            restore_database_backup(corrupted.name, changed_by="tester")
 
     def test_role_modules_limit_navigation_scope(self) -> None:
         admin_modules = get_role_modules("Administrateur")

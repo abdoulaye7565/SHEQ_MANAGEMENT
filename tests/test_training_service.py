@@ -217,6 +217,69 @@ class TrainingServiceTest(unittest.TestCase):
         self.assertEqual({row["date_expiration"] for row in rows}, {"2026-05-10"})
         self.assertEqual({row["facilitateur"] for row in rows}, {"Equipe HSE"})
 
+    def test_bulk_validate_rolls_back_everything_when_one_training_is_invalid(self) -> None:
+        valid_type_id = self._create_training_type(name="Atomic bulk training test")
+
+        with self.assertRaises(ValueError):
+            create_trainings_for_employees(
+                {
+                    "employee_ids": [self.employee_id],
+                    "training_type_ids": [valid_type_id, 999999999],
+                    "date_formation": "2024-05-10",
+                    "facilitateur": "Equipe HSE",
+                    "structure_responsable": "HSE",
+                }
+            )
+
+        with connection.db_session() as db:
+            count = db.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM formations
+                WHERE employe_id = ? AND type_training_id = ?
+                """,
+                (self.employee_id, valid_type_id),
+            ).fetchone()["total"]
+
+        self.assertEqual(count, 0)
+
+    def test_bulk_validate_can_ignore_existing_training_without_duplicate(self) -> None:
+        create_training(
+            {
+                "employe_id": self.employee_id,
+                "type_training_id": self.training_type_id,
+                "date_formation": "2024-01-01",
+                "facilitateur": "Initial",
+                "structure_responsable": "HSE",
+            }
+        )
+
+        total = create_trainings_for_employees(
+            {
+                "employee_ids": [self.employee_id],
+                "training_type_ids": [self.training_type_id],
+                "date_formation": "2025-01-01",
+                "facilitateur": "Nouveau",
+                "structure_responsable": "HSE",
+                "duplicate_policy": "ignore",
+            }
+        )
+
+        with connection.db_session() as db:
+            rows = db.execute(
+                """
+                SELECT date_debut, facilitateur
+                FROM formations
+                WHERE employe_id = ? AND type_training_id = ?
+                """,
+                (self.employee_id, self.training_type_id),
+            ).fetchall()
+
+        self.assertEqual(total, 0)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date_debut"], "2024-01-01")
+        self.assertEqual(rows[0]["facilitateur"], "Initial")
+
     def test_training_type_is_linked_to_department_and_available_for_bulk_selection(self) -> None:
         underground_id = create_training_type("Underground department test", "Operations")
 
@@ -303,6 +366,30 @@ class TrainingServiceTest(unittest.TestCase):
         self.assertIn("summary", matrix)
         self.assertIn("training_stats", matrix)
         self.assertGreaterEqual(matrix["summary"]["expired"], 1)
+
+    def test_training_matrix_marks_non_required_training_as_not_applicable(self) -> None:
+        required_type_id = self._create_training_type(name="Required for function")
+        optional_type_id = self._create_training_type(name="Not required for function")
+        with connection.db_session() as db:
+            function_id = db.execute(
+                "SELECT fonction_id FROM employes WHERE id_employe = ?",
+                (self.employee_id,),
+            ).fetchone()["fonction_id"]
+            db.execute(
+                """
+                INSERT INTO formations_requises_fonction (fonction_id, type_training_id, obligatoire)
+                VALUES (?, ?, 1)
+                """,
+                (function_id, required_type_id),
+            )
+
+        matrix = get_training_matrix()
+        employee_row = next(row for row in matrix["rows"] if row["employee"]["id_employe"] == self.employee_id)
+        required_cell = next(cell for cell in employee_row["cells"] if cell["type_training_id"] == required_type_id)
+        optional_cell = next(cell for cell in employee_row["cells"] if cell["type_training_id"] == optional_type_id)
+
+        self.assertEqual(required_cell["status"], "missing")
+        self.assertEqual(optional_cell["status"], "not_applicable")
 
     def test_training_matrix_export_uses_professional_layout(self) -> None:
         create_training(

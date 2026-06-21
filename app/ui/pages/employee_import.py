@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
@@ -12,26 +12,38 @@ from app.services import import_employees_from_file
 from app.ui.components.module_header import module_header
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
+# ── Dark cockpit palette ────────────────────────────────────────────────────
+_DK_CARD   = "#0D2040"
+_DK_CARD2  = "#0A1929"
+_DK_HEAD   = "#112240"
+_DK_BORDER = "#1E3A5F"
+_DK_TEXT   = "#E2E8F0"
+_DK_MUTED  = "#9DB0C5"
+_DK_TRACK  = "#1A3050"
+# ───────────────────────────────────────────────────────────────────────────
 
 TEMPLATE_PATH = EXPORTS_DIR / "modele_import_employes_orezone.xlsx"
 
 
 def employee_import_page(page: ft.Page | None = None) -> ft.Control:
     state: dict[str, Any] = {"path": "", "last_result": None}
-    status = ft.Text("Selectionne un fichier, puis lance la verification avant import.", size=12, color=MUTED)
+    status = ft.Text("Selectionne un fichier, puis lance la verification avant import.", size=12, color=_DK_MUTED)
     result_area = ft.Column(spacing=10)
     picker = ft.FilePicker() if page is not None else None
     if page is not None and picker not in page.services:
         page.services.append(picker)
 
     path_field = ft.TextField(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F",
+        focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"),
+        text_style=ft.TextStyle(color="#E2E8F0"),
         label="Fichier a importer",
         hint_text="Chemin du fichier CSV ou XLSX",
         width=620,
         dense=True,
     )
 
-    def notify(message: str, color: str = MUTED) -> None:
+    def notify(message: str, color: str = _DK_MUTED) -> None:
         status.value = message
         status.color = color
 
@@ -61,7 +73,7 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
             file_type=ft.FilePickerFileType.CUSTOM,
         )
         if not files:
-            notify("Aucun fichier selectionne.", MUTED)
+            notify("Aucun fichier selectionne.", _DK_MUTED)
             _update()
             return
         selected_path = str(files[0].path or "")
@@ -81,7 +93,7 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
         state["path"] = ""
         state["last_result"] = None
         path_field.value = ""
-        notify("Selection effacee.", MUTED)
+        notify("Selection effacee.", _DK_MUTED)
         render_result(None)
         _update()
 
@@ -128,14 +140,15 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
                 ft.Column(
                     controls=[
                         ft.Container(
-                            bgcolor="#FEF2F2",
-                            border=ft.border.all(1, "#FECACA"),
+                            bgcolor="#3B0F0F",
+                            border=ft.border.all(1, "#DC2626"),
                             border_radius=8,
-                            padding=10,
+                            padding=ft.padding.symmetric(horizontal=10, vertical=7),
                             content=ft.Row(
                                 controls=[
-                                    ft.Text(f"Ligne {item.get('line')}", width=80, color=DANGER, weight=ft.FontWeight.BOLD),
-                                    ft.Text(str(item.get("message") or ""), color="#991B1B", expand=True),
+                                    ft.Icon(ft.Icons.ERROR_OUTLINE, color="#DC2626", size=14),
+                                    ft.Text(f"Ligne {item.get('line')}", width=80, color="#DC2626", weight=ft.FontWeight.BOLD),
+                                    ft.Text(str(item.get("message") or ""), color=_DK_TEXT, expand=True, size=11),
                                 ],
                                 spacing=8,
                             ),
@@ -146,7 +159,7 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
                 ),
             ]
             if len(errors) > 20:
-                result_area.controls.append(ft.Text(f"+ {len(errors) - 20} autre(s) erreur(s).", color=MUTED, size=12))
+                result_area.controls.append(ft.Text(f"+ {len(errors) - 20} autre(s) erreur(s).", color=_DK_MUTED, size=12))
             return
 
         preview = result.get("preview") or []
@@ -155,32 +168,41 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
         ]
         if preview:
             result_area.controls.append(
-                ft.Row(
-                    controls=[
-                        professional_data_table(
-                            columns=[
-                                ft.DataColumn(ft.Text("Nom")),
-                                ft.DataColumn(ft.Text("Matricule")),
-                                ft.DataColumn(ft.Text("Badge")),
-                                ft.DataColumn(ft.Text("Type")),
-                            ],
-                            rows=[
-                                ft.DataRow(
-                                    cells=[
-                                        ft.DataCell(ft.Text(str(row.get("nom_complet") or "-"))),
-                                        ft.DataCell(ft.Text(str(row.get("matricule") or "-"))),
-                                        ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"))),
-                                        ft.DataCell(ft.Text(str(row.get("type_employe") or "-"))),
-                                    ]
-                                )
-                                for row in preview
-                            ],
-                            border=ft.border.all(1, "#BFDBFE"),
-                            border_radius=8,
-                            heading_row_color="#DBEAFE",
-                        )
-                    ],
-                    scroll=ft.ScrollMode.AUTO,
+                ft.Container(
+                    bgcolor=_DK_CARD,
+                    content=ft.Row(
+                        scroll=ft.ScrollMode.AUTO,
+                        controls=[
+                            ft.DataTable(
+                                bgcolor=_DK_CARD,
+                                heading_row_color=_DK_HEAD,
+                                horizontal_lines=ft.BorderSide(1, _DK_BORDER),
+                                data_row_color={
+                                    ft.ControlState.DEFAULT: _DK_CARD,
+                                    ft.ControlState.HOVERED: _DK_CARD2,
+                                },
+                                heading_text_style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD, size=11),
+                                data_text_style=ft.TextStyle(color=_DK_TEXT, size=11),
+                                columns=[
+                                    ft.DataColumn(ft.Text("Nom")),
+                                    ft.DataColumn(ft.Text("Matricule")),
+                                    ft.DataColumn(ft.Text("Badge")),
+                                    ft.DataColumn(ft.Text("Type")),
+                                ],
+                                rows=[
+                                    ft.DataRow(
+                                        cells=[
+                                            ft.DataCell(ft.Text(str(row.get("nom_complet") or "-"))),
+                                            ft.DataCell(ft.Text(str(row.get("matricule") or "-"))),
+                                            ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"))),
+                                            ft.DataCell(ft.Text(str(row.get("type_employe") or "-"))),
+                                        ]
+                                    )
+                                    for row in preview
+                                ],
+                            )
+                        ],
+                    ),
                 )
             )
 
@@ -191,8 +213,8 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
                 "Import massif depuis CSV ou XLSX avec controle des referentiels et doublons.",
             ),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=ft.Column(
@@ -202,15 +224,15 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
                                 ft.Icon(ft.Icons.UPLOAD_FILE_OUTLINED, color=PRIMARY, size=26),
                                 ft.Column(
                                     controls=[
-                                        ft.Text("Fichier d'import", color=TEXT, size=16, weight=ft.FontWeight.BOLD),
-                                        ft.Text("Utilise le modele Excel recommande ou un CSV avec les memes colonnes.", color=MUTED, size=12),
+                                        ft.Text("Fichier d'import", color=_DK_TEXT, size=16, weight=ft.FontWeight.BOLD),
+                                        ft.Text("Utilise le modele Excel recommande ou un CSV avec les memes colonnes.", color=_DK_MUTED, size=12),
                                     ],
                                     spacing=2,
                                     expand=True,
                                 ),
                                 ft.Container(
-                                    bgcolor="#EFF6FF",
-                                    border=ft.border.all(1, "#BFDBFE"),
+                                    bgcolor=_DK_CARD2,
+                                    border=ft.border.all(1, _DK_BORDER),
                                     border_radius=8,
                                     padding=ft.padding.symmetric(horizontal=10, vertical=6),
                                     content=ft.Text("CSV / XLSX", color=PRIMARY, weight=ft.FontWeight.BOLD, size=12),
@@ -251,13 +273,13 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
                 run_spacing=12,
             ),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=ft.Column(
                     controls=[
-                        ft.Text("Resultat", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                        ft.Text("Resultat", size=16, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
                         result_area,
                     ],
                     spacing=10,
@@ -269,18 +291,18 @@ def employee_import_page(page: ft.Page | None = None) -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
     )
     render_result(None)
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
 
 
 def _requirements_panel() -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
+        bgcolor=_DK_CARD,
+        border=ft.border.all(1, _DK_BORDER),
         border_radius=8,
         padding=16,
         content=ft.Column(
             controls=[
-                ft.Text("Donnees obligatoires", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
+                ft.Text("Donnees obligatoires", size=16, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
                 _requirement_line("Nom + Prenom", "ou Nom complet"),
                 _requirement_line("Fonction", "doit exister dans les referentiels"),
                 _requirement_line("Site", "doit exister dans les referentiels"),
@@ -293,18 +315,18 @@ def _requirements_panel() -> ft.Control:
 
 def _template_panel() -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
-        border=ft.border.all(1, "#BFDBFE"),
+        bgcolor=_DK_CARD,
+        border=ft.border.all(1, _DK_BORDER),
         border_radius=8,
         padding=16,
         content=ft.Column(
             controls=[
-                ft.Text("Modele Excel", size=16, weight=ft.FontWeight.BOLD, color=TEXT),
-                ft.Text(str(TEMPLATE_PATH), size=12, color=MUTED, selectable=True),
+                ft.Text("Modele Excel", size=16, weight=ft.FontWeight.BOLD, color=_DK_TEXT),
+                ft.Text(str(TEMPLATE_PATH), size=12, color=_DK_MUTED, selectable=True),
                 ft.Text(
                     "Le modele contient une feuille vide a remplir, une feuille d'exemples et une feuille d'aide.",
                     size=12,
-                    color=MUTED,
+                    color=_DK_MUTED,
                 ),
                 ft.Row(
                     controls=[
@@ -325,8 +347,8 @@ def _requirement_line(title: str, detail: str) -> ft.Control:
     return ft.Row(
         controls=[
             ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=SUCCESS, size=18),
-            ft.Text(title, color=TEXT, weight=ft.FontWeight.BOLD, width=120),
-            ft.Text(detail, color=MUTED, expand=True, size=12),
+            ft.Text(title, color=_DK_TEXT, weight=ft.FontWeight.BOLD, width=120),
+            ft.Text(detail, color=_DK_MUTED, expand=True, size=12),
         ],
         spacing=8,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -336,10 +358,15 @@ def _requirement_line(title: str, detail: str) -> ft.Control:
 def _step_card(number: str, title: str, detail: str, color: str) -> ft.Control:
     return ft.Container(
         width=230,
-        bgcolor="#F8FAFC",
-        border=ft.border.all(1, "#E2E8F0"),
-        border_radius=8,
-        padding=12,
+        bgcolor=_DK_CARD,
+        border=ft.border.only(
+            left=ft.BorderSide(4, color),
+            top=ft.BorderSide(1, _DK_BORDER),
+            right=ft.BorderSide(1, _DK_BORDER),
+            bottom=ft.BorderSide(1, _DK_BORDER),
+        ),
+        border_radius=12,
+        padding=14,
         content=ft.Row(
             controls=[
                 ft.Container(
@@ -352,8 +379,8 @@ def _step_card(number: str, title: str, detail: str, color: str) -> ft.Control:
                 ),
                 ft.Column(
                     controls=[
-                        ft.Text(title, color=TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Text(detail, color=MUTED, size=11),
+                        ft.Text(title, color=_DK_TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text(detail, color=_DK_MUTED, size=11),
                     ],
                     spacing=2,
                     expand=True,
@@ -367,15 +394,15 @@ def _step_card(number: str, title: str, detail: str, color: str) -> ft.Control:
 
 def _result_header(title: str, detail: str, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#F8FAFC",
-        border=ft.border.all(1, "#E2E8F0"),
+        bgcolor=_DK_CARD2,
+        border=ft.border.all(1, _DK_BORDER),
         border_radius=8,
         padding=12,
         content=ft.Row(
             controls=[
                 ft.Icon(icon, color=color, size=22),
                 ft.Text(title, color=color, weight=ft.FontWeight.BOLD),
-                ft.Text(detail, color=MUTED),
+                ft.Text(detail, color=_DK_MUTED),
             ],
             spacing=8,
             wrap=True,
@@ -386,10 +413,9 @@ def _result_header(title: str, detail: str, color: str, icon: str) -> ft.Control
 
 def _small_badge(label: str, color: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=_DK_CARD2,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Text(label, color=color, size=11, weight=ft.FontWeight.BOLD),
     )
-

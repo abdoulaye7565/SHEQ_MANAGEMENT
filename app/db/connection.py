@@ -1,9 +1,12 @@
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 from app.config import DATABASE_PATH, DATA_DIR, SCHEMA_PATH
 from app.db.migrations import run_lightweight_migrations
+
+_DB_LOCKED_DELAYS = (0.2, 0.5, 1.0)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -15,6 +18,8 @@ def get_connection() -> sqlite3.Connection:
 
 
 def initialize_database() -> None:
+    from app.services.toolbox_talk_service import run_bilingual_normalization_once
+
     has_existing_schema = DATABASE_PATH.exists()
     connection = get_connection()
     try:
@@ -25,6 +30,7 @@ def initialize_database() -> None:
         connection.commit()
     finally:
         connection.close()
+    run_bilingual_normalization_once()
 
 
 @contextmanager
@@ -33,11 +39,53 @@ def db_session() -> Iterator[sqlite3.Connection]:
     try:
         yield connection
         connection.commit()
+    except sqlite3.OperationalError as exc:
+        connection.rollback()
+        if "database is locked" in str(exc).lower():
+            raise sqlite3.OperationalError(
+                "La base de donnees est occupee. Fermez les autres fenetres de l'application et reessayez."
+            ) from exc
+        raise
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
+
+
+@contextmanager
+def db_session_with_retry(max_retries: int = 3) -> Iterator[sqlite3.Connection]:
+    """Context manager que retente la connexion en cas de verrou base de donnees."""
+    last_exc: sqlite3.OperationalError | None = None
+    delays = list(_DB_LOCKED_DELAYS[:max_retries])
+
+    for attempt, delay in enumerate(delays):
+        connection = get_connection()
+        try:
+            yield connection
+            connection.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            connection.rollback()
+            connection.close()
+            if "database is locked" in str(exc).lower() and attempt < len(delays) - 1:
+                last_exc = exc
+                time.sleep(delay)
+                continue
+            raise
+        except Exception:
+            connection.rollback()
+            connection.close()
+            raise
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    raise sqlite3.OperationalError(
+        "Base de donnees verrouillee apres plusieurs tentatives. Reessayez dans quelques secondes."
+    ) from last_exc
 
 
 def _configure_connection(connection: sqlite3.Connection) -> None:

@@ -22,8 +22,6 @@ from app.services import (
     unlock_attendance_day,
     validate_attendance_day,
 )
-from app.ui.components.module_header import module_header
-from app.ui.components.stats import stat_card
 from app.ui.components.confirm import confirm_action
 from app.ui.components.feedback import show_feedback
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
@@ -48,6 +46,7 @@ ATTENDANCE_TIME_PRESETS = {
 
 
 PAGE_SIZE = 10
+from app.ui.components.dark_styles import BG, CARD, DARK_BORDER, DARK_MUTED, DARK_TEXT, FIELD
 
 
 def attendance_page(page: ft.Page | None = None) -> ft.Control:
@@ -65,6 +64,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
     control_area = ft.Column(spacing=10)
     monthly_area = ft.Column(spacing=10)
     audit_area = ft.Column(spacing=10)
+    insights_area = ft.Column(spacing=12)
 
     date_field = ft.TextField(label="Date", value=today_iso(), hint_text="AAAA-MM-JJ", width=170)
     search_field = ft.TextField(
@@ -74,6 +74,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         on_submit=lambda event: refresh_filters(),
     )
     status_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Presence",
         value="all",
         width=170,
@@ -85,9 +86,10 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             ft.dropdown.Option("overtime", "Plus de 12h"),
         ],
     )
-    function_filter = ft.Dropdown(label="Fonction", value="all", width=220)
-    shift_filter = ft.Dropdown(label="Shift", value="all", width=170)
+    function_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Fonction", value="all", width=220)
+    shift_filter = ft.Dropdown(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Shift", value="all", width=170)
     badge_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Badge",
         value="all",
         width=170,
@@ -98,6 +100,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         ],
     )
     time_case_filter = ft.Dropdown(
+        fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), 
         label="Cas",
         value="drilling",
         width=220,
@@ -123,6 +126,22 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         width=105,
         dense=True,
     )
+    for control in (
+        date_field,
+        search_field,
+        status_filter,
+        function_filter,
+        shift_filter,
+        badge_filter,
+        time_case_filter,
+        apply_entry_field,
+        apply_exit_field,
+    ):
+        control.bgcolor = FIELD
+        control.color = DARK_TEXT
+        control.border_color = DARK_BORDER
+        control.focused_border_color = PRIMARY
+        control.label_style = ft.TextStyle(color=DARK_MUTED)
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -372,6 +391,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         state["page"] = 0
         render_summary()
         render_list()
+        render_control_panels()
         _update()
 
     def reset_filters(event: ft.ControlEvent | None = None) -> None:
@@ -572,7 +592,6 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def preview_hours(row: dict[str, Any]) -> float:
-        employee_id = int(row["id_employe"])
         entry = row_time_value(row, "heure_entree")
         exit_ = row_time_value(row, "heure_sortie")
         if row.get("statut_presence") != "present" or not entry or not exit_:
@@ -702,6 +721,38 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             if audit_rows
             else ft.Text("Aucune modification auditee pour cette date.", size=12, color=MUTED),
         ]
+        records = filtered_rows()
+        present = sum(1 for row in records if row["statut_presence"] == "present")
+        absent = len(records) - present
+        hours_values = [preview_hours(row) for row in records if preview_hours(row) > 0]
+        first_entries = sorted(str(row_time_value(row, "heure_entree")) for row in records if row_time_value(row, "heure_entree"))
+        last_exits = sorted(str(row_time_value(row, "heure_sortie")) for row in records if row_time_value(row, "heure_sortie"))
+        insights_area.controls = [
+            _side_panel(
+                "Repartition par statut",
+                [
+                    _distribution_bar(present, absent),
+                    _info_line(ft.Icons.CHECK_CIRCLE_OUTLINE, "Presents", present, SUCCESS),
+                    _info_line(ft.Icons.CANCEL_OUTLINED, "Absents", absent, DANGER),
+                    _info_line(ft.Icons.GROUPS_OUTLINED, "Total", len(records), DARK_TEXT),
+                ],
+            ),
+            _side_panel(
+                "Informations rapides",
+                [
+                    _info_line(ft.Icons.LOGIN_OUTLINED, "Premiere entree", first_entries[0] if first_entries else "-", PRIMARY),
+                    _info_line(ft.Icons.LOGOUT_OUTLINED, "Derniere sortie", last_exits[-1] if last_exits else "-", PRIMARY),
+                    _info_line(
+                        ft.Icons.ACCESS_TIME_OUTLINED,
+                        "Heures moyennes",
+                        f"{round(sum(hours_values) / len(hours_values), 1)} h" if hours_values else "0 h",
+                        DARK_TEXT,
+                    ),
+                    _info_line(ft.Icons.WARNING_AMBER_OUTLINED, "Alertes", len(validation["issues"]), WARNING),
+                ],
+            ),
+            _side_panel("Validation", list(control_area.controls)),
+        ]
 
     def render_list() -> None:
         state["switches"] = {}
@@ -715,13 +766,13 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         if not state["rows"]:
             list_area.controls = [
                 ft.Container(
-                    bgcolor="#FFFFFF",
-                    border=ft.border.all(1, "#BFDBFE"),
+                    bgcolor=FIELD,
+                    border=ft.border.all(1, DARK_BORDER),
                     border_radius=8,
                     padding=18,
                     content=ft.Text(
                         "Aucun employe actif disponible pour cette date. Les employes en break sont exclus automatiquement.",
-                        color=MUTED,
+                        color=DARK_MUTED,
                     ),
                 )
             ]
@@ -741,9 +792,19 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                 ft.DataColumn(ft.Text("Controle")),
             ],
             rows=[_attendance_row(row, previous_time_controls) for row in rows_to_show],
-            border=ft.border.all(1, "#BFDBFE"),
+            bgcolor=FIELD,
+            border=ft.border.all(1, DARK_BORDER),
             border_radius=8,
-            heading_row_color="#DBEAFE",
+            heading_row_color="#142B45",
+            horizontal_lines=ft.BorderSide(1, DARK_BORDER),
+            vertical_lines=ft.BorderSide(1, DARK_BORDER),
+            heading_text_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=DARK_TEXT),
+            data_text_style=ft.TextStyle(size=11, color=DARK_MUTED),
+            data_row_color={
+                ft.ControlState.HOVERED: "#142B45",
+                ft.ControlState.PRESSED: "#17304A",
+                ft.ControlState.SELECTED: "#123B46",
+            },
         )
 
         list_area.controls = [
@@ -764,10 +825,10 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                             ),
                             ft.Container(
                                 padding=ft.padding.symmetric(horizontal=8, vertical=6),
-                                bgcolor="#EFF6FF",
-                                border=ft.border.all(1, "#BFDBFE"),
+                                bgcolor=PRIMARY,
+                                border=ft.border.all(1, PRIMARY),
                                 border_radius=8,
-                                content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color=TEXT),
+                                content=ft.Text(f"Page {int(state['page']) + 1}/{max_page + 1}", size=12, color="#FFFFFF"),
                             ),
                             ft.OutlinedButton(
                                 "Suivant",
@@ -838,6 +899,9 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             dense=True,
             disabled=bool(state.get("locked")),
             on_submit=lambda event: refresh_filters(),
+            bgcolor=FIELD,
+            color=DARK_TEXT,
+            border_color=DARK_BORDER,
         )
         exit_field = ft.TextField(
             value=exit_value,
@@ -846,6 +910,9 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             dense=True,
             disabled=bool(state.get("locked")),
             on_submit=lambda event: refresh_filters(),
+            bgcolor=FIELD,
+            color=DARK_TEXT,
+            border_color=DARK_BORDER,
         )
         state["time_controls"][employee_id] = {
             "heure_entree": entry_field,
@@ -871,34 +938,34 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                 ft.DataCell(
                     ft.Column(
                         controls=[
-                            ft.Text(_employee_name(row), color=TEXT, weight=ft.FontWeight.BOLD),
-                            ft.Text(str(row.get("nom_complet") or ""), color=MUTED, size=11),
+                            ft.Text(_employee_name(row), color=DARK_TEXT, weight=ft.FontWeight.BOLD),
+                            ft.Text(str(row.get("nom_complet") or ""), color=DARK_MUTED, size=10),
                         ],
                         spacing=1,
                     )
                 ),
-                ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"))),
-                ft.DataCell(ft.Text(str(row.get("fonction") or "-"))),
+                ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"), color=DARK_MUTED)),
+                ft.DataCell(ft.Text(str(row.get("fonction") or "-"), color=DARK_TEXT)),
                 ft.DataCell(_shift_badge(row.get("shift_code"), row.get("shift"))),
                 ft.DataCell(ft.Row(controls=[switch, status_label], spacing=4, width=128)),
                 ft.DataCell(entry_field),
                 ft.DataCell(exit_field),
-                ft.DataCell(ft.Text(str(hours), color=DANGER if hours > 12 else TEXT, weight=ft.FontWeight.BOLD)),
+                ft.DataCell(ft.Text(str(hours), color=DANGER if hours > 12 else DARK_TEXT, weight=ft.FontWeight.BOLD)),
                 ft.DataCell(_control_badge(row, hours)),
             ]
         )
 
-    root = ft.Column(
+    root = ft.Container(
+        bgcolor=BG,
+        expand=True,
+        content=ft.Column(
         controls=[
-            module_header(
-                "Liste de presence",
-                "Pointage journalier, controle des heures et export pour impression.",
-            ),
+            _attendance_header(),
             ft.Container(
-                bgcolor="#EFF6FF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=CARD,
+                border=ft.border.all(1, DARK_BORDER),
                 border_radius=8,
-                padding=16,
+                padding=14,
                 content=ft.Column(
                     controls=[
                         ft.Row(
@@ -924,7 +991,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                         ),
                         summary_row,
                         ft.ExpansionTile(
-                            title="Filtres",
+                            title=ft.Text("Filtres avances", color=DARK_TEXT, weight=ft.FontWeight.BOLD),
                             leading=ft.Icons.FILTER_ALT_OUTLINED,
                             expanded=True,
                             controls_padding=ft.padding.only(left=10, right=10, bottom=10),
@@ -946,7 +1013,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                             ],
                         ),
                         ft.ExpansionTile(
-                            title="Actions groupees",
+                            title=ft.Text("Actions groupees", color=DARK_TEXT, weight=ft.FontWeight.BOLD),
                             leading=ft.Icons.GROUP_WORK_OUTLINED,
                             controls_padding=ft.padding.only(left=10, right=10, bottom=10),
                             controls=[
@@ -976,48 +1043,41 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
                                 ),
                             ],
                         ),
-                        ft.ExpansionTile(
-                            title="Validation",
-                            leading=ft.Icons.VERIFIED_OUTLINED,
-                            controls_padding=ft.padding.only(left=10, right=10, bottom=10),
-                            controls=[control_area],
-                        ),
                     ],
                     spacing=14,
                 ),
             ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=16,
-                content=list_area,
-            ),
-            ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
-                border_radius=8,
-                padding=8,
-                content=ft.ExpansionTile(
-                    title="Syntheses et historique",
-                    leading=ft.Icons.QUERY_STATS_OUTLINED,
-                    controls_padding=ft.padding.only(left=8, right=8, bottom=8),
-                    controls=[
-                        ft.ResponsiveRow(
+            ft.ResponsiveRow(
+                controls=[
+                    ft.Container(
+                        col={"xs": 12, "xl": 9},
+                        bgcolor=CARD,
+                        border=ft.border.all(1, DARK_BORDER),
+                        border_radius=8,
+                        padding=14,
+                        content=ft.Column(
                             controls=[
-                                ft.Container(content=monthly_area, col={"sm": 12, "lg": 6}),
-                                ft.Container(content=audit_area, col={"sm": 12, "lg": 6}),
+                                ft.Text("Pointage journalier", color=DARK_TEXT, size=15, weight=ft.FontWeight.BOLD),
+                                list_area,
+                                ft.ExpansionTile(
+                                    title=ft.Text("Syntheses et historique", color=DARK_TEXT),
+                                    leading=ft.Icons.QUERY_STATS_OUTLINED,
+                                    controls=[monthly_area, audit_area],
+                                ),
                             ],
-                            spacing=14,
-                            run_spacing=14,
+                            spacing=10,
                         )
-                    ],
-                ),
+                    ),
+                    ft.Container(col={"xs": 12, "xl": 3}, content=insights_area),
+                ],
+                spacing=12,
+                run_spacing=12,
             ),
         ],
-        spacing=18,
+        spacing=12,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+        ),
     )
 
     load_day()
@@ -1032,14 +1092,37 @@ def _employee_name(row: dict[str, Any]) -> str:
 
 def _summary_card(label: str, value: Any, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        stat_card(label, value, color, icon, compact=True),
         col={"xs": 12, "sm": 6, "md": 4, "lg": 3, "xl": 2},
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=12,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=40,
+                    height=40,
+                    bgcolor=color,
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, color="#FFFFFF", size=21),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, color=DARK_MUTED, size=10),
+                        ft.Text(str(value), color=DARK_TEXT, size=20, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=0,
+                ),
+            ],
+            spacing=9,
+        ),
     )
 
 
 def _status_chip(label: str, color: str, icon: str) -> ft.Control:
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=FIELD,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=10, vertical=7),
@@ -1058,7 +1141,7 @@ def _shift_badge(shift_code: str | None, shift_label: str | None) -> ft.Control:
     color = PRIMARY if shift_code == "DAY" else WARNING if shift_code == "NIGHT" else MUTED
     label = "Day" if shift_code == "DAY" else "Night" if shift_code == "NIGHT" else str(shift_label or "-")
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=FIELD,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -1073,7 +1156,7 @@ def _shift_filter_label(shift_code: str) -> str:
 def _control_badge(row: dict[str, Any], hours: float) -> ft.Control:
     label, color = _control_label_color(row, hours)
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=FIELD,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
@@ -1104,3 +1187,75 @@ def _valid_time(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _attendance_header() -> ft.Control:
+    return ft.Container(
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=44,
+                    height=44,
+                    bgcolor=PRIMARY,
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.EVENT_AVAILABLE_OUTLINED, color="#FFFFFF", size=24),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text("Liste de presence", color=DARK_TEXT, size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text("Pointage journalier, controle des heures et validation.", color=DARK_MUTED, size=11),
+                    ],
+                    spacing=2,
+                ),
+            ],
+            spacing=12,
+        ),
+    )
+
+
+def _side_panel(title: str, controls: list[ft.Control]) -> ft.Control:
+    return ft.Container(
+        bgcolor=CARD,
+        border=ft.border.all(1, DARK_BORDER),
+        border_radius=8,
+        padding=14,
+        content=ft.Column(
+            controls=[
+                ft.Text(title, color=DARK_TEXT, size=14, weight=ft.FontWeight.BOLD),
+                ft.Divider(height=1, color=DARK_BORDER),
+                *controls,
+            ],
+            spacing=9,
+        ),
+    )
+
+
+def _info_line(icon: str, label: str, value: Any, color: str) -> ft.Control:
+    return ft.Row(
+        controls=[
+            ft.Icon(icon, color=color, size=16),
+            ft.Text(label, color=DARK_MUTED, size=10, expand=True),
+            ft.Text(str(value), color=color, size=11, weight=ft.FontWeight.BOLD),
+        ],
+        spacing=7,
+    )
+
+
+def _distribution_bar(present: int, absent: int) -> ft.Control:
+    return ft.Container(
+        height=14,
+        border_radius=7,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        content=ft.Row(
+            controls=[
+                ft.Container(expand=max(present, 1), bgcolor=SUCCESS),
+                ft.Container(expand=max(absent, 1), bgcolor=DANGER),
+            ],
+            spacing=0,
+        ),
+    )

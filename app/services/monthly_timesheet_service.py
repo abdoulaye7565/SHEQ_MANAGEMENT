@@ -4,36 +4,43 @@ from datetime import date
 from typing import Any
 
 from app.db.connection import db_session
+from app.services.timesheet_period_service import (
+    TIMESHEET_1_25,
+    TIMESHEET_21_20,
+    get_active_timesheet_period,
+    get_timesheet_period_for_month,
+    get_timesheet_sync_status,
+)
 
 
 WORK_HOURS = 10
 HOLIDAY_HOURS = 8
+BREAK_HOURS = 8
 PERMISSION_DAYS = 3
 
 
 def current_monthly_timesheet_month() -> str:
-    today = date.today()
-    return today.strftime("%Y-%m")
+    return get_active_timesheet_period(TIMESHEET_1_25)["month"]
 
 
 def get_monthly_timesheet_period(month: str) -> dict[str, str]:
-    parsed = _parse_month(month)
-    return {
-        "month": parsed.strftime("%Y-%m"),
-        "start": parsed.replace(day=1).isoformat(),
-        "end": parsed.replace(day=25).isoformat(),
-    }
+    return get_timesheet_period_for_month(TIMESHEET_1_25, month)
 
 
 def list_monthly_timesheet_days(month: str) -> list[str]:
     period = get_monthly_timesheet_period(month)
+    return _list_days_for_period(period)
+
+
+def _list_days_for_period(period: dict) -> list[str]:
+    from datetime import timedelta
     start = date.fromisoformat(period["start"])
     end = date.fromisoformat(period["end"])
     days = []
     current = start
     while current <= end:
         days.append(current.isoformat())
-        current = current.replace(day=current.day + 1)
+        current += timedelta(days=1)
     return days
 
 
@@ -60,10 +67,12 @@ def get_monthly_10h_timesheet(
     month: str | None = None,
     site_id: int | None = None,
     employee_type: str = "national",
+    ts_type: str | None = None,
 ) -> dict[str, Any]:
     selected_month = month or current_monthly_timesheet_month()
-    period = get_monthly_timesheet_period(selected_month)
-    days = list_monthly_timesheet_days(selected_month)
+    resolved_type = ts_type or TIMESHEET_1_25
+    period = get_timesheet_period_for_month(resolved_type, selected_month)
+    days = _list_days_for_period(period)
     selected_site_id = int(site_id or 0) or None
     selected_employee_type = str(employee_type or "national").strip()
     if selected_employee_type not in {"national", "expatriate"}:
@@ -95,12 +104,15 @@ def get_monthly_10h_timesheet(
                 s.id_site AS site_id,
                 s.nom AS site,
                 d.nom AS departement_site,
-                COALESCE(g.nom, '-') AS groupe
+                COALESCE(g.nom, '-') AS groupe,
+                sh.code AS shift_code,
+                sh.libelle AS shift
             FROM employes e
             JOIN fonctions f ON f.id_fonction = e.fonction_id
             JOIN sites s ON s.id_site = e.site_id
             LEFT JOIN departments d ON d.id_department = s.department_id
             LEFT JOIN groupes g ON g.id_groupe = e.groupe_id
+            JOIN shifts sh ON sh.id_shift = e.shift_id
             LEFT JOIN badges b ON b.employe_id = e.id_employe
             WHERE e.type_employe = ?
               AND (
@@ -197,22 +209,26 @@ def get_monthly_10h_timesheet(
                 elif break_record and str(break_record.get("type_break")) == "annual":
                     status = "annual_break"
                     label = "AL"
-                    hours = 0
+                    hours = BREAK_HOURS
+                    employee_hours += hours
                     annual_break_days += 1
                 elif break_record and str(break_record.get("type_break")) == "permission":
                     status = "permission"
                     label = "P"
-                    hours = 0
+                    hours = BREAK_HOURS
+                    employee_hours += hours
                     permission_days += 1
                 elif break_record and str(break_record.get("type_break")) == "sick":
                     status = "sick"
                     label = "S"
-                    hours = 0
+                    hours = BREAK_HOURS
+                    employee_hours += hours
                     sick_days += 1
                 elif break_record:
                     status = "normal_break"
                     label = "B"
-                    hours = 0
+                    hours = BREAK_HOURS
+                    employee_hours += hours
                     normal_break_days += 1
                 elif override:
                     status = str(override.get("status") or "rest")
@@ -298,6 +314,7 @@ def get_monthly_10h_timesheet(
         summary["hours"] += employee_hours
     return {
         "period": period,
+        "synchronization": get_timesheet_sync_status(resolved_type, selected_month, selected_site_id),
         "site_id": selected_site_id,
         "site": site,
         "days": [

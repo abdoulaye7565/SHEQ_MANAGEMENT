@@ -7,6 +7,7 @@ from typing import Any
 from app.db.connection import db_session
 from app.config import EXPORTS_DIR
 from app.services.attendance_export_service import _unique_export_path, export_rows_xlsx, export_styled_rows_xlsx
+from app.services.audit_service import record_system_audit
 from app.services.xlsx_service import write_equipment_maintenance_xlsx
 
 
@@ -51,6 +52,338 @@ def sync_overdue_maintenance_actions() -> dict[str, int]:
     }
 
 
+def synchronize_maintenance_management() -> dict[str, int]:
+    """Synchronize due states and calculated odometer milestones for every maintenance view."""
+    overdue = sync_overdue_maintenance_actions()
+    with db_session() as connection:
+        odometers = connection.execute(
+            """
+            UPDATE equipment_maintenance
+            SET next_due_odometer = last_service_odometer + service_interval_km,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE last_service_odometer IS NOT NULL
+              AND service_interval_km IS NOT NULL
+              AND (
+                    next_due_odometer IS NULL
+                 OR next_due_odometer != last_service_odometer + service_interval_km
+              )
+            """
+        )
+    return {**overdue, "odometers": int(odometers.rowcount or 0)}
+
+
+def list_maintenance_equipment_catalog(search: str = "") -> list[dict[str, Any]]:
+    synchronize_maintenance_management()
+    rows = list_equipment_maintenance(limit=5000)
+    query = str(search or "").strip().lower()
+    catalog: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = str(row.get("equipment_code") or row.get("equipment_name") or row["id_maintenance"]).strip()
+        current = catalog.setdefault(
+            key,
+            {
+                "equipment_code": row.get("equipment_code") or "",
+                "equipment_name": row.get("equipment_name") or "-",
+                "category": row.get("category") or "-",
+                "site": row.get("site") or "-",
+                "responsible": _person_name(row, "responsable_nom", "responsable_prenom") or "-",
+                "current_odometer": row.get("current_odometer"),
+                "last_service_odometer": row.get("last_service_odometer"),
+                "next_due_odometer": row.get("next_due_odometer"),
+                "next_due_date": row.get("next_due_date"),
+                "status": "actif",
+                "interventions": 0,
+                "open_interventions": 0,
+                "cost_total": 0.0,
+            },
+        )
+        current["interventions"] += 1
+        current["cost_total"] += float(row.get("cost") or 0)
+        if row.get("status") in {"planifiee", "en_cours", "en_retard"}:
+            current["open_interventions"] += 1
+        for field in ("current_odometer", "last_service_odometer", "next_due_odometer"):
+            value = row.get(field)
+            if value is not None and (current.get(field) is None or float(value) > float(current[field])):
+                current[field] = value
+        if row.get("status") == "en_retard":
+            current["status"] = "maintenance_due"
+    result = list(catalog.values())
+    if query:
+        result = [
+            row
+            for row in result
+            if query in " ".join(str(row.get(key) or "") for key in ("equipment_code", "equipment_name", "category", "site", "responsible")).lower()
+        ]
+    return sorted(result, key=lambda row: (row["status"] != "maintenance_due", str(row["equipment_code"] or row["equipment_name"])))
+
+
+def list_maintenance_plans(search: str = "") -> list[dict[str, Any]]:
+    rows = list_equipment_maintenance(search=search, limit=5000)
+    plans: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        equipment_key = str(row.get("equipment_code") or row.get("equipment_name") or row["id_maintenance"])
+        key = (equipment_key, str(row.get("maintenance_type") or "preventive"))
+        plan = plans.setdefault(
+            key,
+            {
+                "equipment_code": row.get("equipment_code") or "",
+                "equipment_name": row.get("equipment_name") or "-",
+                "maintenance_type": row.get("maintenance_type") or "preventive",
+                "service_interval_km": row.get("service_interval_km"),
+                "next_due_odometer": row.get("next_due_odometer"),
+                "next_due_date": row.get("next_due_date"),
+                "priority": row.get("priority") or "moyenne",
+                "status": "actif",
+                "interventions": 0,
+            },
+        )
+        plan["interventions"] += 1
+        for field in ("service_interval_km", "next_due_odometer", "next_due_date", "priority"):
+            if row.get(field) not in (None, ""):
+                plan[field] = row[field]
+        if row.get("status") == "en_retard":
+            plan["status"] = "en_retard"
+    return sorted(plans.values(), key=lambda row: (row["status"] != "en_retard", str(row["equipment_name"])))
+
+
+def get_maintenance_cost_analysis() -> dict[str, Any]:
+    rows = list_equipment_maintenance(limit=5000)
+    by_category: dict[str, float] = {}
+    by_type: dict[str, float] = {}
+    by_equipment: dict[str, float] = {}
+    for row in rows:
+        cost = float(row.get("cost") or 0)
+        category = str(row.get("category") or "Non classe")
+        maintenance_type = str(row.get("maintenance_type") or "Autre")
+        equipment = str(row.get("equipment_code") or row.get("equipment_name") or "-")
+        by_category[category] = by_category.get(category, 0) + cost
+        by_type[maintenance_type] = by_type.get(maintenance_type, 0) + cost
+        by_equipment[equipment] = by_equipment.get(equipment, 0) + cost
+    total = round(sum(by_equipment.values()), 2)
+    return {
+        "total": total,
+        "average": round(total / max(len(rows), 1), 2),
+        "interventions": len(rows),
+        "by_category": dict(sorted(by_category.items(), key=lambda item: item[1], reverse=True)),
+        "by_type": dict(sorted(by_type.items(), key=lambda item: item[1], reverse=True)),
+        "by_equipment": dict(sorted(by_equipment.items(), key=lambda item: item[1], reverse=True)),
+    }
+
+
+def list_maintenance_parts(limit: int = 500) -> list[dict[str, Any]]:
+    with db_session() as connection:
+        rows = connection.execute(
+            """
+            SELECT *,
+                   CASE WHEN quantity_available <= minimum_threshold THEN 1 ELSE 0 END AS low_stock,
+                   quantity_available * unit_cost AS stock_value
+            FROM maintenance_parts
+            ORDER BY low_stock DESC, name
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_maintenance_part(values: dict[str, Any]) -> int:
+    reference = _required_text(values.get("reference"), "Reference piece")
+    name = _required_text(values.get("name"), "Piece")
+    quantity = _optional_int(values.get("quantity_available")) or 0
+    threshold = _optional_int(values.get("minimum_threshold")) or 0
+    unit_cost = _optional_float(values.get("unit_cost")) or 0
+    if min(quantity, threshold, unit_cost) < 0:
+        raise ValueError("Stock, seuil et cout doivent etre positifs.")
+    with db_session() as connection:
+        connection.execute(
+            """
+            INSERT INTO maintenance_parts (
+                reference, name, category, quantity_available, minimum_threshold, unit_cost, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(reference) DO UPDATE SET
+                name = excluded.name,
+                category = excluded.category,
+                quantity_available = excluded.quantity_available,
+                minimum_threshold = excluded.minimum_threshold,
+                unit_cost = excluded.unit_cost,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (reference, name, _optional_text(values.get("category")), quantity, threshold, unit_cost),
+        )
+        row = connection.execute("SELECT id_part FROM maintenance_parts WHERE reference = ?", (reference,)).fetchone()
+    part_id = int(row["id_part"])
+    record_system_audit("save_maintenance_part", "maintenance_part", str(part_id), f"reference={reference};stock={quantity};threshold={threshold}")
+    return part_id
+
+
+def list_maintenance_inspections(limit: int = 500) -> list[dict[str, Any]]:
+    today = date.today().isoformat()
+    with db_session() as connection:
+        rows = connection.execute(
+            """
+            SELECT *,
+                   CASE
+                       WHEN status IN ('critique', 'hors_service') THEN 'critique'
+                       WHEN next_inspection_date IS NOT NULL AND next_inspection_date < ? THEN 'en_retard'
+                       ELSE status
+                   END AS computed_status
+            FROM maintenance_inspections
+            ORDER BY CASE WHEN status IN ('critique', 'hors_service') THEN 0 ELSE 1 END,
+                     COALESCE(next_inspection_date, inspection_date)
+            LIMIT ?
+            """,
+            (today, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def record_maintenance_inspection(values: dict[str, Any]) -> int:
+    status = _required_text(values.get("status") or "ok", "Statut inspection")
+    if status not in {"ok", "a_surveiller", "critique", "hors_service"}:
+        raise ValueError("Statut inspection invalide.")
+    with db_session() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO maintenance_inspections (
+                equipment_code, equipment_name, inspection_date, status,
+                next_inspection_date, inspector, observations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _optional_text(values.get("equipment_code")),
+                _required_text(values.get("equipment_name"), "Equipement"),
+                _date_text(values.get("inspection_date"), "Date inspection"),
+                status,
+                _optional_date(values.get("next_inspection_date"), "Prochaine inspection"),
+                _optional_text(values.get("inspector")),
+                _optional_text(values.get("observations")),
+            ),
+        )
+        inspection_id = int(cursor.lastrowid)
+        if status in {"critique", "hors_service"}:
+            _ensure_action_for_critical_inspection(connection, inspection_id, values, status)
+        if status == "hors_service":
+            equipment_code = _optional_text(values.get("equipment_code"))
+            equipment_name = _required_text(values.get("equipment_name"), "Equipement")
+            connection.execute(
+                """
+                UPDATE equipment_maintenance
+                SET priority = 'critique',
+                    status = CASE WHEN status IN ('terminee', 'annulee') THEN status ELSE 'en_cours' END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE (equipment_code = ? AND ? IS NOT NULL)
+                   OR (equipment_name = ? AND equipment_code IS NULL)
+                """,
+                (equipment_code, equipment_code, equipment_name),
+            )
+    record_system_audit("record_maintenance_inspection", "maintenance_inspection", str(inspection_id), f"status={status}")
+    return inspection_id
+
+
+def delete_maintenance_part(part_id: int) -> None:
+    with db_session() as connection:
+        row = connection.execute("SELECT reference FROM maintenance_parts WHERE id_part = ?", (part_id,)).fetchone()
+        if not row:
+            raise ValueError("Piece introuvable.")
+        connection.execute("DELETE FROM maintenance_parts WHERE id_part = ?", (part_id,))
+    record_system_audit("delete_maintenance_part", "maintenance_part", str(part_id), "deleted")
+
+
+def update_maintenance_inspection(inspection_id: int, values: dict[str, Any]) -> None:
+    status = _required_text(values.get("status") or "ok", "Statut inspection")
+    if status not in {"ok", "a_surveiller", "critique", "hors_service"}:
+        raise ValueError("Statut inspection invalide.")
+    with db_session() as connection:
+        row = connection.execute("SELECT id_inspection FROM maintenance_inspections WHERE id_inspection = ?", (inspection_id,)).fetchone()
+        if not row:
+            raise ValueError("Inspection introuvable.")
+        connection.execute(
+            """
+            UPDATE maintenance_inspections SET
+                equipment_code = ?,
+                equipment_name = ?,
+                inspection_date = ?,
+                status = ?,
+                next_inspection_date = ?,
+                inspector = ?,
+                observations = ?
+            WHERE id_inspection = ?
+            """,
+            (
+                _optional_text(values.get("equipment_code")),
+                _required_text(values.get("equipment_name"), "Equipement"),
+                _date_text(values.get("inspection_date"), "Date inspection"),
+                status,
+                _optional_date(values.get("next_inspection_date"), "Prochaine inspection"),
+                _optional_text(values.get("inspector")),
+                _optional_text(values.get("observations")),
+                inspection_id,
+            ),
+        )
+    record_system_audit("update_maintenance_inspection", "maintenance_inspection", str(inspection_id), f"status={status}")
+
+
+def delete_maintenance_inspection(inspection_id: int) -> None:
+    with db_session() as connection:
+        row = connection.execute("SELECT id_inspection FROM maintenance_inspections WHERE id_inspection = ?", (inspection_id,)).fetchone()
+        if not row:
+            raise ValueError("Inspection introuvable.")
+        connection.execute("DELETE FROM maintenance_inspections WHERE id_inspection = ?", (inspection_id,))
+    record_system_audit("delete_maintenance_inspection", "maintenance_inspection", str(inspection_id), "deleted")
+
+
+def _ensure_action_for_critical_inspection(
+    connection: Any,
+    inspection_id: int,
+    values: dict[str, Any],
+    status: str,
+) -> None:
+    equipment_name = _required_text(values.get("equipment_name"), "Equipement")
+    equipment_code = _optional_text(values.get("equipment_code"))
+    equipment_label = f"{equipment_code} - {equipment_name}" if equipment_code else equipment_name
+    title = f"Inspection critique #{inspection_id}: {equipment_label}"[:180]
+    existing = connection.execute(
+        """
+        SELECT id_action
+        FROM action_tracker
+        WHERE source = 'Maintenance Inspection'
+          AND title = ?
+          AND status NOT IN ('terminee', 'annulee')
+        LIMIT 1
+        """,
+        (title,),
+    ).fetchone()
+    if existing:
+        return
+    description = (
+        f"Etat detecte: {status}. "
+        f"Observation: {_optional_text(values.get('observations')) or 'Controle correctif requis'}."
+    )
+    connection.execute(
+        """
+        INSERT INTO action_tracker (
+            source, title, description, priority, status, due_date, progress
+        ) VALUES ('Maintenance Inspection', ?, ?, 'critique', 'ouverte', ?, 0)
+        """,
+        (title, description[:1000], date.today().isoformat()),
+    )
+
+
+def get_maintenance_management_snapshot() -> dict[str, Any]:
+    synchronization = synchronize_maintenance_management()
+    return {
+        "synchronization": synchronization,
+        "summary": get_maintenance_action_summary(),
+        "equipment": list_maintenance_equipment_catalog(),
+        "plans": list_maintenance_plans(),
+        "interventions": list_equipment_maintenance(limit=1000),
+        "alerts": list_maintenance_action_alerts(),
+        "costs": get_maintenance_cost_analysis(),
+        "parts": list_maintenance_parts(),
+        "inspections": list_maintenance_inspections(),
+    }
+
+
 def get_maintenance_action_summary() -> dict[str, int | float]:
     sync_overdue_maintenance_actions()
     today = date.today().isoformat()
@@ -63,6 +396,8 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
                 SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') AND (status = 'en_retard' OR planned_date < ? OR (next_due_date IS NOT NULL AND next_due_date <= ?) OR (next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer)) THEN 1 ELSE 0 END) AS late_count,
                 SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') AND next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND current_odometer >= next_due_odometer THEN 1 ELSE 0 END) AS odometer_due_count,
                 SUM(CASE WHEN priority = 'critique' AND status NOT IN ('terminee', 'annulee') THEN 1 ELSE 0 END) AS critical_count,
+                SUM(CASE WHEN status = 'terminee' THEN 1 ELSE 0 END) AS completed_count,
+                SUM(CASE WHEN status IN ('planifiee', 'en_cours', 'en_retard') AND next_due_odometer IS NOT NULL AND current_odometer IS NOT NULL AND next_due_odometer - current_odometer BETWEEN 1 AND 500 THEN 1 ELSE 0 END) AS due_soon_count,
                 COALESCE(SUM(cost), 0) AS cost_total
             FROM equipment_maintenance
             """,
@@ -97,6 +432,11 @@ def get_maintenance_action_summary() -> dict[str, int | float]:
         "maintenance_late": int(maintenance["late_count"] or 0),
         "maintenance_odometer_due": int(maintenance["odometer_due_count"] or 0),
         "maintenance_critical": int(maintenance["critical_count"] or 0),
+        "maintenance_completed": int(maintenance["completed_count"] or 0),
+        "maintenance_due_soon": int(maintenance["due_soon_count"] or 0),
+        "maintenance_completion_rate": round(
+            int(maintenance["completed_count"] or 0) * 100 / max(int(maintenance["total"] or 0), 1)
+        ),
         "maintenance_cost": round(float(maintenance["cost_total"] or 0), 2),
         "actions_total": int(actions["total"] or 0),
         "actions_open": int(actions["open_count"] or 0),
@@ -186,6 +526,12 @@ def list_maintenance_action_alerts() -> dict[str, list[dict[str, Any]]]:
     return {
         "maintenance": [dict(row) for row in maintenance_rows],
         "actions": [dict(row) for row in action_rows],
+        "parts": [row for row in list_maintenance_parts() if row.get("low_stock")],
+        "inspections": [
+            row
+            for row in list_maintenance_inspections()
+            if row.get("computed_status") in {"critique", "en_retard", "hors_service"}
+        ],
     }
 
 
@@ -301,7 +647,9 @@ def create_equipment_maintenance(values: dict[str, Any]) -> int:
                 payload["observations"],
             ),
         )
-        return int(cursor.lastrowid)
+        maintenance_id = int(cursor.lastrowid)
+    record_system_audit("create_maintenance", "maintenance", str(maintenance_id), _maintenance_audit_value(payload))
+    return maintenance_id
 
 
 def update_equipment_maintenance(maintenance_id: int, values: dict[str, Any]) -> None:
@@ -340,6 +688,7 @@ def update_equipment_maintenance(maintenance_id: int, values: dict[str, Any]) ->
         )
         if not cursor.rowcount:
             raise ValueError("Maintenance introuvable.")
+    record_system_audit("update_maintenance", "maintenance", str(maintenance_id), _maintenance_audit_value(payload))
 
 
 def delete_equipment_maintenance(maintenance_id: int) -> None:
@@ -347,6 +696,7 @@ def delete_equipment_maintenance(maintenance_id: int) -> None:
         cursor = connection.execute("DELETE FROM equipment_maintenance WHERE id_maintenance = ?", (maintenance_id,))
         if not cursor.rowcount:
             raise ValueError("Maintenance introuvable.")
+    record_system_audit("delete_maintenance", "maintenance", str(maintenance_id), "")
 
 
 def list_action_tracker(search: str = "", status: str = "all", limit: int = 200) -> list[dict[str, Any]]:
@@ -488,10 +838,16 @@ def list_risk_assessments(search: str = "", status: str = "all", limit: int = 20
                 ra.*,
                 s.nom AS site,
                 COALESCE(e.nom, e.nom_complet) AS owner_nom,
-                COALESCE(e.prenom, '') AS owner_prenom
+                COALESCE(e.prenom, '') AS owner_prenom,
+                act.id_action AS auto_action_id,
+                act.status AS auto_action_status,
+                act.title AS auto_action_title
             FROM risk_assessments ra
             LEFT JOIN sites s ON s.id_site = ra.site_id
             LEFT JOIN employes e ON e.id_employe = ra.owner_employee_id
+            LEFT JOIN action_tracker act ON act.source = 'Risk Assessment'
+                AND act.title LIKE ('Risk control #' || CAST(ra.id_risk AS TEXT) || ':%')
+                AND act.status NOT IN ('terminee', 'annulee')
             {where_sql}
             ORDER BY
                 CASE ra.level_residual WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
@@ -501,6 +857,24 @@ def list_risk_assessments(search: str = "", status: str = "all", limit: int = 20
             LIMIT ?
             """,
             params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_maintenance_audit_events(limit: int = 15) -> list[dict[str, Any]]:
+    with db_session() as connection:
+        rows = connection.execute(
+            """
+            SELECT action, cible_type, cible_id, nouvelle_valeur, changed_by, changed_at
+            FROM admin_audit
+            WHERE cible_type IN (
+                'maintenance_part', 'maintenance_inspection',
+                'equipment_maintenance', 'action_tracker', 'risk_assessment'
+            )
+            ORDER BY changed_at DESC, id_audit DESC
+            LIMIT ?
+            """,
+            (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -768,6 +1142,15 @@ def _clean_maintenance_payload(values: dict[str, Any]) -> dict[str, Any]:
         "cost": _optional_float(values.get("cost")) or 0,
         "observations": _optional_text(values.get("observations")),
     }
+
+
+def _maintenance_audit_value(payload: dict[str, Any]) -> str:
+    return (
+        f"equipment={payload.get('equipment_code') or payload.get('equipment_name')};"
+        f"type={payload.get('maintenance_type')};status={payload.get('status')};"
+        f"planned={payload.get('planned_date')};next_km={payload.get('next_due_odometer')};"
+        f"cost={payload.get('cost')}"
+    )
 
 
 def _clean_risk_payload(values: dict[str, Any]) -> dict[str, Any]:

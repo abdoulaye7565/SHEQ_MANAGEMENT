@@ -78,6 +78,25 @@ class AlertServiceTest(unittest.TestCase):
         self.assertTrue(any("Stock" in message for message in messages))
         self.assertGreaterEqual(summary["open"], 3)
 
+    def test_list_alerts_limit_truncates_results(self) -> None:
+        for i in range(5):
+            create_manual_alert(f"Alerte {i}", f"Message {i}", "moyen")
+
+        all_alerts = list_alerts(source="manual", statut="ouverte")
+        limited = list_alerts(source="manual", statut="ouverte", limit=2)
+
+        self.assertGreaterEqual(len(all_alerts), 5)
+        self.assertEqual(len(limited), 2)
+
+    def test_list_alerts_limit_none_returns_all(self) -> None:
+        for i in range(3):
+            create_manual_alert(f"Alerte limite {i}", f"Message {i}", "bas")
+
+        all_alerts = list_alerts(source="manual", statut="ouverte")
+        no_limit = list_alerts(source="manual", statut="ouverte", limit=None)
+
+        self.assertEqual(len(all_alerts), len(no_limit))
+
     def test_action_plan_groups_open_alerts_by_priority(self) -> None:
         create_manual_alert("Incident critique", "Controle terrain immediat requis", "critique")
 

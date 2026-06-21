@@ -10,7 +10,6 @@ from app.services import attendance_export_service
 from app.services.break_service import create_break
 from app.services.employee_service import create_employee
 from app.services.monthly_timesheet_service import (
-    current_monthly_timesheet_month,
     get_monthly_timesheet_period,
     get_monthly_10h_timesheet,
     list_monthly_timesheet_days,
@@ -188,8 +187,8 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
         self.assertEqual(row["sick_days"], 1)
 
     def test_export_monthly_timesheet_xlsx_contains_status_labels(self) -> None:
-        current_month = current_monthly_timesheet_month()
-        period = get_monthly_timesheet_period(current_month)
+        selected_month = "2026-05"
+        period = get_monthly_timesheet_period(selected_month)
         self._create_employee("Expat Employee", employee_type="expatriate")
         save_attendance_day(
             period["start"],
@@ -199,31 +198,44 @@ class MonthlyTimeSheetServiceTest(unittest.TestCase):
             {
                 "employe_id": self.employee_id,
                 "type_break": "annual",
-                "date_debut": f"{current_month}-05",
-                "date_fin": f"{current_month}-05",
+                "date_debut": f"{selected_month}-05",
+                "date_fin": f"{selected_month}-05",
                 "statut": "planifie",
             }
         )
 
-        output = attendance_export_service.export_monthly_10h_timesheet_xlsx("2026-05")
+        output = attendance_export_service.export_monthly_10h_timesheet_xlsx(selected_month)
 
         self.assertTrue(output.exists())
         with zipfile.ZipFile(output) as workbook:
             sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            matrix_sheet = workbook.read("xl/worksheets/sheet2.xml").decode("utf-8")
+            all_sheets = "".join(
+                workbook.read(f"xl/worksheets/sheet{index}.xml").decode("utf-8")
+                for index in range(1, 5)
+            )
             styles = workbook.read("xl/styles.xml").decode("utf-8")
+            trend_chart = workbook.read("xl/charts/chart1.xml").decode("utf-8")
         self.assertIn("10h", sheet)
         self.assertIn("MONTHLY TIMESHEET", sheet)
         self.assertIn("Current month", sheet)
-        self.assertIn(current_month, sheet)
+        self.assertIn(selected_month, sheet)
         self.assertIn(f"{period['start']} TO {period['end']}", sheet)
-        self.assertIn(">R<", sheet)
-        self.assertIn(">AL<", sheet)
+        self.assertIn(">R<", all_sheets)
+        self.assertIn(">AL<", all_sheets)
         self.assertIn("EXPATRIES - RESERVE", sheet)
         self.assertIn("Expat Employee", sheet)
         self.assertIn('width="6.5"', sheet)
         self.assertIn('horizontal="center" vertical="center"', styles)
         self.assertIn('textRotation="45"', styles)
         self.assertIn('left style="thin"', styles)
+        self.assertIn("TENDANCE JOURNALIERE", trend_chart)
+        self.assertIn("Heures travaillees", trend_chart)
+        self.assertIn("Employes presents", trend_chart)
+        self.assertIn('<drawing r:id="rId1"/>', sheet)
+        self.assertIn('s="12"', matrix_sheet)
+        self.assertIn('s="18"', matrix_sheet)
+        self.assertIn('s="15"', matrix_sheet)
 
     def _create_employee(self, name: str, employee_type: str = "national") -> int:
         with connection.db_session() as db:

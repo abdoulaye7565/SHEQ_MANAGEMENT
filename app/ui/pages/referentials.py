@@ -4,8 +4,6 @@ from typing import Any
 
 import flet as ft
 
-from app.ui.components.tables import professional_data_table
-
 from app.services import (
     create_record,
     delete_record,
@@ -13,21 +11,30 @@ from app.services import (
     get_config,
     get_foreign_key_options,
     list_config_keys,
+    list_referential_counts,
     list_records,
     update_record,
 )
-from app.ui.components.module_header import module_header
-from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT
+from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS
 
 
 def referentials_page(page: ft.Page | None = None) -> ft.Control:
-    state: dict[str, Any] = {"key": "sites", "selected_id": None}
+    state: dict[str, Any] = {"key": "sites", "selected_id": None, "search": ""}
     form_controls: dict[str, ft.Control] = {}
     category_area = ft.Column(spacing=6)
     form_area = ft.Column(spacing=14)
     table_area = ft.Column(spacing=12)
-    title = ft.Text(size=18, weight=ft.FontWeight.BOLD, color=TEXT)
+    title = ft.Text(size=18, weight=ft.FontWeight.BOLD, color="#FFFFFF")
     status = ft.Text("", size=12, color=MUTED)
+    summary_row = ft.ResponsiveRow(spacing=10, run_spacing=10)
+    search_field = ft.TextField(
+        label="Rechercher dans la liste",
+        prefix_icon=ft.Icons.SEARCH,
+        width=280,
+        bgcolor="#0C1C2E",
+        color="#FFFFFF",
+        border_color="#1E3A56",
+    )
 
     def notify(message: str, color: str = MUTED) -> None:
         status.value = message
@@ -159,12 +166,19 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
             is_selected = key == state["key"]
             category_area.controls.append(
                 ft.TextButton(
-                    content=config["label"],
-                    icon=ft.Icons.CHEVRON_RIGHT if is_selected else None,
+                    width=210,
+                    content=ft.Row(
+                        controls=[
+                            ft.Icon(_category_icon(key), size=17),
+                            ft.Text(config["label"], size=11, weight=ft.FontWeight.BOLD, expand=True),
+                        ],
+                        spacing=8,
+                    ),
                     style=ft.ButtonStyle(
-                        color=PRIMARY if is_selected else TEXT,
-                        bgcolor="#EFF6FF" if is_selected else "#FFFFFF",
+                        color="#FFFFFF" if is_selected else "#C7D4E3",
+                        bgcolor=PRIMARY if is_selected else "#10243A",
                         shape=ft.RoundedRectangleBorder(radius=8),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=10),
                     ),
                     on_click=lambda event, current_key=key: select_category(current_key),
                 )
@@ -189,16 +203,20 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
                     ft.ElevatedButton(
                         "Enregistrer",
                         icon=ft.Icons.SAVE_OUTLINED,
+                        bgcolor=PRIMARY,
+                        color="#FFFFFF",
                         on_click=save_record,
                     ),
                     ft.OutlinedButton(
                         "Nouveau",
                         icon=ft.Icons.ADD_OUTLINED,
+                        style=ft.ButtonStyle(color="#60A5FA"),
                         on_click=clear_form,
                     ),
                     ft.OutlinedButton(
                         "Supprimer",
                         icon=ft.Icons.DELETE_OUTLINE,
+                        style=ft.ButtonStyle(color=DANGER),
                         disabled=state["selected_id"] is None,
                         on_click=lambda event: confirm_delete(),
                     ),
@@ -211,91 +229,114 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
     def render_table() -> None:
         config = selected_config()
         records = list_records(state["key"])
-        columns = [
-            ft.DataColumn(ft.Text(field["label"]))
-            for field in config["fields"]
-        ]
-        columns.append(ft.DataColumn(ft.Text("Actions")))
+        query = str(search_field.value or "").strip().lower()
+        if query:
+            records = [
+                record
+                for record in records
+                if query in " ".join(
+                    _format_cell(state["key"], field, record.get(field["name"]))
+                    for field in config["fields"]
+                ).lower()
+            ]
 
         table_area.controls = [
-            ft.Row(
+            ft.Column(
                 controls=[
-                    ft.Text(f"{len(records)} element(s)", size=12, color=MUTED, expand=True),
-                    ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_current_referential),
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Row(
-                controls=[
-                    professional_data_table(
-                        columns=columns,
-                        rows=[
-                            ft.DataRow(
-                                selected=record[config["pk"]] == state["selected_id"],
-                                cells=[
-                                    ft.DataCell(ft.Text(_format_cell(state["key"], field, record.get(field["name"]))))
-                                    for field in config["fields"]
-                                ]
-                                + [
-                                    ft.DataCell(
-                                        ft.Row(
-                                            controls=[
-                                                ft.IconButton(
-                                                    icon=ft.Icons.EDIT_OUTLINED,
-                                                    tooltip="Modifier",
-                                                    on_click=lambda event, current=record: select_record(current),
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.Icons.DELETE_OUTLINE,
-                                                    tooltip="Supprimer",
-                                                    icon_color=DANGER,
-                                                    on_click=lambda event, current=record: confirm_delete(current[config["pk"]]),
-                                                ),
-                                            ],
-                                            spacing=0,
-                                        )
-                                    )
-                                ],
-                            )
-                            for record in records
+                    ft.Text(
+                        f"Liste des {config['label'].lower()} ({len(records)})",
+                        size=15,
+                        color="#FFFFFF",
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                    ft.Row(
+                        controls=[
+                            search_field,
+                            ft.OutlinedButton(
+                                "Exporter Excel",
+                                icon=ft.Icons.DOWNLOAD_OUTLINED,
+                                on_click=export_current_referential,
+                            ),
                         ],
-                        border=ft.border.all(1, "#E2E8F0"),
-                        border_radius=8,
-                        heading_row_color="#F1F5F9",
-                    )
+                        spacing=10,
+                        wrap=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                 ],
-                scroll=ft.ScrollMode.AUTO,
+                spacing=8,
             ),
+            ft.Column(
+                controls=[
+                    _referential_record_row(
+                        state["key"],
+                        config,
+                        record,
+                        record[config["pk"]] == state["selected_id"],
+                        select_record,
+                        confirm_delete,
+                    )
+                    for record in records
+                ],
+                spacing=6,
+            )
+            if records
+            else ft.Text("Aucun element trouve.", color="#9DB0C5", size=11),
+        ]
+
+    def render_summary() -> None:
+        counts = list_referential_counts()
+        total = sum(int(row["total"]) for row in counts)
+        active = sum(
+            sum(1 for record in list_records(str(row["key"])) if record.get("actif", 1))
+            for row in counts
+        )
+        summary_row.controls = [
+            _reference_metric("Total referentiels", len(counts), PRIMARY, ft.Icons.ACCOUNT_TREE_OUTLINED, "Categories"),
+            _reference_metric("Elements actifs", active, SUCCESS, ft.Icons.CHECK_CIRCLE_OUTLINE, "En base"),
+            _reference_metric("Elements en base", total, "#8B5CF6", ft.Icons.DATA_OBJECT_OUTLINED, "Toutes categories"),
+            _reference_metric("Categorie active", selected_config()["label"], "#0891B2", ft.Icons.TUNE_OUTLINED, "Selection actuelle"),
         ]
 
     def render_all() -> None:
         render_categories()
+        render_summary()
         render_form()
         render_table()
         root.update()
 
-    root = ft.Column(
-        controls=[
-            module_header(
-                "Referentiels",
-                "Module 1: parametrage des donnees de base utilisees par tous les autres modules.",
-            ),
-            ft.Row(
+    search_field.on_change = lambda event: (render_table(), root.update())
+
+    root = ft.Container(
+        bgcolor="#071321",
+        border_radius=8,
+        padding=10,
+        expand=True,
+        content=ft.Column(
+            controls=[
+                _reference_header(),
+                summary_row,
+                ft.Row(
                 controls=[
                     ft.Container(
                         width=235,
-                        bgcolor="#FFFFFF",
-                        border=ft.border.all(1, "#E2E8F0"),
+                        bgcolor="#0C1C2E",
+                        border=ft.border.all(1, "#1E3A56"),
                         border_radius=8,
                         padding=12,
-                        content=category_area,
+                        content=ft.Column(
+                            controls=[
+                                ft.Text("Categories", color="#FFFFFF", size=15, weight=ft.FontWeight.BOLD),
+                                category_area,
+                            ],
+                            spacing=10,
+                        ),
                     ),
                     ft.Container(
                         expand=True,
-                        bgcolor="#FFFFFF",
-                        border=ft.border.all(1, "#E2E8F0"),
+                        bgcolor="#081525",
+                        border=ft.border.all(1, "#1E3A56"),
                         border_radius=8,
-                        padding=18,
+                        padding=14,
                         content=ft.Column(
                             controls=[
                                 ft.Row(
@@ -304,7 +345,7 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
                                 form_area,
-                                ft.Divider(height=24),
+                                ft.Divider(height=18, color="#1E3A56"),
                                 table_area,
                             ],
                             spacing=14,
@@ -312,19 +353,169 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
                     ),
                 ],
                 spacing=16,
-                expand=True,
                 vertical_alignment=ft.CrossAxisAlignment.START,
             ),
-        ],
-        spacing=22,
-        expand=True,
-        scroll=ft.ScrollMode.AUTO,
+            ],
+            spacing=10,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
     )
 
     render_categories()
+    render_summary()
     render_form()
     render_table()
     return root
+
+
+def _reference_header() -> ft.Control:
+    return ft.Container(
+        bgcolor="#0F1F33",
+        border=ft.border.all(1, "#1E3A56"),
+        border_radius=8,
+        padding=14,
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=44,
+                    height=44,
+                    bgcolor=PRIMARY,
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(ft.Icons.TUNE_OUTLINED, color="#FFFFFF", size=24),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text("Referentiels", color="#FFFFFF", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text(
+                            "Parametrage des donnees de base partagees par tous les modules QHSE.",
+                            color="#9DB0C5",
+                            size=11,
+                        ),
+                    ],
+                    spacing=2,
+                ),
+            ],
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+
+def _reference_metric(label: str, value: Any, color: str, icon: str, subtitle: str) -> ft.Control:
+    return ft.Container(
+        bgcolor="#10243A",
+        border=ft.border.all(1, "#1E3A56"),
+        border_radius=8,
+        padding=11,
+        col={"sm": 6, "md": 3},
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=36,
+                    height=36,
+                    bgcolor="#0C1C2E",
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(icon, color=color, size=19),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(label, color="#9DB0C5", size=9),
+                        ft.Text(str(value), color="#FFFFFF", size=18, weight=ft.FontWeight.BOLD, max_lines=1),
+                        ft.Text(subtitle, color="#7F94AA", size=8),
+                    ],
+                    spacing=1,
+                    expand=True,
+                ),
+            ],
+            spacing=8,
+        ),
+    )
+
+
+def _category_icon(key: str) -> str:
+    return {
+        "sites": ft.Icons.LOCATION_ON_OUTLINED,
+        "departments": ft.Icons.ACCOUNT_TREE_OUTLINED,
+        "groupes": ft.Icons.GROUPS_OUTLINED,
+        "fonctions": ft.Icons.BADGE_OUTLINED,
+        "training_types": ft.Icons.SCHOOL_OUTLINED,
+        "training_departments": ft.Icons.CORPORATE_FARE_OUTLINED,
+        "types_epi": ft.Icons.HEALTH_AND_SAFETY_OUTLINED,
+        "shifts": ft.Icons.SCHEDULE_OUTLINED,
+        "shift_templates": ft.Icons.ACCESS_TIME_OUTLINED,
+        "break_types": ft.Icons.COFFEE_OUTLINED,
+        "roles": ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED,
+    }.get(key, ft.Icons.TUNE_OUTLINED)
+
+
+def _referential_record_row(
+    key: str,
+    config: dict[str, Any],
+    record: dict[str, Any],
+    selected: bool,
+    select_callback: Any,
+    delete_callback: Any,
+) -> ft.Control:
+    fields = config["fields"]
+    primary = _format_cell(key, fields[0], record.get(fields[0]["name"])) if fields else "-"
+    details = " | ".join(
+        f"{field['label']}: {_format_cell(key, field, record.get(field['name']))}"
+        for field in fields[1:]
+    )
+    active_field = next((field for field in fields if field["name"] == "actif"), None)
+    active = bool(record.get("actif", 1)) if active_field else True
+    return ft.Container(
+        bgcolor="#17304A" if selected else "#0C1C2E",
+        border=ft.border.all(1, PRIMARY if selected else "#1E3A56"),
+        border_radius=8,
+        padding=10,
+        ink=True,
+        on_click=lambda event: select_callback(record),
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    width=38,
+                    height=38,
+                    bgcolor="#10243A",
+                    border_radius=8,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(_category_icon(key), color="#60A5FA", size=19),
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(primary, color="#FFFFFF", size=11, weight=ft.FontWeight.BOLD),
+                        ft.Text(details or config["label"], color="#9DB0C5", size=9, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ],
+                    spacing=2,
+                    expand=True,
+                ),
+                ft.Container(
+                    bgcolor="#052E24" if active else "#3F1723",
+                    border=ft.border.all(1, SUCCESS if active else DANGER),
+                    border_radius=8,
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    content=ft.Text("Actif" if active else "Inactif", color=SUCCESS if active else DANGER, size=9, weight=ft.FontWeight.BOLD),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    tooltip="Modifier",
+                    icon_color=PRIMARY,
+                    on_click=lambda event: select_callback(record),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    tooltip="Supprimer",
+                    icon_color=DANGER,
+                    on_click=lambda event: delete_callback(record[config["pk"]]),
+                ),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
 
 
 def _field_value(field: dict[str, Any], record: dict[str, Any] | None) -> Any:
@@ -337,13 +528,23 @@ def _build_field_control(key: str, field: dict[str, Any], value: Any) -> ft.Cont
     label = field["label"] + (" *" if field.get("required") else "")
 
     if field["type"] == "bool":
-        return ft.Checkbox(label=label, value=bool(value))
+        return ft.Checkbox(
+            label=label,
+            value=bool(value),
+            label_style=ft.TextStyle(color="#C7D4E3"),
+            active_color=SUCCESS,
+            check_color="#FFFFFF",
+        )
 
     if field["type"] == "choice":
         return ft.Dropdown(
             label=label,
             value=str(value) if value not in ("", None) else None,
             options=[ft.dropdown.Option(choice) for choice in field["choices"]],
+            bgcolor="#0C1C2E",
+            color="#FFFFFF",
+            border_color="#1E3A56",
+            focused_border_color=PRIMARY,
         )
 
     if field["type"] == "fk":
@@ -352,12 +553,28 @@ def _build_field_control(key: str, field: dict[str, Any], value: Any) -> ft.Cont
             label=label,
             value=str(value) if value not in ("", None) else None,
             options=[ft.dropdown.Option(str(option["value"]), str(option["label"])) for option in options],
+            bgcolor="#0C1C2E",
+            color="#FFFFFF",
+            border_color="#1E3A56",
+            focused_border_color=PRIMARY,
         )
 
     if field["type"] == "int":
-        return ft.TextField(label=label, value=str(value or ""), keyboard_type=ft.KeyboardType.NUMBER)
+        return _reference_text_field(label, str(value or ""), ft.KeyboardType.NUMBER)
 
-    return ft.TextField(label=label, value=str(value or ""))
+    return _reference_text_field(label, str(value or ""))
+
+
+def _reference_text_field(label: str, value: str, keyboard_type: Any = None) -> ft.TextField:
+    return ft.TextField(
+        label=label,
+        value=value,
+        keyboard_type=keyboard_type,
+        bgcolor="#0C1C2E",
+        color="#FFFFFF",
+        border_color="#1E3A56",
+        focused_border_color=PRIMARY,
+    )
 
 
 def _format_cell(key: str, field: dict[str, Any], value: Any) -> str:

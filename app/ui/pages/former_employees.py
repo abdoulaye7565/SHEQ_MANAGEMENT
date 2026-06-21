@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -10,14 +10,22 @@ from app.services import export_rows_xlsx, list_former_employees, restore_employ
 from app.ui.components.module_header import module_header
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
+_DK_CARD   = "#0D2040"
+_DK_CARD2  = "#0A1929"
+_DK_HEAD   = "#112240"
+_DK_BORDER = "#1E3A5F"
+_DK_TEXT   = "#E2E8F0"
+_DK_MUTED  = "#9DB0C5"
+_DK_TRACK  = "#1A3050"
+
 
 def former_employees_page() -> ft.Control:
     state: dict[str, Any] = {"records": []}
-    status = ft.Text("", size=12, color=MUTED)
+    status = ft.Text("", size=12, color=_DK_MUTED)
     table_area = ft.Column(spacing=10)
-    search_field = ft.TextField(label="Recherche", prefix_icon=ft.Icons.SEARCH, width=280)
+    search_field = ft.TextField(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Recherche", prefix_icon=ft.Icons.SEARCH, width=280)
 
-    def notify(message: str, color: str = MUTED) -> None:
+    def notify(message: str, color: str = _DK_MUTED) -> None:
         status.value = message
         status.color = color
 
@@ -28,8 +36,11 @@ def former_employees_page() -> ft.Control:
             pass
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
-        state["records"] = list_former_employees(search_field.value or "")
-        render_table()
+        try:
+            state["records"] = list_former_employees(search_field.value or "")
+            render_table()
+        except Exception as exc:
+            notify(str(exc), DANGER)
         _update()
 
     def restore(record: dict[str, Any]) -> None:
@@ -78,65 +89,87 @@ def former_employees_page() -> ft.Control:
                 wrap=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            ft.Text(f"{len(rows)} ancien(s) employe(s)", size=12, color=MUTED),
-            ft.Row(
-                controls=[
-                    professional_data_table(
-                        columns=[
-                            ft.DataColumn(ft.Text("Employe")),
-                            ft.DataColumn(ft.Text("Badge")),
-                            ft.DataColumn(ft.Text("Fonction")),
-                            ft.DataColumn(ft.Text("Site")),
-                            ft.DataColumn(ft.Text("Motif")),
-                            ft.DataColumn(ft.Text("Date sortie")),
-                            ft.DataColumn(ft.Text("Commentaire")),
-                            ft.DataColumn(ft.Text("Actions")),
-                        ],
-                        rows=[
-                            ft.DataRow(
-                                cells=[
-                                    ft.DataCell(
-                                        ft.Column(
-                                            controls=[
-                                                ft.Text(_employee_name(row), color=TEXT, weight=ft.FontWeight.BOLD),
-                                                ft.Text(str(row.get("matricule") or "-"), size=11, color=MUTED),
-                                            ],
-                                            spacing=1,
-                                        )
-                                    ),
-                                    ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"))),
-                                    ft.DataCell(ft.Text(str(row.get("fonction") or "-"))),
-                                    ft.DataCell(ft.Text(str(row.get("site") or "-"))),
-                                    ft.DataCell(_departure_badge(row.get("departure_type"))),
-                                    ft.DataCell(ft.Text(str(row.get("departure_date") or "-"))),
-                                    ft.DataCell(ft.Text(str(row.get("departure_comment") or "-"))),
-                                    ft.DataCell(
-                                        ft.IconButton(
-                                            icon=ft.Icons.RESTORE_OUTLINED,
-                                            tooltip="Reintegrer",
-                                            icon_color=SUCCESS,
-                                            on_click=lambda event, current=row: restore(current),
-                                        )
-                                    ),
-                                ]
-                            )
-                            for row in rows
-                        ],
-                        border=ft.border.all(1, "#BFDBFE"),
-                        border_radius=8,
-                        heading_row_color="#DBEAFE",
-                    )
-                ],
-                scroll=ft.ScrollMode.AUTO,
-            ),
+            ft.Text(f"{len(rows)} ancien(s) employe(s)", size=12, color=_DK_MUTED),
         ]
+        if not rows:
+            table_area.controls.append(
+                _empty_state(
+                    ft.Icons.PEOPLE_OUTLINE,
+                    "Aucun employé archivé",
+                    "Les employés quittant l'entreprise apparaîtront ici.",
+                )
+            )
+        else:
+            table_area.controls.append(
+                ft.Container(
+                    bgcolor=_DK_CARD,
+                    content=ft.Row(
+                        scroll=ft.ScrollMode.AUTO,
+                        controls=[
+                            professional_data_table(
+                                columns=[
+                                    ft.DataColumn(ft.Text("Employe", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Badge", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Fonction", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Site", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Motif", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Date sortie", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Commentaire", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                    ft.DataColumn(ft.Text("Actions", style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD))),
+                                ],
+                                rows=[
+                                    ft.DataRow(
+                                        cells=[
+                                            ft.DataCell(
+                                                ft.Column(
+                                                    controls=[
+                                                        ft.Text(_employee_name(row), color=_DK_TEXT, weight=ft.FontWeight.BOLD),
+                                                        ft.Text(str(row.get("matricule") or "-"), size=11, color=_DK_MUTED),
+                                                    ],
+                                                    spacing=1,
+                                                )
+                                            ),
+                                            ft.DataCell(ft.Text(str(row.get("numero_badge") or "-"), color=_DK_TEXT)),
+                                            ft.DataCell(ft.Text(str(row.get("fonction") or "-"), color=_DK_TEXT)),
+                                            ft.DataCell(ft.Text(str(row.get("site") or "-"), color=_DK_TEXT)),
+                                            ft.DataCell(_departure_badge(row.get("departure_type"))),
+                                            ft.DataCell(ft.Text(str(row.get("departure_date") or "-"), color=_DK_TEXT)),
+                                            ft.DataCell(ft.Text(str(row.get("departure_comment") or "-"), color=_DK_TEXT)),
+                                            ft.DataCell(
+                                                ft.IconButton(
+                                                    icon=ft.Icons.RESTORE_OUTLINED,
+                                                    tooltip="Reintegrer",
+                                                    icon_color=SUCCESS,
+                                                    on_click=lambda event, current=row: restore(current),
+                                                )
+                                            ),
+                                        ]
+                                    )
+                                    for row in rows
+                                ],
+                                border=ft.border.all(1, _DK_BORDER),
+                                border_radius=8,
+                                heading_row_color=_DK_HEAD,
+                                bgcolor=_DK_CARD,
+                                data_row_color={
+                                    ft.ControlState.DEFAULT: _DK_CARD,
+                                    ft.ControlState.HOVERED: _DK_CARD2,
+                                },
+                                horizontal_lines=ft.BorderSide(1, _DK_BORDER),
+                                heading_text_style=ft.TextStyle(color=_DK_MUTED, weight=ft.FontWeight.BOLD),
+                                data_text_style=ft.TextStyle(color=_DK_TEXT),
+                            )
+                        ],
+                    ),
+                )
+            )
 
     root = ft.Column(
         controls=[
             module_header("Anciens employes", "Historique des employes licencies, demissionnaires ou sortis."),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#BFDBFE"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=16,
                 content=table_area,
@@ -147,7 +180,34 @@ def former_employees_page() -> ft.Control:
         scroll=ft.ScrollMode.AUTO,
     )
     refresh()
-    return root
+    return ft.Container(bgcolor="#071321", expand=True, content=root)
+
+
+def _empty_state(icon: str, title: str, subtitle: str = "") -> ft.Control:
+    return ft.Container(
+        bgcolor=_DK_CARD,
+        border=ft.border.all(1, _DK_BORDER),
+        border_radius=12,
+        padding=ft.padding.symmetric(horizontal=24, vertical=40),
+        alignment=ft.Alignment(0, 0),
+        content=ft.Column(
+            controls=[
+                ft.Container(
+                    width=64, height=64,
+                    bgcolor=_DK_HEAD,
+                    border_radius=32,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Icon(icon, color=_DK_MUTED, size=28),
+                ),
+                ft.Text(title, color=_DK_TEXT, size=15, weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER),
+                ft.Text(subtitle, color=_DK_MUTED, size=12,
+                        text_align=ft.TextAlign.CENTER) if subtitle else ft.Container(),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12,
+        ),
+    )
 
 
 def _employee_name(record: dict[str, Any]) -> str:
@@ -169,12 +229,11 @@ def _departure_badge(value: Any) -> ft.Control:
         "licencie": DANGER,
         "demissionne": WARNING,
         "autre": PRIMARY,
-    }.get(str(value or ""), MUTED)
+    }.get(str(value or ""), _DK_MUTED)
     return ft.Container(
-        bgcolor="#FFFFFF",
+        bgcolor=_DK_CARD2,
         border=ft.border.all(1, color),
         border_radius=8,
         padding=ft.padding.symmetric(horizontal=8, vertical=4),
         content=ft.Text(_departure_label(value), size=12, color=color),
     )
-

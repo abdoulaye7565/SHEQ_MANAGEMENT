@@ -11,11 +11,15 @@ dist_*/
 data/*.db
 data/ai_config.json
 data/email_config.json
+data/mobile_sync_config.json
 *.db-wal
 *.db-shm
 data/*.db-wal
 data/*.db-shm
 exports/*
+logs/*
 backups/*
 !backups/.gitkeep
+downloads/
+tools/
 ~$*

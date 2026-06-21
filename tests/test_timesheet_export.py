@@ -59,7 +59,10 @@ class TimeSheetExportTest(unittest.TestCase):
         self.assertEqual(output.suffix, ".xlsx")
         with zipfile.ZipFile(output) as workbook:
             content = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            matrix_content = workbook.read("xl/worksheets/sheet2.xml").decode("utf-8")
             styles = workbook.read("xl/styles.xml").decode("utf-8")
+            workbook_xml = workbook.read("xl/workbook.xml").decode("utf-8")
+            chart_xml = workbook.read("xl/charts/chart1.xml").decode("utf-8")
 
         self.assertTrue(output.name.startswith("timesheet_orezone_2026-04"))
         self.assertIn("Legende", content)
@@ -72,8 +75,8 @@ class TimeSheetExportTest(unittest.TestCase):
         self.assertIn("Jour ferie ou chome paye = 8H", content)
         self.assertIn("ANNUAL LEAVE", content)
         self.assertIn("FF00A6D6", styles)
-        self.assertIn('<col min="5" max="', content)
-        self.assertIn('width="6.5"', content)
+        self.assertIn('<col min="6" max="', matrix_content)
+        self.assertIn('width="6.5"', matrix_content)
         self.assertIn('horizontal="center" vertical="center"', styles)
         self.assertIn('textRotation="45"', styles)
         self.assertIn("Prepared by", content)
@@ -81,6 +84,13 @@ class TimeSheetExportTest(unittest.TestCase):
         self.assertIn("Approved by", content)
         self.assertIn("Export Employe", content)
         self.assertIn("Second Export Employe", content)
+        self.assertIn("Dashboard Executif", workbook_xml)
+        self.assertIn("TimeSheet 21-20", workbook_xml)
+        self.assertIn("Analyse Complete", workbook_xml)
+        self.assertIn("Controle Signatures", workbook_xml)
+        self.assertIn("TENDANCE JOURNALIERE", chart_xml)
+        self.assertIn("Heures travaillees", chart_xml)
+        self.assertIn("Employes presents", chart_xml)
 
     def test_attendance_export_contains_meeting_header_sections_and_signature(self) -> None:
         output = export_attendance_records_xlsx(
@@ -154,7 +164,6 @@ class TimeSheetExportTest(unittest.TestCase):
         )
 
         output_dir = export_timesheet_annual_history_xls()
-        files = sorted(output_dir.glob("*.xlsx"))
 
         self.assertTrue(output_dir.name.startswith("historique_timesheets_12_mois"))
         self.assertTrue((output_dir / "timesheet_21_20").is_dir())

@@ -16,11 +16,24 @@ from app.services.toolbox_talk_service import (
     delete_theme_catalog,
     delete_toolbox_topic,
     generate_toolbox_theme_catalog,
+    get_toolbox_dashboard_snapshot,
     list_theme_catalog,
     list_toolbox_facilitators,
     list_toolbox_topics,
     save_theme_catalog,
     save_toolbox_topic,
+)
+from app.services.toolbox_theme_bank_service import (
+    get_toolbox_theme_bank_alerts,
+    get_toolbox_theme_bank_statistics,
+    generate_intelligent_toolbox_planning,
+    list_professional_toolbox_themes,
+    list_toolbox_campaigns,
+    list_toolbox_effectiveness,
+    list_toolbox_theme_usage,
+    save_professional_toolbox_theme,
+    save_toolbox_campaign,
+    save_toolbox_effectiveness,
 )
 
 
@@ -48,6 +61,181 @@ class ToolboxTalkServiceTest(unittest.TestCase):
         self.assertEqual(len(data["rows"]), 31)
         self.assertEqual(data["rows"][0]["date_theme"], "2026-05-01")
         self.assertEqual(data["summary"]["completed"], 0)
+
+    def test_professional_theme_bank_migration_is_idempotent(self) -> None:
+        connection.initialize_database()
+        connection.initialize_database()
+        expected_columns = {
+            "code_theme",
+            "category",
+            "risk_level",
+            "topic_en",
+            "theme_fr",
+            "frequency",
+            "site_id",
+            "department_id",
+            "status",
+            "last_used_at",
+            "usage_count",
+            "average_effectiveness",
+        }
+        expected_tables = {
+            "toolbox_campaigns",
+            "toolbox_campaign_themes",
+            "toolbox_theme_usage",
+            "toolbox_effectiveness_evaluations",
+        }
+        with connection.db_session() as db:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(toolbox_theme_catalog)").fetchall()}
+            tables = {
+                row["name"]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'toolbox_%'"
+                ).fetchall()
+            }
+
+        self.assertTrue(expected_columns.issubset(columns))
+        self.assertTrue(expected_tables.issubset(tables))
+
+    def test_existing_toolbox_data_is_enriched_without_changing_ids(self) -> None:
+        with connection.db_session() as db:
+            cursor = db.execute(
+                """
+                INSERT INTO toolbox_theme_catalog(theme, obligatoire, actif, code_theme, topic_en, theme_fr)
+                VALUES ('Defensive driving / Conduite defensive', 1, 1, NULL, NULL, NULL)
+                """
+            )
+            topic_id = int(cursor.lastrowid)
+            theme_cursor = db.execute(
+                """
+                INSERT INTO themes_securite(date_theme, theme, facilitateur)
+                VALUES ('2026-04-10', 'Defensive driving / Conduite defensive', 'QHSE')
+                """
+            )
+            theme_id = int(theme_cursor.lastrowid)
+
+        connection.initialize_database()
+        connection.initialize_database()
+
+        with connection.db_session() as db:
+            topic = db.execute(
+                "SELECT * FROM toolbox_theme_catalog WHERE id_topic = ?",
+                (topic_id,),
+            ).fetchone()
+            usages = db.execute(
+                "SELECT * FROM toolbox_theme_usage WHERE theme_id = ?",
+                (theme_id,),
+            ).fetchall()
+
+        self.assertEqual(topic["id_topic"], topic_id)
+        self.assertEqual(topic["code_theme"], f"TBX-{topic_id:03d}")
+        self.assertEqual(topic["topic_en"], "Defensive driving")
+        self.assertEqual(topic["theme_fr"], "Conduite defensive")
+        self.assertEqual(topic["status"], "actif")
+        self.assertEqual(topic["usage_count"], 1)
+        self.assertEqual(topic["last_used_at"], "2026-04-10")
+        self.assertEqual(len(usages), 1)
+
+    def test_professional_theme_campaign_usage_and_effectiveness_services(self) -> None:
+        topic_id = save_professional_toolbox_theme(
+            {
+                "topic_en": "Defensive driving",
+                "theme_fr": "Conduite defensive",
+                "category": "Driving",
+                "risk_level": "critique",
+                "frequency": "mensuelle",
+                "status": "actif",
+                "obligatoire": True,
+            }
+        )
+        save_toolbox_topic(
+            {
+                "date_theme": "2026-05-12",
+                "theme": "Defensive driving / Conduite defensive",
+                "facilitateur": "QHSE",
+            }
+        )
+        campaign_id = save_toolbox_campaign(
+            {
+                "name": "Campagne conduite defensive",
+                "category": "Driving",
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-31",
+                "status": "active",
+                "topic_ids": [topic_id],
+            }
+        )
+
+        usage = list_toolbox_theme_usage(topic_id)[0]
+        evaluation_id = save_toolbox_effectiveness(
+            {
+                "usage_id": usage["id_usage"],
+                "participation_rate": 90,
+                "comprehension_score": 80,
+                "facilitator_rating": 100,
+                "session_quality": 90,
+                "comments": "Bonne session",
+            }
+        )
+        themes = list_professional_toolbox_themes({"category": "Driving"})
+        stats = get_toolbox_theme_bank_statistics("2026-05")
+        alerts = get_toolbox_theme_bank_alerts("2026-05")
+
+        self.assertEqual(themes[0]["id_topic"], topic_id)
+        self.assertEqual(themes[0]["average_effectiveness"], 87)
+        self.assertEqual(list_toolbox_campaigns()[0]["id_campaign"], campaign_id)
+        self.assertEqual(list_toolbox_effectiveness()[0]["id_evaluation"], evaluation_id)
+        self.assertEqual(stats["critical"], 1)
+        self.assertEqual(stats["used_month"], 1)
+        self.assertFalse(any(row["key"] == "obligatoire_non_planifie" for row in alerts))
+
+    def test_intelligent_generation_prioritizes_critical_and_avoids_normal_repetition(self) -> None:
+        critical_id = save_professional_toolbox_theme(
+            {
+                "topic_en": "Critical lifting",
+                "theme_fr": "Levage critique",
+                "category": "Lifting",
+                "risk_level": "critique",
+                "frequency": "mensuelle",
+                "status": "actif",
+            }
+        )
+        save_professional_toolbox_theme(
+            {
+                "topic_en": "General housekeeping",
+                "theme_fr": "Ordre et proprete",
+                "category": "Housekeeping",
+                "risk_level": "faible",
+                "frequency": "mensuelle",
+                "status": "actif",
+            }
+        )
+
+        result = generate_intelligent_toolbox_planning("2026-07")
+
+        self.assertEqual(result["assigned"], 2)
+        self.assertEqual(result["assignments"][0]["topic_id"], critical_id)
+        self.assertEqual(len({row["topic_id"] for row in result["assignments"]}), 2)
+        self.assertFalse(any(row["repeated"] for row in result["assignments"]))
+
+    def test_intelligent_generation_only_repeats_due_mandatory_theme(self) -> None:
+        mandatory_id = save_professional_toolbox_theme(
+            {
+                "topic_en": "Mandatory daily safety",
+                "theme_fr": "Securite quotidienne obligatoire",
+                "category": "HSE General",
+                "risk_level": "critique",
+                "frequency": "quotidienne",
+                "status": "actif",
+                "obligatoire": True,
+            }
+        )
+
+        result = generate_intelligent_toolbox_planning("2026-08")
+
+        self.assertEqual(result["assigned"], 31)
+        self.assertTrue(any(row["repeated"] for row in result["assignments"]))
+        self.assertEqual({row["topic_id"] for row in result["assignments"]}, {mandatory_id})
 
     def test_save_topic_upserts_one_topic_per_day(self) -> None:
         first_id = save_toolbox_topic(
@@ -149,6 +337,37 @@ class ToolboxTalkServiceTest(unittest.TestCase):
         self.assertEqual(data["summary"]["completed"], 31)
         self.assertTrue(counts)
         self.assertTrue(all(occurrences == 1 for occurrences in counts.values()))
+
+    def test_dashboard_snapshot_consolidates_mobile_confirmations(self) -> None:
+        save_toolbox_topic(
+            {
+                "date_theme": "2026-05-14",
+                "theme": "Controle des EPI",
+                "facilitateur": "QHSE",
+            }
+        )
+        with connection.db_session() as db:
+            db.execute(
+                """
+                INSERT INTO mobile_sync_devices(device_id, device_name, status)
+                VALUES ('phone-toolbox', 'Telephone QHSE', 'active')
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO mobile_toolbox_confirmations(
+                    device_id, date_theme, theme, facilitator, attendees_count, comments
+                ) VALUES ('phone-toolbox', '2026-05-14', 'Controle des EPI', 'QHSE', 18, 'Session realisee')
+                """
+            )
+
+        snapshot = get_toolbox_dashboard_snapshot("2026-05")
+
+        self.assertEqual(snapshot["analytics"]["planned"], 1)
+        self.assertEqual(snapshot["analytics"]["realized"], 1)
+        self.assertEqual(snapshot["analytics"]["participants"], 18)
+        self.assertEqual(snapshot["analytics"]["realization_rate"], 100)
+        self.assertEqual(snapshot["history"][0]["attendees_count"], 18)
 
     def test_assign_same_topic_twice_in_month_is_rejected(self) -> None:
         save_toolbox_topic({"date_theme": "2026-05-01", "theme": "Controle des EPI"})

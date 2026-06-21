@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import flet as ft
 
-from app.ui.components.module_header import module_header
 from app.ui.pages.active_breaks import active_breaks_page
 from app.ui.pages.attendance import attendance_page
 from app.ui.pages.breaks import breaks_page
@@ -10,7 +9,11 @@ from app.ui.pages.employee_form import employee_form_page
 from app.ui.pages.employee_import import employee_import_page
 from app.ui.pages.employees import employees_page
 from app.ui.pages.former_employees import former_employees_page
-from app.ui.theme import PRIMARY, TEXT
+from app.ui.theme import PRIMARY
+
+
+from app.ui.components.dark_styles import BG, BORDER, CARD
+MUTED = "#9DB0C5"
 
 
 def employee_management_page(page: ft.Page | None = None) -> ft.Control:
@@ -89,15 +92,47 @@ def employee_management_page(page: ft.Page | None = None) -> ft.Control:
     active_breaks_button.icon = ft.Icons.FREE_BREAKFAST_OUTLINED
     active_breaks_button.on_click = lambda event: set_view("active_breaks")
 
-    root = ft.Column(
+    root = ft.Container(
+        bgcolor=BG,
+        padding=8,
+        expand=True,
+        content=ft.Column(
         controls=[
-            module_header(
-                "Gestion employes",
-                "Espace central pour les fiches, presences, breaks et permissions.",
+            ft.Container(
+                bgcolor=CARD,
+                border=ft.border.all(1, BORDER),
+                border_radius=8,
+                padding=16,
+                content=ft.Row(
+                    controls=[
+                        ft.Container(
+                            width=44,
+                            height=44,
+                            border_radius=8,
+                            bgcolor=PRIMARY,
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Icon(ft.Icons.PEOPLE_ALT_OUTLINED, color="#FFFFFF", size=24),
+                        ),
+                        ft.Column(
+                            controls=[
+                                ft.Text("Gestion employes", color="#FFFFFF", size=20, weight=ft.FontWeight.BOLD),
+                                ft.Text("RH, affectations, badges et statut operationnel.", color=MUTED, size=12),
+                            ],
+                            spacing=2,
+                        ),
+                        ft.Container(expand=True),
+                        ft.TextButton(
+                            "Nouvel employe",
+                            icon=ft.Icons.PERSON_ADD_ALT_1_OUTLINED,
+                            style=ft.ButtonStyle(color="#FFFFFF", bgcolor=PRIMARY),
+                            on_click=lambda event: set_view("add_employee"),
+                        ),
+                    ]
+                ),
             ),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#E2E8F0"),
+                bgcolor="#081525",
+                border=ft.border.all(1, BORDER),
                 border_radius=8,
                 padding=10,
                 content=ft.Row(
@@ -119,6 +154,7 @@ def employee_management_page(page: ft.Page | None = None) -> ft.Control:
         spacing=18,
         expand=True,
         scroll=ft.ScrollMode.AUTO,
+        ),
     )
 
     render()
@@ -127,8 +163,8 @@ def employee_management_page(page: ft.Page | None = None) -> ft.Control:
 
 def _button_style(selected: bool) -> ft.ButtonStyle:
     return ft.ButtonStyle(
-        color=PRIMARY if selected else TEXT,
-        bgcolor="#EFF6FF" if selected else "#FFFFFF",
+        color="#FFFFFF" if selected else "#C7D4E3",
+        bgcolor=PRIMARY if selected else "#10243A",
         shape=ft.RoundedRectangleBorder(radius=8),
     )
 

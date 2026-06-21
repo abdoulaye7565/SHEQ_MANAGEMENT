@@ -3,6 +3,14 @@ import flet as ft
 from app.ui.components.module_header import module_header
 from app.ui.theme import MUTED
 
+_DK_CARD   = "#0D2040"
+_DK_CARD2  = "#0A1929"
+_DK_HEAD   = "#112240"
+_DK_BORDER = "#1E3A5F"
+_DK_TEXT   = "#E2E8F0"
+_DK_MUTED  = "#9DB0C5"
+_DK_TRACK  = "#1A3050"
+
 
 MODULE_DESCRIPTIONS = {
     "Employes et badges": "CRUD employes, matricules, badges uniques, filtres et fiche detaillee.",
@@ -22,14 +30,14 @@ def placeholder_page(title: str) -> ft.Control:
         controls=[
             module_header(title, MODULE_DESCRIPTIONS[title]),
             ft.Container(
-                bgcolor="#FFFFFF",
-                border=ft.border.all(1, "#E2E8F0"),
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
                 border_radius=8,
                 padding=20,
                 content=ft.Text(
                     "Module pret a developper dans la prochaine etape.",
                     size=14,
-                    color=MUTED,
+                    color=_DK_MUTED,
                 ),
             ),
         ],

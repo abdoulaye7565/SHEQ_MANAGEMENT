@@ -5,6 +5,12 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.db.connection import db_session
+from app.services.timesheet_period_service import (
+    TIMESHEET_21_20,
+    get_active_timesheet_period,
+    get_timesheet_period_for_month,
+    get_timesheet_sync_status,
+)
 
 
 DRILLING_HOURS = 12
@@ -16,26 +22,11 @@ DAY_TYPES = {"work", "holiday"}
 
 
 def current_timesheet_month() -> str:
-    today = date.today()
-    if today.day <= 20:
-        first = today.replace(day=1)
-        previous = first - timedelta(days=1)
-        return previous.strftime("%Y-%m")
-    return today.strftime("%Y-%m")
+    return get_active_timesheet_period(TIMESHEET_21_20)["month"]
 
 
 def get_timesheet_period(month: str) -> dict[str, str]:
-    start_month = _parse_month(month)
-    if start_month.month == 12:
-        next_month = date(start_month.year + 1, 1, 1)
-    else:
-        next_month = date(start_month.year, start_month.month + 1, 1)
-    return {
-        "month": month,
-        "start": start_month.replace(day=21).isoformat(),
-        "end": next_month.replace(day=20).isoformat(),
-        "label": f"TimeSheet {month} (21/{start_month.month:02d} au 20/{next_month.month:02d})",
-    }
+    return get_timesheet_period_for_month(TIMESHEET_21_20, month)
 
 
 def list_timesheet_days(month: str) -> list[str]:
@@ -355,12 +346,6 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
               )
             """
             site_params = (selected_site_id, period["end"], period["start"])
-        site_assignments = _site_assignments_by_employee(
-            connection,
-            period["start"],
-            period["end"],
-            selected_site_id,
-        )
         employees = connection.execute(
             f"""
             SELECT DISTINCT
@@ -594,6 +579,7 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
 
     return {
         "period": period,
+        "synchronization": get_timesheet_sync_status(TIMESHEET_21_20, selected_month, selected_site_id),
         "site_id": selected_site_id,
         "site": _site_context(selected_site_id),
         "lock": get_timesheet_lock(selected_month),
@@ -620,31 +606,36 @@ def get_timesheet(month: str | None = None, site_id: int | None = None) -> dict[
 
 
 def list_timesheet_history(limit: int = 12) -> list[dict[str, Any]]:
-    months: set[str] = set()
+    month_limit = max(1, int(limit or 12))
     with db_session() as connection:
         rows = connection.execute(
             """
-            SELECT date_presence
-            FROM presences
-            UNION
-            SELECT date_debut AS date_presence
-            FROM employee_breaks
-            UNION
-            SELECT date_presence
-            FROM timesheet_day_settings
-            """
+            WITH dates AS (
+                SELECT date_presence AS source_date FROM presences
+                UNION
+                SELECT date_debut AS source_date FROM employee_breaks
+                UNION
+                SELECT date_presence AS source_date FROM timesheet_day_settings
+                UNION
+                SELECT date_presence AS source_date FROM timesheet_day_overrides
+            )
+            SELECT DISTINCT
+                CASE
+                    WHEN CAST(strftime('%d', source_date) AS INTEGER) >= 21
+                    THEN strftime('%Y-%m', source_date)
+                    ELSE strftime('%Y-%m', date(source_date, 'start of month', '-1 day'))
+                END AS month
+            FROM dates
+            WHERE source_date IS NOT NULL
+            ORDER BY month DESC
+            LIMIT ?
+            """,
+            (month_limit,),
         ).fetchall()
-    for row in rows:
-        try:
-            months.add(_timesheet_month_for_date(str(row["date_presence"])))
-        except ValueError:
-            continue
+    months = [str(row["month"]) for row in rows if row["month"]]
     if not months:
-        months.add(current_timesheet_month())
-    return [
-        get_timesheet_period(month)
-        for month in sorted(months, reverse=True)[:limit]
-    ]
+        months = [current_timesheet_month()]
+    return [get_timesheet_period(month) for month in months[:month_limit]]
 
 
 def list_timesheet_site_options() -> list[dict[str, Any]]:
