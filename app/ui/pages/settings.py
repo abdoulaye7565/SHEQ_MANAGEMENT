@@ -18,6 +18,7 @@ from app.services.mobile_sync_service import (
     create_mobile_pairing_package,
     generate_mobile_pairing_token,
     generate_pairing_qr_path,
+    get_mobile_token_raw,
     get_pairing_compact_code,
     write_pairing_file,
     get_mobile_sync_settings,
@@ -37,7 +38,7 @@ from app.ui.components.tables import professional_data_table
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
-def _build_pairing_panel(mobile: dict, on_copy=None) -> list:
+def _build_pairing_panel(mobile: dict, on_copy=None, on_whatsapp=None, on_sms=None, on_copy_token=None) -> list:
     """Build QR + pairing instructions. Evaluated lazily to avoid crashing at import time."""
     qr_path = generate_pairing_qr_path()
     server_url = mobile.get("server_url") or ""
@@ -48,36 +49,71 @@ def _build_pairing_panel(mobile: dict, on_copy=None) -> list:
             border_radius=12,
             border=ft.border.all(1, "#BFDBFE"),
             padding=16,
-            content=ft.Row([
-                ft.Column([
-                    ft.Image(src=qr_path, width=180, height=180),
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Column([
-                    ft.Row([
-                        ft.Icon(ft.Icons.QR_CODE_SCANNER_OUTLINED, color=PRIMARY, size=18),
-                        ft.Text("Appairage rapide", size=14, weight=ft.FontWeight.BOLD, color="#0F172A"),
-                    ], spacing=6),
-                    ft.Text(
-                        "1. Démarrer le serveur mobile ci-dessus\n"
-                        "2. Cliquer « Copier le code » ci-dessous\n"
-                        "3. App mobile → « Coller le code d'appairage »\n"
-                        "4. Connexion automatique — zéro saisie manuelle",
-                        size=12, color="#475569",
-                    ),
-                    ft.Container(height=8),
+            content=ft.Column([
+                ft.Row([
+                    ft.Column([
+                        ft.Image(src=qr_path, width=180, height=180),
+                        ft.Text("Scanner avec l'app mobile", size=10, color="#64748B",
+                                text_align=ft.TextAlign.CENTER),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.QR_CODE_SCANNER_OUTLINED, color=PRIMARY, size=18),
+                            ft.Text("Appairage rapide", size=14, weight=ft.FontWeight.BOLD, color="#0F172A"),
+                        ], spacing=6),
+                        ft.Text(
+                            "1. Démarrer le serveur mobile ci-dessus\n"
+                            "2. Cliquer « Copier le code » ou scanner le QR\n"
+                            "3. App mobile → « Coller le code d'appairage »\n"
+                            "4. Connexion automatique — zéro saisie manuelle",
+                            size=12, color="#475569",
+                        ),
+                        ft.Container(height=6),
+                        ft.ElevatedButton(
+                            "Copier le code d'appairage",
+                            icon=ft.Icons.CONTENT_COPY_OUTLINED,
+                            on_click=on_copy,
+                            style=ft.ButtonStyle(bgcolor=PRIMARY, color="#FFFFFF"),
+                        ),
+                        ft.Container(height=4),
+                        ft.Text(f"URL : {server_url or '(serveur non démarré)'}",
+                                size=11, color="#64748B", selectable=True),
+                        ft.Text("Le téléphone doit être sur le même réseau Wi-Fi.",
+                                size=11, color="#D97706", weight=ft.FontWeight.BOLD),
+                    ], spacing=4, expand=True),
+                ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+                ft.Divider(height=1, color="#E2E8F0"),
+                ft.Text("Partager le code de connexion :", size=12,
+                        weight=ft.FontWeight.BOLD, color="#0F172A"),
+                ft.Text(
+                    "Envoyez le token via WhatsApp/SMS pour que l'agent le saisisse "
+                    "sur son téléphone sans erreur de frappe.",
+                    size=11, color="#64748B",
+                ),
+                ft.Row([
                     ft.ElevatedButton(
-                        "Copier le code d'appairage",
-                        icon=ft.Icons.CONTENT_COPY_OUTLINED,
-                        on_click=on_copy,
-                        style=ft.ButtonStyle(bgcolor=PRIMARY, color="#FFFFFF"),
+                        "Copier le token seul",
+                        icon=ft.Icons.KEY_OUTLINED,
+                        on_click=on_copy_token,
+                        style=ft.ButtonStyle(bgcolor="#0F172A", color="#FFFFFF"),
+                        tooltip="Copie uniquement le token dans le presse-papier",
                     ),
-                    ft.Container(height=4),
-                    ft.Text(f"URL : {server_url or '(serveur non démarré)'}",
-                            size=11, color="#64748B", selectable=True),
-                    ft.Text("Le téléphone doit être sur le même réseau Wi-Fi.",
-                            size=11, color="#D97706", weight=ft.FontWeight.BOLD),
-                ], spacing=4, expand=True),
-            ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.START),
+                    ft.ElevatedButton(
+                        "Partager via WhatsApp",
+                        icon=ft.Icons.CHAT_OUTLINED,
+                        on_click=on_whatsapp,
+                        style=ft.ButtonStyle(bgcolor="#25D366", color="#FFFFFF"),
+                        tooltip="Ouvre WhatsApp Web avec le message pré-rempli",
+                    ),
+                    ft.ElevatedButton(
+                        "Envoyer par SMS",
+                        icon=ft.Icons.SMS_OUTLINED,
+                        on_click=on_sms,
+                        style=ft.ButtonStyle(bgcolor="#0891B2", color="#FFFFFF"),
+                        tooltip="Ouvre l'application SMS avec le message pré-rempli",
+                    ),
+                ], spacing=8, wrap=True),
+            ], spacing=8),
         )]
     return [ft.Text(
         f"URL serveur : {server_url or 'Démarrer le serveur pour obtenir l URL'}  |  "
@@ -302,6 +338,72 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             notify(f"Code d'appairage prêt. Cliquez maintenant sur « Coller le code d'appairage » dans l'app mobile.", SUCCESS)
         else:
             notify("Impossible d'écrire le fichier d'appairage.", DANGER)
+        _update()
+
+    def copy_token_only(event: ft.ControlEvent | None = None) -> None:
+        import subprocess
+        token = get_mobile_token_raw()
+        if not token:
+            notify("Token non configuré — générez un token d'abord.", DANGER)
+            _update()
+            return
+        try:
+            subprocess.run("clip", input=token.encode("utf-16-le"), check=True, shell=True)
+            notify(f"Token copié : {token[:8]}...  (collez-le dans l'app mobile → Paramètres)", SUCCESS)
+        except Exception:
+            notify(f"Token : {token}  (copiez-le manuellement)", WARNING)
+        _update()
+
+    def _build_share_message() -> str | None:
+        token = get_mobile_token_raw()
+        mobile_cfg = get_mobile_sync_settings()
+        url = mobile_cfg.get("server_url") or ""
+        if not token or not url:
+            return None
+        return (
+            "🔗 OREZONE QHSE Mobile — Code de connexion\n\n"
+            f"Serveur : {url}\n"
+            f"Token   : {token}\n\n"
+            "📱 Comment configurer l'app mobile :\n"
+            "  App mobile → Paramètres → saisir l'URL et le Token\n\n"
+            "Ou utiliser le code d'appairage automatique :\n"
+            "  Bureau → « Copier le code d'appairage »\n"
+            "  Mobile → « Coller le code d'appairage »\n\n"
+            "⚠️ Même réseau Wi-Fi requis."
+        )
+
+    def share_via_whatsapp(event: ft.ControlEvent | None = None) -> None:
+        import webbrowser, urllib.parse
+        msg = _build_share_message()
+        if not msg:
+            notify("Serveur non démarré ou token absent.", DANGER)
+            _update()
+            return
+        encoded = urllib.parse.quote(msg)
+        # Try WhatsApp Desktop first, fallback to WhatsApp Web
+        try:
+            import subprocess
+            subprocess.Popen(f'start "" "whatsapp://send?text={encoded}"', shell=True)
+        except Exception:
+            pass
+        webbrowser.open(f"https://web.whatsapp.com/send?text={encoded}")
+        notify("WhatsApp ouvert avec le message pré-rempli. Choisissez le destinataire.", SUCCESS)
+        _update()
+
+    def share_via_sms(event: ft.ControlEvent | None = None) -> None:
+        import webbrowser, urllib.parse
+        msg = _build_share_message()
+        if not msg:
+            notify("Serveur non démarré ou token absent.", DANGER)
+            _update()
+            return
+        encoded = urllib.parse.quote(msg)
+        # sms: URI — works with Windows Phone Link (Link to Windows) if configured
+        try:
+            webbrowser.open(f"sms:?body={encoded}")
+            notify("Application SMS ouverte. Si rien ne s'ouvre, utilisez WhatsApp.", SUCCESS)
+        except Exception:
+            notify("SMS non disponible sur ce PC. Utilisez WhatsApp à la place.", WARNING)
         _update()
 
     def set_device_status(device_id: str, device_status: str) -> None:
@@ -664,7 +766,13 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
                             wrap=True,
                         ),
                         # ── QR code d'appairage ──────────────────────────────────
-                        *_build_pairing_panel(mobile, on_copy=copy_pairing_code),
+                        *_build_pairing_panel(
+                            mobile,
+                            on_copy=copy_pairing_code,
+                            on_copy_token=copy_token_only,
+                            on_whatsapp=share_via_whatsapp,
+                            on_sms=share_via_sms,
+                        ),
                         ft.Column(
                             controls=[
                                 ft.Text("Adresses possibles", size=13, weight=ft.FontWeight.BOLD, color=TEXT),

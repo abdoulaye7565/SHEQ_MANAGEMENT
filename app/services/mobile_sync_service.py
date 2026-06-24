@@ -124,6 +124,12 @@ def generate_mobile_pairing_token() -> str:
 PAIRING_FILE = DATA_DIR / "mobile_pairing_code.txt"
 
 
+def get_mobile_token_raw() -> str | None:
+    """Return the plain token string (for display / sharing). None if not set."""
+    token = _resolve_token(_read_config())
+    return token if token else None
+
+
 def get_pairing_compact_code() -> str | None:
     """Return compact base64 JSON pairing code for QR/manual entry."""
     import base64
@@ -723,7 +729,7 @@ class _MobileSyncHandler(BaseHTTPRequestHandler):
                     return
                 if ts_type not in {"1_25", "21_20"}:
                     ts_type = "1_25"
-                file_bytes, filename = _generate_timesheet_export_bytes(month, fmt, ts_type, employee_id)
+                file_bytes, filename = _generate_timesheet_export_bytes(month, fmt, ts_type, employee_id)  # noqa: SLF001
                 self._send_file(file_bytes, fmt, filename)
                 return
             self._send_json({"error": "Endpoint introuvable."}, status=404)
@@ -889,10 +895,10 @@ def _generate_timesheet_export_bytes(
         path = export_monthly_10h_timesheet_xlsx(month, ts_type=ts_type, employee_id=employee_id)
         return path.read_bytes(), filename
     else:
-        return _build_timesheet_pdf_bytes(month, ts_type=ts_type, employee_id=employee_id), filename
+        return build_timesheet_pdf_bytes(month, ts_type=ts_type, employee_id=employee_id), filename
 
 
-def _build_timesheet_pdf_bytes(month: str, ts_type: str = "1_25", employee_id: int | None = None) -> bytes:
+def build_timesheet_pdf_bytes(month: str, ts_type: str = "1_25", employee_id: int | None = None) -> bytes:
     import io
     from app.services.monthly_timesheet_service import get_monthly_10h_timesheet
     from app.services.timesheet_period_service import TIMESHEET_1_25, TIMESHEET_21_20
