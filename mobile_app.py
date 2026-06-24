@@ -4533,8 +4533,8 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             if tp=="1_25":
                 start=date(yr,mo,1); end=date(yr,mo,25)
             else:
-                pm=mo-1 if mo>1 else 12; py=yr if mo>1 else yr-1
-                start=date(py,pm,21); end=date(yr,mo,20)
+                nm=mo+1 if mo<12 else 1; ny=yr if mo<12 else yr+1
+                start=date(yr,mo,21); end=date(ny,nm,20)
             days=[]; cur=start
             while cur<=end: days.append(cur); cur+=_td(days=1)
             return start,end,days
