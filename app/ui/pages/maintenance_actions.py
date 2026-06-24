@@ -4,6 +4,7 @@ from typing import Any
 
 import flet as ft
 
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.components.tables import professional_data_table
 
 from app.services import (
@@ -54,7 +55,7 @@ _DK_TEXT   = "#E2E8F0"
 _DK_MUTED  = "#9DB0C5"
 _DK_TRACK  = "#1A3050"
 
-_PAGE_SIZE = 50
+_PAGE_SIZE = PAGE_SIZE
 
 
 def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
@@ -945,11 +946,6 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         action_table.controls = [
             ft.Row([
                 ft.Text(f"Action tracker ({len(all_rows)})", size=15, weight=ft.FontWeight.BOLD, color=_DK_TEXT, expand=True),
-                ft.IconButton(ft.Icons.CHEVRON_LEFT, icon_color=PRIMARY if page_idx > 0 else MUTED,
-                    on_click=lambda e: (_set_page("page_actions", state.get("page_actions", 0) - 1), render_actions(), _update())),
-                ft.Text(f"{page_idx + 1}/{total_pages}", size=12, color=_DK_MUTED),
-                ft.IconButton(ft.Icons.CHEVRON_RIGHT, icon_color=PRIMARY if page_idx < total_pages - 1 else MUTED,
-                    on_click=lambda e: (_set_page("page_actions", state.get("page_actions", 0) + 1), render_actions(), _update())),
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([professional_data_table(
                 columns=[
@@ -981,6 +977,17 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                     ]) for r in rows],
                 border=ft.border.all(1, _DK_BORDER), border_radius=8, heading_row_color=_DK_HEAD,
             )], scroll=ft.ScrollMode.AUTO),
+            pagination_row(
+                current_page=page_idx,
+                max_page=total_pages - 1,
+                total=len(all_rows),
+                shown_start=page_idx * _PAGE_SIZE + 1 if rows else 0,
+                shown_end=page_idx * _PAGE_SIZE + len(rows),
+                item_label="action(s)",
+                on_prev=lambda: (_set_page("page_actions", state.get("page_actions", 0) - 1), render_actions(), _update()),
+                on_next=lambda: (_set_page("page_actions", state.get("page_actions", 0) + 1), render_actions(), _update()),
+                on_page=lambda p: (_set_page("page_actions", p), render_actions(), _update()),
+            ),
         ]
 
     def render_risks() -> None:

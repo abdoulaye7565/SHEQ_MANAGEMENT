@@ -46,6 +46,7 @@ from app.services.toolbox_talk_service import (
 from app.services.ai_service import AIConfigurationError, suggest_toolbox_theme
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
         "selected_dates": set(), "tab": "dashboard",
         "plan_mode": "intelligent", "skip_weekends": True,
         "preview_result": None, "bank_form_visible": False,
+        "page_campaigns": 0,
     }
 
     # ── zones dynamiques ─────────────────────────────────────────────────────
@@ -1382,6 +1384,12 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
         except Exception:
             pass
 
+        total_campaigns = len(campaigns)
+        max_page_c = max(0, (total_campaigns - 1) // PAGE_SIZE) if total_campaigns else 0
+        state["page_campaigns"] = max(0, min(max_page_c, state["page_campaigns"]))
+        start_c = state["page_campaigns"] * PAGE_SIZE
+        page_campaigns = campaigns[start_c : start_c + PAGE_SIZE]
+
         active_count  = sum(1 for c in campaigns if c.get("status") == "active")
         planned_count = sum(1 for c in campaigns if c.get("status") == "planifiee")
         ended_count   = sum(1 for c in campaigns if c.get("status") == "terminee")
@@ -1450,7 +1458,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
                                     size=12, color=PRIMARY, weight=ft.FontWeight.BOLD))),
                             ft.DataCell(ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=PRIMARY, icon_size=18,
                                 tooltip="Modifier", on_click=lambda e, row=r: edit_campaign(row))),
-                        ]) for r in campaigns],
+                        ]) for r in page_campaigns],
                         border=None, border_radius=0, heading_row_color=_TEAL_SF,
                     )
                 ]),
@@ -1464,11 +1472,24 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
                             color=MUTED, size=13),
                 ], spacing=10))
 
-        campaigns_area.controls = [stats_row_c,
+        campaigns_area.controls = [
+            stats_row_c,
             ft.ResponsiveRow(controls=[
                 ft.Container(col={"xs":12,"lg":12}, content=form_panel_c),
             ], spacing=12, run_spacing=12),
-            camp_table]
+            camp_table,
+            pagination_row(
+                current_page=state["page_campaigns"],
+                max_page=max_page_c,
+                total=total_campaigns,
+                shown_start=start_c + 1 if page_campaigns else 0,
+                shown_end=start_c + len(page_campaigns),
+                item_label="campagne(s)",
+                on_prev=lambda: (state.__setitem__("page_campaigns", state["page_campaigns"] - 1), render_campaigns(), _upd()),
+                on_next=lambda: (state.__setitem__("page_campaigns", state["page_campaigns"] + 1), render_campaigns(), _upd()),
+                on_page=lambda p: (state.__setitem__("page_campaigns", p), render_campaigns(), _upd()),
+            ),
+        ]
 
     # ── RENDER HISTORIQUE ─────────────────────────────────────────────────────
     def render_history() -> None:

@@ -27,6 +27,7 @@ from app.services.accident_service import (
     delete_action,
     get_accident_options,
 )
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.theme import DANGER, PRIMARY, SUCCESS, WARNING
 
 # ── Dark palette ───────────────────────────────────────────────────────────────
@@ -284,6 +285,7 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
     _selected_accident: dict[str, dict[str, Any] | None] = {"v": None}
     _filter: dict[str, str | None] = {"type_ev": None, "gravite": None, "statut": None}
     _sort: dict[str, Any] = {"col": "date_evenement", "dir": "desc"}
+    _page: dict[str, int] = {"v": 0}
 
     def _safe_update(ctrl: ft.Control) -> None:
         try:
@@ -860,7 +862,9 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
                 ),
             )
 
-        def _reload_cards() -> None:
+        def _reload_cards(reset_page: bool = True) -> None:
+            if reset_page:
+                _page["v"] = 0
             type_ev = flt_type.value or None
             grav    = flt_grav.value or None
             stat    = flt_stat.value or None
@@ -886,12 +890,29 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
                 _safe_update(cards_area)
                 return
 
+            total = len(rows)
+            max_page = max(0, (total - 1) // PAGE_SIZE)
+            _page["v"] = max(0, min(max_page, _page["v"]))
+            start = _page["v"] * PAGE_SIZE
+            page_rows = rows[start : start + PAGE_SIZE]
+
             cards_area.controls = [
                 ft.ResponsiveRow(
-                    controls=[_acc_card(a) for a in rows],
+                    controls=[_acc_card(a) for a in page_rows],
                     spacing=12,
                     run_spacing=12,
-                )
+                ),
+                pagination_row(
+                    current_page=_page["v"],
+                    max_page=max_page,
+                    total=total,
+                    shown_start=start + 1 if page_rows else 0,
+                    shown_end=start + len(page_rows),
+                    item_label="evenement(s)",
+                    on_prev=lambda: (_page.__setitem__("v", _page["v"] - 1), _reload_cards(reset_page=False)),
+                    on_next=lambda: (_page.__setitem__("v", _page["v"] + 1), _reload_cards(reset_page=False)),
+                    on_page=lambda p: (_page.__setitem__("v", p), _reload_cards(reset_page=False)),
+                ),
             ]
             _safe_update(cards_area)
 

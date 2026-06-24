@@ -20,6 +20,7 @@ from app.services.permit_service import (
     VALIDATION_ROLES,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 # ── Dark palette ──────────────────────────────────────────────────────────────
@@ -200,6 +201,7 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
         "editing_id":  None,
         "filter_type": "tous",
         "filter_stat": "tous",
+        "page":        0,
     }
 
     content_area = ft.Container()
@@ -477,6 +479,12 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
                     pass
                 return
 
+            total = len(permits)
+            max_page = max(0, (total - 1) // PAGE_SIZE)
+            state["page"] = max(0, min(max_page, state["page"]))
+            start = state["page"] * PAGE_SIZE
+            page_permits = permits[start : start + PAGE_SIZE]
+
             cols = [
                 ft.DataColumn(ft.Text("N°", color=PRIMARY, size=12, weight=ft.FontWeight.BOLD)),
                 ft.DataColumn(ft.Text("Type", color=PRIMARY, size=12, weight=ft.FontWeight.BOLD)),
@@ -489,7 +497,7 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
             ]
 
             rows: list[ft.DataRow] = []
-            for p in permits:
+            for p in page_permits:
                 pid = p.get("id")
                 statut = str(p.get("statut") or "brouillon")
 
@@ -602,7 +610,18 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
                         scroll=ft.ScrollMode.AUTO,
                         tight=True,
                     ),
-                )
+                ),
+                pagination_row(
+                    current_page=state["page"],
+                    max_page=max_page,
+                    total=total,
+                    shown_start=start + 1 if page_permits else 0,
+                    shown_end=start + len(page_permits),
+                    item_label="permis",
+                    on_prev=lambda: (state.__setitem__("page", state["page"] - 1), _load_table()),
+                    on_next=lambda: (state.__setitem__("page", state["page"] + 1), _load_table()),
+                    on_page=lambda p: (state.__setitem__("page", p), _load_table()),
+                ),
             ]
             try:
                 table_area.update()
@@ -612,11 +631,13 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
         def _apply_filters(e: Any = None) -> None:
             state["filter_type"] = dd_type.value or "tous"
             state["filter_stat"] = dd_stat.value or "tous"
+            state["page"] = 0
             _load_table()
 
         def _reset_filters(e: Any = None) -> None:
             state["filter_type"] = "tous"
             state["filter_stat"] = "tous"
+            state["page"] = 0
             dd_type.value = "tous"
             dd_stat.value = "tous"
             for dd in (dd_type, dd_stat):

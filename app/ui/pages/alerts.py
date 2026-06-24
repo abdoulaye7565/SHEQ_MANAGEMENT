@@ -16,6 +16,7 @@ from app.services import (
     update_manual_alert_status,
 )
 from app.ui.components.module_header import module_header
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.components.stats import stat_card
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
@@ -52,7 +53,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
     table_area = ft.Column(spacing=8)
     source_area = ft.Row(spacing=6, wrap=True)
     action_plan_area = ft.ResponsiveRow(spacing=12, run_spacing=12)
-    state: dict[str, Any] = {"all_rows": []}
+    state: dict[str, Any] = {"all_rows": [], "page": 0}
 
     options = get_alert_filter_options()
 
@@ -144,15 +145,19 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
             search=str(search_field.value or ""),
         )
 
+    def _render_table_current() -> None:
+        render_table(current_rows())
+        _update()
+
     def refresh(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         try:
             state["all_rows"] = list_alerts(statut="all")
             summary = get_alert_summary(state["all_rows"])
-            rows = current_rows()
             render_summary(summary)
             render_sources(summary)
             render_action_plan()
-            render_table(rows)
+            render_table(current_rows())
         except Exception as exc:
             notify(str(exc), DANGER)
         _update()
@@ -265,6 +270,12 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
         ]
 
     def render_table(rows: list[dict[str, Any]]) -> None:
+        total = len(rows)
+        max_page = max(0, (total - 1) // PAGE_SIZE) if total else 0
+        state["page"] = max(0, min(max_page, state["page"]))
+        start = state["page"] * PAGE_SIZE
+        page_rows = rows[start : start + PAGE_SIZE]
+
         count_color = DANGER if rows else SUCCESS
         table_area.controls = [
             ft.Row(
@@ -274,7 +285,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                         border_radius=8,
                         padding=ft.padding.symmetric(horizontal=10, vertical=5),
                         content=ft.Text(
-                            f"{len(rows)} alerte(s)",
+                            f"{total} alerte(s)",
                             size=13,
                             weight=ft.FontWeight.BOLD,
                             color=count_color,
@@ -286,10 +297,10 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             ft.Column(
-                controls=[_alert_card(row, close_manual, remove_manual, navigate) for row in rows],
+                controls=[_alert_card(row, close_manual, remove_manual, navigate) for row in page_rows],
                 spacing=8,
             )
-            if rows
+            if page_rows
             else ft.Container(
                 bgcolor=_GREEN_SOFT,
                 border=ft.border.all(1, _GREEN_BDR),
@@ -303,6 +314,17 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
                     spacing=10,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+            ),
+            pagination_row(
+                current_page=state["page"],
+                max_page=max_page,
+                total=total,
+                shown_start=start + 1 if page_rows else 0,
+                shown_end=start + len(page_rows),
+                item_label="alerte(s)",
+                on_prev=lambda: (state.__setitem__("page", state["page"] - 1), _render_table_current()),
+                on_next=lambda: (state.__setitem__("page", state["page"] + 1), _render_table_current()),
+                on_page=lambda p: (state.__setitem__("page", p), _render_table_current()),
             ),
         ]
 

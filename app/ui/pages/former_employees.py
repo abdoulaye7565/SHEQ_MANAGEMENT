@@ -8,6 +8,7 @@ from app.ui.components.tables import professional_data_table
 
 from app.services import export_rows_xlsx, list_former_employees, restore_employee
 from app.ui.components.module_header import module_header
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 _DK_CARD   = "#0D2040"
@@ -20,7 +21,7 @@ _DK_TRACK  = "#1A3050"
 
 
 def former_employees_page() -> ft.Control:
-    state: dict[str, Any] = {"records": []}
+    state: dict[str, Any] = {"records": [], "page": 0}
     status = ft.Text("", size=12, color=_DK_MUTED)
     table_area = ft.Column(spacing=10)
     search_field = ft.TextField(fill_color="#0A1929", color="#E2E8F0", border_color="#1E3A5F", focused_border_color="#2563EB", label_style=ft.TextStyle(color="#9DB0C5"), text_style=ft.TextStyle(color="#E2E8F0"), label="Recherche", prefix_icon=ft.Icons.SEARCH, width=280)
@@ -36,6 +37,7 @@ def former_employees_page() -> ft.Control:
             pass
 
     def refresh(event: ft.ControlEvent | None = None) -> None:
+        state["page"] = 0
         try:
             state["records"] = list_former_employees(search_field.value or "")
             render_table()
@@ -76,7 +78,13 @@ def former_employees_page() -> ft.Control:
         _update()
 
     def render_table() -> None:
-        rows = state["records"]
+        all_rows = state["records"]
+        total = len(all_rows)
+        max_page = max(0, (total - 1) // PAGE_SIZE) if total else 0
+        state["page"] = max(0, min(max_page, state["page"]))
+        start = state["page"] * PAGE_SIZE
+        rows = all_rows[start : start + PAGE_SIZE]
+
         table_area.controls = [
             ft.Row(
                 controls=[
@@ -89,9 +97,9 @@ def former_employees_page() -> ft.Control:
                 wrap=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            ft.Text(f"{len(rows)} ancien(s) employe(s)", size=12, color=_DK_MUTED),
+            ft.Text(f"{total} ancien(s) employe(s)", size=12, color=_DK_MUTED),
         ]
-        if not rows:
+        if not all_rows:
             table_area.controls.append(
                 _empty_state(
                     ft.Icons.PEOPLE_OUTLINE,
@@ -161,6 +169,19 @@ def former_employees_page() -> ft.Control:
                             )
                         ],
                     ),
+                )
+            )
+            table_area.controls.append(
+                pagination_row(
+                    current_page=state["page"],
+                    max_page=max_page,
+                    total=total,
+                    shown_start=start + 1 if rows else 0,
+                    shown_end=start + len(rows),
+                    item_label="employe(s)",
+                    on_prev=lambda: (state.__setitem__("page", state["page"] - 1), render_table(), _update()),
+                    on_next=lambda: (state.__setitem__("page", state["page"] + 1), render_table(), _update()),
+                    on_page=lambda p: (state.__setitem__("page", p), render_table(), _update()),
                 )
             )
 

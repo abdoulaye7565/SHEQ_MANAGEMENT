@@ -47,6 +47,7 @@ from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
 from app.ui.components.dark_styles import BG, CARD, DARK_BORDER, DARK_MUTED, DARK_TEXT, FIELD
+from app.ui.components.pagination import PAGE_SIZE, pagination_row
 
 
 def ppe_page(page: ft.Page | None = None) -> ft.Control:
@@ -76,6 +77,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
         "tab": "overview",
         "gestion_tab": "catalog",
         "selected_emp": None,
+        "page": 0,
     }
 
     tab1_col = ft.Column(spacing=12)
@@ -910,9 +912,16 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             except RuntimeError:
                 pass
             return
+
+        total = len(employees)
+        max_page = max(0, (total - 1) // PAGE_SIZE)
+        state["page"] = max(0, min(max_page, state["page"]))
+        start = state["page"] * PAGE_SIZE
+        page_employees = employees[start : start + PAGE_SIZE]
+
         col_style = ft.TextStyle(color=PRIMARY, size=11, weight=ft.FontWeight.BOLD)
         rows: list[ft.DataRow] = []
-        for emp in employees:
+        for emp in page_employees:
             epi_list = emp.get("epi_list", [])
             epi_summary = ", ".join(f"{item['type_epi']} ×{item['quantite']}" for item in epi_list[:3])
             if len(epi_list) > 3:
@@ -969,7 +978,18 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             data_row_min_height=52,
         )
         dotation_list_area.controls = [
-            ft.Container(bgcolor=CARD, border_radius=8, content=ft.Row(controls=[table], scroll=ft.ScrollMode.AUTO, tight=True))
+            ft.Container(bgcolor=CARD, border_radius=8, content=ft.Row(controls=[table], scroll=ft.ScrollMode.AUTO, tight=True)),
+            pagination_row(
+                current_page=state["page"],
+                max_page=max_page,
+                total=total,
+                shown_start=start + 1 if page_employees else 0,
+                shown_end=start + len(page_employees),
+                item_label="employé(s)",
+                on_prev=lambda: (state.__setitem__("page", state["page"] - 1), render_dotation_list()),
+                on_next=lambda: (state.__setitem__("page", state["page"] + 1), render_dotation_list()),
+                on_page=lambda p: (state.__setitem__("page", p), render_dotation_list()),
+            ),
         ]
         try:
             dotation_list_area.update()
