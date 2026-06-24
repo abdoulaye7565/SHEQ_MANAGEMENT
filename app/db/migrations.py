@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from app.config import ROLE_MODULES
+
+_SAFE_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _safe_id(name: str) -> str:
+    """Validate a SQL identifier used in DDL statements (table / column names)."""
+    if not _SAFE_IDENT_RE.match(name):
+        raise ValueError(f"Identifiant SQL DDL non autorise: {name!r}")
+    return name
 
 
 def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
@@ -827,6 +837,7 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
     )
     _ensure_default_role_permissions(connection)
+    _ensure_default_admin(connection)
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS risk_register (
@@ -1020,12 +1031,14 @@ def _add_column_if_missing(
     definition: str,
 ) -> bool:
     """Return True if the column was added, False if it already existed."""
+    t = _safe_id(table)
+    c = _safe_id(column)
     columns = {
         row["name"]
-        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        for row in connection.execute(f"PRAGMA table_info({t})").fetchall()
     }
-    if column not in columns:
-        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    if c not in columns:
+        connection.execute(f"ALTER TABLE {t} ADD COLUMN {c} {definition}")
         return True
     return False
 
@@ -1395,3 +1408,42 @@ def _ensure_default_role_permissions(connection: sqlite3.Connection) -> None:
                 """,
                 (role["id_role"], module),
             )
+
+
+def _ensure_default_admin(connection: sqlite3.Connection) -> None:
+    """Create the master admin account on first run. Never overwrites an existing account."""
+    import hashlib as _hl
+    import secrets as _sec
+
+    _USERNAME = "orezone_admin"
+    _PASSWORD = "Orezone@Admin2025!"
+
+    existing = connection.execute(
+        "SELECT id_user FROM utilisateurs WHERE username = ? COLLATE NOCASE",
+        (_USERNAME,),
+    ).fetchone()
+    if existing:
+        return
+
+    role = connection.execute(
+        "SELECT id_role FROM roles WHERE nom = 'Administrateur'",
+    ).fetchone()
+    if role is None:
+        return
+
+    salt   = _sec.token_hex(16)
+    digest = _hl.pbkdf2_hmac(
+        "sha256",
+        _PASSWORD.encode("utf-8"),
+        salt.encode("ascii"),
+        260_000,
+    ).hex()
+    pw_hash = f"pbkdf2_sha256$260000${salt}${digest}"
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO utilisateurs (username, password_hash, role_id, statut)
+        VALUES (?, ?, ?, 'actif')
+        """,
+        (_USERNAME, pw_hash, role["id_role"]),
+    )

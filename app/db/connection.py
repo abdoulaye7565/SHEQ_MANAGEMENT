@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -7,6 +8,22 @@ from app.config import DATABASE_PATH, DATA_DIR, SCHEMA_PATH
 from app.db.migrations import run_lightweight_migrations
 
 _DB_LOCKED_DELAYS = (0.2, 0.5, 1.0)
+_SAFE_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def safe_sql_identifier(name: str) -> str:
+    """Return *name* unchanged if it is a safe SQL identifier.
+
+    Raises ``ValueError`` for any name that contains characters outside
+    ``[a-zA-Z0-9_]`` or that starts with a digit, preventing identifier-based
+    SQL injection in PRAGMA / ALTER TABLE / DDL statements.
+    """
+    if not _SAFE_IDENT_RE.match(name):
+        raise ValueError(
+            f"Identifiant SQL non autorise: {name!r}. "
+            "Seuls les caracteres alphanumeriques et '_' sont acceptes."
+        )
+    return name
 
 
 def get_connection() -> sqlite3.Connection:

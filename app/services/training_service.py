@@ -255,24 +255,56 @@ def update_training(training_id: int, values: dict[str, Any]) -> None:
 
 
 def update_trainings_bulk(training_ids: list[int], values: dict[str, Any]) -> int:
+    """Update multiple trainings in a single transaction (no N+1 queries)."""
     if not training_ids:
         raise ValueError("Selectionne au moins une formation.")
-    updated = 0
-    for training_id in training_ids:
-        existing = get_training(training_id)
-        if existing is None:
-            continue
-        update_training(
-            training_id,
-            {
-                "employe_id": existing["employe_id"],
-                "type_training_id": values.get("type_training_id") or existing["type_training_id"],
-                "date_formation": values.get("date_formation") or existing["date_formation"],
-                "facilitateur": values.get("facilitateur") or existing["facilitateur"],
-                "structure_responsable": values.get("structure_responsable") or existing["structure_responsable"],
-            },
-        )
-        updated += 1
+
+    placeholders = ",".join("?" * len(training_ids))
+    with db_session() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT id_formation, employe_id, type_training_id,
+                   date_debut AS date_formation, date_expiration,
+                   facilitateur, structure_responsable, statut
+            FROM formations
+            WHERE id_formation IN ({placeholders})
+            """,
+            tuple(training_ids),
+        ).fetchall()
+
+        existing_map = {row["id_formation"]: dict(row) for row in rows}
+        updated = 0
+        for training_id in training_ids:
+            existing = existing_map.get(training_id)
+            if existing is None:
+                continue
+            new_type_id = values.get("type_training_id") or existing["type_training_id"]
+            new_date    = values.get("date_formation") or existing["date_formation"]
+            expiration  = _add_months(new_date, _training_validity_months(connection, new_type_id))
+            status      = _status_from_expiration(expiration)
+            connection.execute(
+                """
+                UPDATE formations
+                SET type_training_id = ?,
+                    date_debut = ?,
+                    date_expiration = ?,
+                    facilitateur = ?,
+                    structure_responsable = ?,
+                    statut = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id_formation = ?
+                """,
+                (
+                    new_type_id,
+                    new_date,
+                    expiration,
+                    values.get("facilitateur") or existing["facilitateur"],
+                    values.get("structure_responsable") or existing["structure_responsable"],
+                    status,
+                    training_id,
+                ),
+            )
+            updated += 1
     return updated
 
 

@@ -6,6 +6,10 @@ from typing import Any
 
 import flet as ft
 
+from app.services.app_logger import get_logger
+
+_LOGGER = get_logger(__name__)
+
 from app.services.accident_service import (
     create_accident,
     update_accident,
@@ -335,7 +339,8 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
             summary   = get_accident_summary()
             kpis      = compute_kpis()
             all_acc   = list_accidents()
-        except Exception:
+        except Exception as _exc:
+            _LOGGER.error("Chargement dashboard accidents échoué: %s", _exc)
             summary  = {}
             kpis     = {"tf": 0.0, "tg": 0.0, "nb_accidents": 0, "total_jours_arret": 0}
             all_acc  = []
@@ -690,8 +695,8 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
             def _del_sel(e: Any) -> None:
                 try:
                     delete_accident(acc_id)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _LOGGER.error("Suppression accident #%s échouée: %s", acc_id, _exc)
                 _selected_accident["v"] = None
                 _switch_tab("registre")
 
@@ -764,7 +769,8 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
         def _open_fiche(acc: dict[str, Any]) -> None:
             try:
                 full = get_accident(int(acc.get("id") or 0))
-            except Exception:
+            except Exception as _exc:
+                _LOGGER.warning("Chargement détail accident #%s: %s", acc.get("id"), _exc)
                 full = None
             _selected_accident["v"] = full or acc
             _switch_tab("registre")
@@ -863,7 +869,8 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
             _filter["statut"]  = stat
             try:
                 rows = list_accidents(type_ev=type_ev, gravite=grav, statut=stat)
-            except Exception:
+            except Exception as _exc:
+                _LOGGER.error("Filtre accidents échoué: %s", _exc)
                 rows = []
 
             col_key = _sort["col"]

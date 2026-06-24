@@ -1,10 +1,13 @@
 from __future__ import annotations
+import logging
 import os
 import platform
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _reports_dir() -> Path:
@@ -179,28 +182,28 @@ def _write_monthly_pdf(
         acc_summary = get_accident_summary()
         acc_kpis = compute_kpis()
         accidents_month = [a for a in list_accidents() if str(a.get("date_evenement", "")).startswith(month_str)]
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Rapport mensuel: donnees accidents indisponibles — %s", _exc)
 
     try:
         from app.services.risk_service import list_risks
         risk_list = list_risks()
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Rapport mensuel: donnees risques indisponibles — %s", _exc)
 
     try:
         from app.services.ppe_service import get_ppe_summary, get_expiring_assigned_ppe
         ppe_summary = get_ppe_summary()
         expiring_epi = get_expiring_assigned_ppe(60)
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Rapport mensuel: donnees EPI indisponibles — %s", _exc)
 
     try:
         from app.services.permit_service import get_permit_summary, list_permits
         permit_summary = get_permit_summary()
         permits_month = [p for p in list_permits() if str(p.get("date_emission", "")).startswith(month_str)]
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Rapport mensuel: donnees permis indisponibles — %s", _exc)
 
     # ── Section 1 — Résumé exécutif ───────────────────────────────────────
     story.extend(_section_title("1. RÉSUMÉ EXÉCUTIF"))

@@ -587,16 +587,24 @@ def run_bilingual_normalization_once() -> None:
 
 
 def _normalize_existing_bilingual_topics(connection: Any) -> None:
-    for table, key_column in (("themes_securite", "id_theme"), ("toolbox_theme_catalog", "id_topic")):
-        rows = connection.execute(f"SELECT {key_column}, theme FROM {table}").fetchall()
+    # Hardcoded queries — no dynamic identifiers, zero injection surface
+    _TABLE_QUERIES = (
+        (
+            "SELECT id_theme AS pk, theme FROM themes_securite",
+            "UPDATE themes_securite SET theme = ?, updated_at = CURRENT_TIMESTAMP WHERE id_theme = ?",
+        ),
+        (
+            "SELECT id_topic AS pk, theme FROM toolbox_theme_catalog",
+            "UPDATE toolbox_theme_catalog SET theme = ?, updated_at = CURRENT_TIMESTAMP WHERE id_topic = ?",
+        ),
+    )
+    for select_sql, update_sql in _TABLE_QUERIES:
+        rows = connection.execute(select_sql).fetchall()
         for row in rows:
             current = str(row["theme"] or "").strip()
             normalized = _normalize_bilingual_theme(current)
             if current and normalized != current:
-                connection.execute(
-                    f"UPDATE {table} SET theme = ?, updated_at = CURRENT_TIMESTAMP WHERE {key_column} = ?",
-                    (normalized, row[key_column]),
-                )
+                connection.execute(update_sql, (normalized, row["pk"]))
 
 
 def _normalize_bilingual_theme(value: Any) -> str:

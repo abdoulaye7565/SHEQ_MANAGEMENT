@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.db.connection import db_session
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _try_create_risk_alert(title: str, score: int, owner: str = "") -> None:
@@ -15,8 +18,8 @@ def _try_create_risk_alert(title: str, score: int, owner: str = "") -> None:
             "recommended_action": f"Mettre en place les mesures de maîtrise immédiatement. Responsable: {owner or 'Non défini'}",
             "status": "open",
         })
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Impossible de créer l'alerte pour risque critique '%s': %s", title, _exc)
 
 
 def _risk_level(score: int) -> str:

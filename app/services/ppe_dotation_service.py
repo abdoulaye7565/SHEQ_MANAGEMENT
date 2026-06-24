@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from app.config import EXPORTS_DIR
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def open_dotation_file(path: Path) -> None:
@@ -18,8 +21,8 @@ def open_dotation_file(path: Path) -> None:
             subprocess.Popen(["open", str(path)])
         else:
             subprocess.Popen(["xdg-open", str(path)])
-    except Exception:
-        pass
+    except Exception as _exc:
+        _LOGGER.warning("Impossible d'ouvrir le fichier de dotation %s: %s", path, _exc)
 
 
 def _unique_path(filename: str) -> Path:

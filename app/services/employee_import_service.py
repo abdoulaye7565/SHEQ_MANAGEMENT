@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from app.db.connection import db_session
+from app.db.connection import db_session, safe_sql_identifier
 from app.services.employee_service import (
     BADGE_STATUSES,
     EMPLOYEE_STATUSES,
@@ -301,7 +301,10 @@ def _load_references() -> dict[str, dict[str, Any]]:
 
 
 def _reference_map(connection: Any, table: str, pk: str, labels: list[str]) -> dict[str, int]:
-    rows = connection.execute(f"SELECT {pk}, {', '.join(labels)} FROM {table}").fetchall()
+    t = safe_sql_identifier(table)
+    p = safe_sql_identifier(pk)
+    cols = ", ".join(safe_sql_identifier(lbl) for lbl in labels)
+    rows = connection.execute(f"SELECT {p}, {cols} FROM {t}").fetchall()
     mapping: dict[str, int] = {}
     for row in rows:
         for label in labels:
@@ -317,7 +320,9 @@ def _lookup_reference(mapping: dict[str, Any], value: str) -> int | None:
 
 
 def _existing_values(connection: Any, table: str, column: str) -> dict[str, bool]:
-    rows = connection.execute(f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL").fetchall()
+    t = safe_sql_identifier(table)
+    c = safe_sql_identifier(column)
+    rows = connection.execute(f"SELECT {c} FROM {t} WHERE {c} IS NOT NULL").fetchall()
     return {_normalize_text(str(row[column])): True for row in rows if row[column]}
 
 
