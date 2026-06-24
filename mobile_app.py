@@ -4844,43 +4844,173 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
 
         def _export_period_pdf(e=None):
             try:
+                import io
                 from reportlab.lib import colors as rlc
-                from reportlab.lib.pagesizes import A4,landscape
-                from reportlab.platypus import SimpleDocTemplate,Table,TableStyle,Paragraph,Spacer
-                from reportlab.lib.styles import getSampleStyleSheet,ParagraphStyle
-                from reportlab.lib.enums import TA_CENTER
-                recs=get_att_period(); start,end,_=get_period_range()
-                if not recs: notify("Aucun pointage pour cette periode.",WARN); return
-                out=get_exports_dir()/f"timesheet_{month_prefix()}_{TS['ts_type']}.pdf"
-                doc=SimpleDocTemplate(str(out),pagesize=landscape(A4),leftMargin=15,rightMargin=15,topMargin=20,bottomMargin=20)
-                # Replace non-Latin1 chars — Helvetica only supports Latin-1
-                def _safe(s): return (str(s or "")
-                    .replace("—","--").replace("–","-").replace("→","->")
-                    .encode("latin-1","replace").decode("latin-1"))
-                p_lbl=period_label().replace("→","->").encode("latin-1","replace").decode("latin-1")
-                sty=getSampleStyleSheet()
-                title_sty=ParagraphStyle("TS_Title",parent=sty["Title"],
-                    fontName="Helvetica-Bold",fontSize=13,
-                    textColor=rlc.HexColor("#1E3A5F"),alignment=TA_CENTER)
-                data=[["Employe","Date","Statut","Entree","Sortie"]]
+                from reportlab.lib.pagesizes import A4, landscape
+                from reportlab.lib.styles import ParagraphStyle
+                from reportlab.lib.units import mm
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT
+                from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+                recs = get_att_period()
+                _, __, days_list = get_period_range()
+                if not recs:
+                    notify("Aucun pointage pour cette periode.", WARN); return
+
+                def _sf(s):
+                    return (str(s or "").replace("—","--").replace("–","-").replace("→","->")
+                            .encode("latin-1","replace").decode("latin-1"))
+
+                STATUS_MAP = {
+                    "present": ("P",  rlc.HexColor("#DCFCE7")),
+                    "absent":  ("A",  rlc.HexColor("#FEE2E2")),
+                    "mission": ("Ms", rlc.HexColor("#E0E7FF")),
+                    "maladie": ("Ml", rlc.HexColor("#FEE2E2")),
+                    "conge":   ("Cg", rlc.HexColor("#EDE9FE")),
+                    "retard":  ("R",  rlc.HexColor("#FEF3C7")),
+                }
+
+                emp_map: dict = {}
                 for r in recs:
-                    data.append([_safe(r.get("employee_name","")),
-                                 _safe(r.get("date_presence","")),
-                                 _safe((r.get("status","") or "").title()),
-                                 _safe(r.get("heure_entree","") or "-"),
-                                 _safe(r.get("heure_sortie","") or "-")])
-                tbl=Table(data,colWidths=[200,80,70,60,60])
-                tbl.setStyle(TableStyle([
-                    ("BACKGROUND",(0,0),(-1,0),rlc.HexColor("#1E3A5F")),("TEXTCOLOR",(0,0),(-1,0),rlc.white),
-                    ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),
-                    ("ROWBACKGROUNDS",(0,1),(-1,-1),[rlc.white,rlc.HexColor("#F0F4F8")]),
-                    ("GRID",(0,0),(-1,-1),0.3,rlc.HexColor("#CBD5E1")),
-                    ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                    name = _sf(r.get("employee_name") or "---")
+                    dp   = str(r.get("date_presence") or "")
+                    st   = str(r.get("status") or "").lower()
+                    if name not in emp_map:
+                        emp_map[name] = {}
+                    emp_map[name][dp] = STATUS_MAP.get(st, ("", None))
+
+                TIT = ParagraphStyle("T", fontName="Helvetica-Bold", fontSize=16, leading=19,
+                                     textColor=rlc.white, alignment=TA_CENTER)
+                SUB = ParagraphStyle("S", fontName="Helvetica", fontSize=8, leading=10,
+                                     textColor=rlc.HexColor("#475569"), alignment=TA_CENTER)
+                SML = ParagraphStyle("M", fontName="Helvetica", fontSize=7, leading=8.5, alignment=TA_LEFT)
+                HDR = ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=7, leading=8.5,
+                                     textColor=rlc.white, alignment=TA_CENTER)
+
+                buf = io.BytesIO()
+                doc = SimpleDocTemplate(str(buf), pagesize=landscape(A4),
+                    leftMargin=9*mm, rightMargin=9*mm, topMargin=9*mm, bottomMargin=10*mm)
+                story: list = []
+                p_lbl      = _sf(period_label())
+                gen_at     = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+                # ── Header ─────────────────────────────────────────────────────
+                hdr_tbl = Table([
+                    [Paragraph("OREZONE", TIT), Paragraph("OREZONE MONTHLY TIMESHEET", TIT)],
+                    ["", Paragraph(p_lbl, SUB)],
+                    ["", Paragraph(f"Generated: {gen_at} | Orezone QHSE | Site SYAMA", SUB)],
+                ], colWidths=[38*mm, 239*mm])
+                hdr_tbl.setStyle(TableStyle([
+                    ("BACKGROUND",    (0,0), (-1,0),  rlc.HexColor("#1E3A8A")),
+                    ("BACKGROUND",    (0,1), (0,2),   rlc.HexColor("#1E3A8A")),
+                    ("SPAN",          (0,0), (0,2)),
+                    ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                    ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                    ("BACKGROUND",    (1,1), (1,2),   rlc.HexColor("#EFF6FF")),
+                    ("BOX",           (0,0), (-1,-1), 0.8,  rlc.HexColor("#1E3A8A")),
+                    ("INNERGRID",     (0,0), (-1,-1), 0.25, rlc.HexColor("#BFDBFE")),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 7),
+                    ("TOPPADDING",    (0,0), (-1,-1), 7),
                 ]))
-                title_txt=f"Timesheet - Periode {p_lbl} | OREZONE QHSE"
-                doc.build([Paragraph(title_txt,title_sty),Spacer(1,12),tbl])
-                open_file(out); notify(f"PDF exporte : {out.name}",OK)
-            except Exception as exc: notify(f"Erreur PDF : {exc}",DNG)
+                story.extend([hdr_tbl, Spacer(1, 4*mm)])
+
+                # ── KPI metrics ────────────────────────────────────────────────
+                n_p = sum(1 for r in recs if r.get("status") == "present")
+                n_a = sum(1 for r in recs if r.get("status") == "absent")
+                n_o = len(recs) - n_p - n_a
+                met = Table([[
+                    Paragraph(f"<b>Employes</b><br/>{len(emp_map)}", SUB),
+                    Paragraph(f"<b>Presences</b><br/>{n_p}", SUB),
+                    Paragraph(f"<b>Absences</b><br/>{n_a}", SUB),
+                    Paragraph(f"<b>Autres</b><br/>{n_o}", SUB),
+                    Paragraph(f"<b>Total releves</b><br/>{len(recs)}", SUB),
+                ]], colWidths=[55.4*mm]*5)
+                met.setStyle(TableStyle([
+                    ("BACKGROUND",    (0,0), (0,0),   rlc.HexColor("#DBEAFE")),
+                    ("BACKGROUND",    (1,0), (1,0),   rlc.HexColor("#DCFCE7")),
+                    ("BACKGROUND",    (2,0), (2,0),   rlc.HexColor("#FEE2E2")),
+                    ("BACKGROUND",    (3,0), (3,0),   rlc.HexColor("#FEF3C7")),
+                    ("BACKGROUND",    (4,0), (4,0),   rlc.HexColor("#EFF6FF")),
+                    ("BOX",           (0,0), (-1,-1), 0.6,  rlc.HexColor("#CBD5E1")),
+                    ("INNERGRID",     (0,0), (-1,-1), 0.3,  rlc.HexColor("#CBD5E1")),
+                    ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                    ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                    ("TOPPADDING",    (0,0), (-1,-1), 6),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+                ]))
+                story.extend([met, Spacer(1, 4*mm)])
+
+                # ── Employee × day matrix ──────────────────────────────────────
+                n_days = len(days_list)
+                day_w  = max(5.0, (279 - 40 - 4*9) / max(n_days, 1))
+                col_widths = [40*mm] + [day_w*mm]*n_days + [9*mm]*4
+                day_labels = [str(d.day) for d in days_list]
+                td = [[Paragraph(lbl, HDR) for lbl in ["Employe"] + day_labels + ["P","A","Au","-"]]]
+                tbl_styles = [
+                    ("BACKGROUND",    (0,0), (-1,0),  rlc.HexColor("#1E3A8A")),
+                    ("TEXTCOLOR",     (0,0), (-1,0),  rlc.white),
+                    ("FONTNAME",      (0,0), (-1,0),  "Helvetica-Bold"),
+                    ("FONTSIZE",      (0,0), (-1,-1), 6.5),
+                    ("GRID",          (0,0), (-1,-1), 0.2,  rlc.HexColor("#CBD5E1")),
+                    ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+                    ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                    ("ALIGN",         (0,0), (0,-1),  "LEFT"),
+                    ("ROWBACKGROUNDS",(0,1), (-1,-1), [rlc.white, rlc.HexColor("#F8FAFC")]),
+                    ("TOPPADDING",    (0,0), (-1,-1), 2),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+                ]
+                for ri, (emp_name, day_data) in enumerate(sorted(emp_map.items()), start=1):
+                    cnt_p = cnt_a = cnt_au = cnt_x = 0
+                    row_cells = []
+                    for ci, d in enumerate(days_list):
+                        di = d.isoformat()
+                        if di in day_data:
+                            lbl, bg = day_data[di]
+                            row_cells.append(lbl or "")
+                            if   lbl == "P":                      cnt_p  += 1
+                            elif lbl == "A":                      cnt_a  += 1
+                            elif lbl in ("Ms","Ml","Cg","R"):    cnt_au += 1
+                            if bg:
+                                tbl_styles.append(("BACKGROUND", (1+ci, ri), (1+ci, ri), bg))
+                        else:
+                            row_cells.append(""); cnt_x += 1
+                    td.append([Paragraph(emp_name[:32], SML)] + row_cells +
+                               [str(cnt_p), str(cnt_a), str(cnt_au), str(cnt_x)])
+
+                att_tbl = Table(td, colWidths=col_widths, repeatRows=1)
+                att_tbl.setStyle(TableStyle(tbl_styles))
+                story.extend([att_tbl, Spacer(1, 5*mm)])
+
+                # ── Signature block ────────────────────────────────────────────
+                sig = Table([
+                    ["Prepared by", "Checked by", "Approved by", "QHSE comments"],
+                    ["Name / Date / Signature", "Name / Date / Signature", "Name / Date / Signature", ""],
+                ], colWidths=[55*mm, 55*mm, 55*mm, 112*mm], rowHeights=[8*mm, 17*mm])
+                sig.setStyle(TableStyle([
+                    ("BACKGROUND", (0,0), (-1,0),  rlc.HexColor("#EFF6FF")),
+                    ("FONTNAME",   (0,0), (-1,0),  "Helvetica-Bold"),
+                    ("FONTSIZE",   (0,0), (-1,-1), 7.5),
+                    ("ALIGN",      (0,0), (-1,-1), "CENTER"),
+                    ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+                    ("GRID",       (0,0), (-1,-1), 0.4, rlc.HexColor("#CBD5E1")),
+                ]))
+                story.append(sig)
+
+                def _footer(canvas, doc_obj):
+                    canvas.saveState()
+                    canvas.setFont("Helvetica", 7)
+                    canvas.setFillColor(rlc.HexColor("#64748B"))
+                    canvas.drawString(9*mm, 6*mm, "OREZONE QHSE - Monthly Timesheet")
+                    canvas.drawRightString(288*mm, 6*mm, f"Page {doc_obj.page}")
+                    canvas.restoreState()
+
+                doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+                out = get_exports_dir() / f"timesheet_{month_prefix()}_{TS['ts_type']}.pdf"
+                out.write_bytes(buf.getvalue())
+                open_file(out)
+                notify(f"PDF exporte : {out.name}", OK)
+            except Exception as exc:
+                notify(f"Erreur PDF : {exc}", DNG)
 
         def _export_period_csv(e=None):
             try:
