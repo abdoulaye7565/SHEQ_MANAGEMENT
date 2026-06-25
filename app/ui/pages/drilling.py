@@ -22,6 +22,15 @@ from app.services.drilling_service import (
 )
 from app.ui.theme import DANGER, PRIMARY, SUCCESS, WARNING
 
+
+def _u(ctrl: ft.Control) -> None:
+    """Safe update — silently skips if control is not yet on the page."""
+    try:
+        ctrl.update()
+    except (RuntimeError, AssertionError):
+        pass
+
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 BG      = "#071321"
 CARD    = "#0F2336"
@@ -185,8 +194,7 @@ class _LogRow:
             self.f_run.value = str(round(dt - df, 2))
         except ValueError:
             self.f_run.value = ""
-        if self.f_run.page:
-            self.f_run.update()
+        _u(self.f_run)
 
     def to_dict(self) -> dict[str, Any]:
         def _f(v: str) -> float | None:
@@ -253,14 +261,13 @@ def _report_form_dialog(
     def _delete_log_row(lr: _LogRow) -> None:
         log_rows.remove(lr)
         rows_col.controls.remove(lr.row)
-        rows_col.update()
+        _u(rows_col)
 
     def _add_log_row(data: dict[str, Any] | None = None) -> None:
         lr = _LogRow(data, on_delete=_delete_log_row)
         log_rows.append(lr)
         rows_col.controls.append(lr.row)
-        if rows_col.page:
-            rows_col.update()
+        _u(rows_col)
 
     for entry in r.get("entries") or [{}]:
         _add_log_row(entry)
@@ -305,7 +312,7 @@ def _report_form_dialog(
             page.update()
         except Exception as exc:
             err_txt.value = str(exc)
-            err_txt.update()
+            _u(err_txt)
 
     # Column headers for log table
     def _hdr(t: str, w: int) -> ft.Container:
@@ -552,8 +559,7 @@ def _equipment_panel(page: ft.Page) -> ft.Control:
                     ),
                 ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ))
-        if eq_list.page:
-            eq_list.update()
+        _u(eq_list)
 
     def _toggle(eq: dict) -> None:
         update_equipment(eq["id"], eq["name"], eq["code"], eq["unit"], not eq.get("active", 1))
@@ -569,7 +575,7 @@ def _equipment_panel(page: ft.Page) -> ft.Control:
         if not name or not code:
             msg_txt.value = "Nom et code requis."
             msg_txt.color = DANGER
-            msg_txt.update()
+            _u(msg_txt)
             return
         try:
             add_equipment(name, code, f_unit.value.strip() or "Litre")
@@ -581,7 +587,7 @@ def _equipment_panel(page: ft.Page) -> ft.Control:
         except Exception as exc:
             msg_txt.value = str(exc)
             msg_txt.color = DANGER
-            msg_txt.update()
+            _u(msg_txt)
 
     _refresh_list()
 
@@ -685,10 +691,8 @@ def drilling_page(page: ft.Page) -> ft.Control:
         btn_list.style  = _tab_style(tab == "list")
         btn_equip.style = _tab_style(tab == "equipment")
         content_area.content = _list_view() if tab == "list" else equip_panel
-        if content_area.page:
-            content_area.update()
-        if tab_bar.page:
-            tab_bar.update()
+        _u(content_area)
+        _u(tab_bar)
 
     # ── KPIs ──────────────────────────────────────────────────────────────────
     def _refresh_kpis() -> None:
@@ -700,8 +704,7 @@ def drilling_page(page: ft.Page) -> ft.Control:
             _kpi_card(ft.Icons.STRAIGHTEN_OUTLINED,     "Avance totale",   f"{kpis['total_advance_m']:.1f} m", PRIMARY),
             _kpi_card(ft.Icons.TODAY_OUTLINED,          "Aujourd'hui",     str(kpis["today"]),     "#60A5FA"),
         ]
-        if kpi_row.page:
-            kpi_row.update()
+        _u(kpi_row)
 
     # ── List view ─────────────────────────────────────────────────────────────
     def _list_view() -> ft.Control:
@@ -820,10 +823,8 @@ def drilling_page(page: ft.Page) -> ft.Control:
             ))
 
         _refresh_kpis()
-        if list_col.page:
-            list_col.update()
-        if pager_row.page:
-            pager_row.update()
+        _u(list_col)
+        _u(pager_row)
 
     def _go_page(p: int) -> None:
         state["page"] = p
@@ -836,8 +837,7 @@ def drilling_page(page: ft.Page) -> ft.Control:
             msg_bar.value = "Rapport créé."
             msg_bar.color = SUCCESS
             _refresh()
-            if msg_bar.page:
-                msg_bar.update()
+            _u(msg_bar)
 
         dlg = _report_form_dialog(page, _save)
         page.overlay.append(dlg)
@@ -854,8 +854,7 @@ def drilling_page(page: ft.Page) -> ft.Control:
             msg_bar.value = "Rapport mis à jour."
             msg_bar.color = SUCCESS
             _refresh()
-            if msg_bar.page:
-                msg_bar.update()
+            _u(msg_bar)
 
         dlg = _report_form_dialog(page, _save, rep)
         page.overlay.append(dlg)
@@ -872,24 +871,21 @@ def drilling_page(page: ft.Page) -> ft.Control:
             msg_bar.value = "Rapport validé."
             msg_bar.color = SUCCESS
             _refresh()
-            if msg_bar.page:
-                msg_bar.update()
+            _u(msg_bar)
 
         def _do_reject(rid: int) -> None:
             reject_drilling_report(rid)
             msg_bar.value = "Validation annulée."
             msg_bar.color = WARNING
             _refresh()
-            if msg_bar.page:
-                msg_bar.update()
+            _u(msg_bar)
 
         def _do_delete(rid: int) -> None:
             delete_drilling_report(rid)
             msg_bar.value = "Rapport supprimé."
             msg_bar.color = DANGER
             _refresh()
-            if msg_bar.page:
-                msg_bar.update()
+            _u(msg_bar)
 
         def _do_export(r: dict) -> None:
             _export_pdf(page, r, msg_bar)
@@ -938,11 +934,9 @@ def _export_pdf(page: ft.Page, report: dict[str, Any], msg_ctrl: ft.Text) -> Non
 
         msg_ctrl.value = f"PDF exporté : {out_path.name}"
         msg_ctrl.color = SUCCESS
-        if msg_ctrl.page:
-            msg_ctrl.update()
+        _u(msg_ctrl)
         os.startfile(str(out_path))
     except Exception as exc:
         msg_ctrl.value = f"Erreur PDF : {exc}"
         msg_ctrl.color = DANGER
-        if msg_ctrl.page:
-            msg_ctrl.update()
+        _u(msg_ctrl)
