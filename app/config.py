@@ -47,3 +47,4 @@ else:
 DATABASE_PATH = DATA_DIR / "orezone.db"
 SCHEMA_PATH = PACKAGE_DIR / "app" / "db" / "schema.sql"
 LOGS_DIR = DATA_DIR.parent / "logs"
+NETWORK_CONFIG_PATH = DATA_DIR / "network_config.json"
