@@ -23,6 +23,7 @@ from app.ui.pages.training_management import training_management_page
 from app.ui.pages.risk_analysis import risk_analysis_page
 from app.ui.pages.accidents import accidents_page
 from app.ui.pages.permits import permits_page
+from app.ui.pages.drilling import drilling_page
 from app.ui.pages.qhse_dashboard import qhse_dashboard_page
 from app.ui.pages.notifications import notifications_page
 from app.ui.pages.statistics import statistics_page
@@ -55,6 +56,7 @@ NAV_ITEMS = [
     ("TrainingManagement", "Gestion formation", ft.Icons.SCHOOL_OUTLINED),
     ("ToolboxTalk", "Toolbox Talk", ft.Icons.FORUM_OUTLINED),
     ("TimeSheet", "TimeSheets", ft.Icons.CALENDAR_MONTH_OUTLINED),
+    ("Drilling", "Drilling Reports", ft.Icons.HARDWARE_OUTLINED),
     ("Ppe", "Gestion des EPI", ft.Icons.INVENTORY_2_OUTLINED),
     ("MaintenanceActions", "Maintenance & Actions", ft.Icons.HANDYMAN_OUTLINED),
     ("RiskAnalysis", "Analyse des Risques", ft.Icons.CRISIS_ALERT_OUTLINED),
@@ -70,7 +72,7 @@ _NAV_SECTIONS: list[tuple[str, list[str]]] = [
     ("SYNTHÈSE", ["QHSEDashboard", "Notifications", "Statistics"]),
     ("SUPERVISION", ["Dashboard", "Alerts"]),
     ("RESSOURCES", ["EmployeeManagement", "TrainingManagement", "ToolboxTalk", "Ppe"]),
-    ("OPERATIONS", ["MaintenanceActions", "RiskAnalysis", "Accidents", "Permits", "TimeSheet"]),
+    ("OPERATIONS", ["MaintenanceActions", "RiskAnalysis", "Accidents", "Permits", "TimeSheet", "Drilling"]),
     ("SYSTEME", ["AiAssistant", "Referentials", "Settings", "Admin"]),
 ]
 
@@ -599,6 +601,7 @@ def _screen_registry(
         "TrainingManagement": lambda: training_management_page(page),
         "ToolboxTalk":        lambda: toolbox_talk_page(page),
         "TimeSheet":          lambda: timesheet_management_page(page),
+        "Drilling":           lambda: drilling_page(page),
         "Ppe":                lambda: ppe_page(page),
         "MaintenanceActions": lambda: maintenance_actions_page(page),
         "RiskAnalysis":       lambda: risk_analysis_page(page),

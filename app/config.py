@@ -10,6 +10,7 @@ ALL_MODULES = [
     "ToolboxTalk",
     "TimeSheet",
     "MonthlyTimesheet",
+    "Drilling",
     "Ppe",
     "MaintenanceActions",
     "Alerts",
@@ -21,9 +22,9 @@ ALL_MODULES = [
 ROLE_MODULES: dict[str, list[str]] = {
     "Administrateur": list(ALL_MODULES),
     "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
-    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "MaintenanceActions", "Alerts"],
+    "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "Drilling", "MaintenanceActions", "Alerts"],
     "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
-    "Direction": ["Dashboard", "MaintenanceActions", "Alerts", "AiAssistant"],
+    "Direction": ["Dashboard", "Drilling", "MaintenanceActions", "Alerts", "AiAssistant"],
 }
 
 

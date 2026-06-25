@@ -290,6 +290,32 @@ def get_mobile_connection() -> "sqlite3.Connection":
             downloaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(month, format)
         );
+        CREATE TABLE IF NOT EXISTS drilling_equipment_cache (
+            id   INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            code TEXT NOT NULL UNIQUE,
+            unit TEXT NOT NULL DEFAULT 'Litre'
+        );
+        CREATE TABLE IF NOT EXISTS pending_drilling (
+            id_pending        INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid              TEXT NOT NULL UNIQUE,
+            created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            shift             TEXT NOT NULL DEFAULT 'DAY',
+            report_date       TEXT NOT NULL,
+            rig_type          TEXT,
+            rig_number        TEXT,
+            contract_location TEXT,
+            hole_number       TEXT,
+            angle             REAL,
+            client            TEXT,
+            total_advance     REAL DEFAULT 0,
+            diesel_json       TEXT,
+            refueler_name     TEXT,
+            operator_name     TEXT,
+            supervisor_name   TEXT,
+            entries_json      TEXT,
+            status            TEXT NOT NULL DEFAULT 'draft'
+        );
     """)
     # Migrate pending_maintenance with new GMAO columns (safe — ignores if exists)
     for _col, _def in [("statut_ot","TEXT DEFAULT 'ouvert'"),("cause_racine","TEXT"),
@@ -466,6 +492,89 @@ def list_pending_panne() -> list[dict]:
         return [dict(r) for r in get_mobile_connection().execute(
             "SELECT * FROM pending_panne ORDER BY created_at DESC").fetchall()]
     except Exception: return []
+
+# ─── Drilling helpers ──────────────────────────────────────────────────────────
+
+def save_drilling_report(data: dict) -> str:
+    import uuid as _uuid, json as _json
+    report_uuid = data.get("uuid") or str(_uuid.uuid4())
+    with get_mobile_connection() as c:
+        c.execute(
+            """INSERT OR REPLACE INTO pending_drilling
+               (uuid, shift, report_date, rig_type, rig_number, contract_location,
+                hole_number, angle, client, total_advance, diesel_json, refueler_name,
+                operator_name, supervisor_name, entries_json, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                report_uuid,
+                str(data.get("shift") or "DAY"),
+                str(data.get("report_date") or ""),
+                data.get("rig_type") or None,
+                data.get("rig_number") or None,
+                data.get("contract_location") or None,
+                data.get("hole_number") or None,
+                data.get("angle"),
+                data.get("client") or None,
+                data.get("total_advance") or 0,
+                _json.dumps(data.get("diesel") or {}),
+                data.get("refueler_name") or None,
+                data.get("operator_name") or None,
+                data.get("supervisor_name") or None,
+                _json.dumps(data.get("entries") or []),
+                str(data.get("status") or "draft"),
+            ),
+        )
+    return report_uuid
+
+def list_pending_drilling() -> list[dict]:
+    import json as _json
+    try:
+        rows = get_mobile_connection().execute(
+            "SELECT * FROM pending_drilling ORDER BY report_date DESC, id_pending DESC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["diesel"]  = _json.loads(d.get("diesel_json") or "{}")
+            d["entries"] = _json.loads(d.get("entries_json") or "[]")
+            result.append(d)
+        return result
+    except Exception: return []
+
+def delete_pending_drilling(report_uuid: str) -> None:
+    with get_mobile_connection() as c:
+        c.execute("DELETE FROM pending_drilling WHERE uuid=?", (report_uuid,))
+
+def submit_drilling_report(report_uuid: str) -> None:
+    with get_mobile_connection() as c:
+        c.execute("UPDATE pending_drilling SET status='submitted' WHERE uuid=?", (report_uuid,))
+
+def validate_drilling_report_mobile(report_uuid: str, supervisor_name: str) -> None:
+    with get_mobile_connection() as c:
+        c.execute(
+            "UPDATE pending_drilling SET status='validated', supervisor_name=? WHERE uuid=?",
+            (supervisor_name, report_uuid),
+        )
+
+def cache_drilling_equipment(equipment_list: list[dict]) -> None:
+    with get_mobile_connection() as c:
+        c.execute("DELETE FROM drilling_equipment_cache")
+        c.executemany(
+            "INSERT OR REPLACE INTO drilling_equipment_cache(id, name, code, unit) VALUES (?,?,?,?)",
+            [(e.get("id", 0), e["name"], e["code"], e.get("unit", "Litre")) for e in equipment_list],
+        )
+
+def get_drilling_equipment_cached() -> list[dict]:
+    try:
+        return [dict(r) for r in get_mobile_connection().execute(
+            "SELECT * FROM drilling_equipment_cache ORDER BY id").fetchall()]
+    except Exception:
+        return [
+            {"id": 1, "name": "RIG – SDMA 01",             "code": "SDMA01", "unit": "Litre"},
+            {"id": 2, "name": "COMPRESSOR – SDMC 01",       "code": "SDMC01", "unit": "Litre"},
+            {"id": 3, "name": "MOROOKA – OZMD 05",          "code": "OZMD05", "unit": "Litre"},
+            {"id": 4, "name": "MOROOKA (CRANE) – OZMD 06",  "code": "OZMD06", "unit": "Litre"},
+        ]
 
 def save_pending_panne(data: dict) -> int:
     with get_mobile_connection() as c:
@@ -1279,6 +1388,8 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             save_setting("alerts",json.dumps(data.get("alerts") or [],ensure_ascii=False))
             p=data.get("profile") or {}
             if p.get("label"): save_setting("profile_label",p["label"])
+            if data.get("drilling_equipment"):
+                cache_drilling_equipment(data["drilling_equipment"])
         except Exception: pass
         # Sync attendance + toolbox for last 3 months
         from datetime import timedelta
@@ -1427,9 +1538,22 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     "lieu":r["lieu"],"type_obs":r["type_obs"],"description":r["description"],
                     "priorite":r["priorite"],"action_requise":bool(r["action_requise"]),
                     "notes":r["notes"]} for r in ro],
+                "drilling_reports":[{
+                    "uuid": r["uuid"], "shift": r["shift"], "report_date": r["report_date"],
+                    "rig_type": r["rig_type"], "rig_number": r["rig_number"],
+                    "contract_location": r["contract_location"], "hole_number": r["hole_number"],
+                    "angle": r["angle"], "client": r["client"],
+                    "total_advance": r["total_advance"],
+                    "diesel": r["diesel"], "refueler_name": r["refueler_name"],
+                    "operator_name": r["operator_name"], "supervisor_name": r["supervisor_name"],
+                    "entries": r["entries"], "status": r["status"],
+                } for r in list_pending_drilling() if r.get("status") == "validated"],
             }
             data=post_json(f"{addr}/api/mobile/sync",get_setting("token") or srv_token.value,payload)
             acc=data.get("accepted") or {}
+            # Clear synced drilling reports by UUID
+            for synced_uuid in (acc.get("drilling_reports") or []):
+                delete_pending_drilling(synced_uuid)
             if acc:
                 for k,v in [("attendance",ra),("toolbox",rt),("maintenance",rm),
                             ("incidents",ri),("ppe_checks",rp),("observations",ro)]:
@@ -2060,6 +2184,8 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     _nav_item("Tableau maintenance",ft.Icons.HANDYMAN_ROUNDED,BLUE,"maintenance"),
                     _nav_item("Créer un OT",ft.Icons.BUILD_ROUNDED,BLUE,"intervention"),
                     _nav_item("Déclarer une panne",ft.Icons.REPORT_PROBLEM_ROUNDED,DNG,"panne"),
+                    _nav_grp("DRILLING"),
+                    _nav_item("Drilling Reports",ft.Icons.HARDWARE_OUTLINED,"#1E3A8A","drilling"),
                     _nav_grp("PERSONNEL & RH"),
                     _nav_item("Pointage terrain",ft.Icons.HOW_TO_REG_ROUNDED,OK,"attendance"),
                     _nav_item("Timesheets & Exports",ft.Icons.ARTICLE_OUTLINED,INFO,"timesheet"),
@@ -5343,6 +5469,443 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             ],spacing=0))
 
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # DRILLING REPORTS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _s_drilling():
+        import json as _json, uuid as _uuid
+        from datetime import date as _date
+
+        DRILL_BG   = "#071321"
+        DRILL_CARD = "#0F2336"
+        DRILL_CARD2= "#10243A"
+        DRILL_BRD  = "#1E3A56"
+        DRILL_TXT  = "#FFFFFF"
+        DRILL_MUT  = "#9DB0C5"
+        DRILL_NAV  = "#1E3A8A"
+
+        STATUS_COLOR = {"draft": MUT, "submitted": WARN, "validated": OK}
+        STATUS_LABEL = {"draft": "Brouillon", "submitted": "Soumis", "validated": "Validé"}
+
+        ds: dict = {"view": "list"}  # list | new | detail
+        list_col  = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
+        form_col  = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+        msg_txt   = ft.Text("", size=12, color=OK)
+        content   = ft.Column([list_col], expand=True, scroll=ft.ScrollMode.AUTO)
+
+        equipment = get_drilling_equipment_cached()
+
+        # ── Helpers ──────────────────────────────────────────────────────────
+        def _lbl(t): return ft.Text(t, size=11, color=DRILL_MUT)
+        def _val(t): return ft.Text(str(t or "—"), size=13, color=DRILL_TXT)
+
+        def _inp(hint="", val="", w=None):
+            tf = ft.TextField(
+                value=str(val), hint_text=hint,
+                border_color=DRILL_BRD, focused_border_color=BLUE,
+                color=DRILL_TXT, hint_style=ft.TextStyle(color=DRILL_MUT),
+                bgcolor=DRILL_CARD2, border_radius=8, height=44, text_size=13,
+                content_padding=P(12, 8, 12, 8),
+            )
+            if w: tf.width = w
+            return tf
+
+        def _dd(opts, val=None):
+            return ft.Dropdown(
+                value=val or opts[0],
+                options=[ft.dropdown.Option(o) for o in opts],
+                border_color=DRILL_BRD, focused_border_color=BLUE,
+                color=DRILL_TXT, bgcolor=DRILL_CARD2,
+                border_radius=8, height=44, text_size=13,
+                content_padding=P(12, 0, 12, 0),
+            )
+
+        def _field_row(lbl, ctrl):
+            return ft.Column([_lbl(lbl), ctrl], spacing=4)
+
+        def _chip(lbl, color):
+            return ft.Container(
+                ft.Text(lbl, size=10, color=color, weight=ft.FontWeight.BOLD),
+                padding=P(6, 2, 6, 2), border_radius=10, border=ft.border.all(1, color),
+            )
+
+        # ── Log entry line ────────────────────────────────────────────────────
+        class DrillRow:
+            def __init__(self, data=None, on_del=None):
+                d = data or {}
+                self.f_bh   = _inp("BGC 000000", d.get("bh_number",""), 110)
+                self.f_from = _inp("0", d.get("depth_from",""), 60)
+                self.f_to   = _inp("0", d.get("depth_to",""),   60)
+                self.f_adv  = _inp("0", d.get("advance",""),    60)
+                self.f_time = _inp("0", d.get("time_hours",""), 55)
+                self.f_comm = _inp("Commentaire", d.get("comments",""))
+                self.widget = ft.Column([
+                    ft.Row([
+                        ft.Column([_lbl("B/H"), self.f_bh], spacing=2),
+                        ft.Column([_lbl("De(m)"), self.f_from], spacing=2),
+                        ft.Column([_lbl("À(m)"), self.f_to], spacing=2),
+                        ft.Column([_lbl("Avance"), self.f_adv], spacing=2),
+                        ft.Column([_lbl("Temps(h)"), self.f_time], spacing=2),
+                    ], spacing=6, wrap=True),
+                    ft.Row([
+                        ft.Column([_lbl("Commentaires"), self.f_comm], spacing=2, expand=True),
+                        ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=DNG, icon_size=20,
+                                      on_click=lambda _: on_del(self) if on_del else None),
+                    ], spacing=6),
+                    ft.Container(height=1, bgcolor=DRILL_BRD),
+                ], spacing=6)
+
+            def to_dict(self):
+                def _f(v):
+                    try: return float(v) if str(v).strip() else None
+                    except: return None
+                df, dt = _f(self.f_from.value), _f(self.f_to.value)
+                run = round(dt - df, 2) if df is not None and dt is not None else None
+                return {"bh_number": self.f_bh.value or None, "depth_from": df,
+                        "depth_to": dt, "run": run, "advance": _f(self.f_adv.value),
+                        "time_hours": _f(self.f_time.value), "comments": self.f_comm.value or None}
+
+        # ── List view ─────────────────────────────────────────────────────────
+        def _refresh_list():
+            list_col.controls.clear()
+            reports = list_pending_drilling()
+            if not reports:
+                list_col.controls.append(ft.Container(
+                    ft.Column([
+                        ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, size=48, color=DRILL_MUT),
+                        ft.Text("Aucun rapport", size=14, color=DRILL_MUT),
+                        ft.Text("Créez votre premier rapport de forage", size=12, color=DRILL_MUT),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                    alignment=ft.alignment.center, expand=True, padding=P(40,40,40,40),
+                ))
+            for rep in reports:
+                sc = STATUS_COLOR.get(rep["status"], MUT)
+                sl = STATUS_LABEL.get(rep["status"], rep["status"])
+                list_col.controls.append(ft.Container(
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12,
+                    padding=P(14, 12, 14, 12), ink=True,
+                    on_click=lambda _, r=rep: _show_detail(r),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.HARDWARE_OUTLINED, color=DRILL_NAV, size=20),
+                            ft.Column([
+                                ft.Text(f"Rapport du {rep.get('report_date','')}",
+                                        size=13, color=DRILL_TXT, weight=ft.FontWeight.BOLD),
+                                ft.Text(f"Shift {rep.get('shift','')} · {rep.get('contract_location') or '—'}",
+                                        size=11, color=DRILL_MUT),
+                            ], spacing=2, expand=True),
+                            _chip(sl, sc),
+                        ], spacing=10),
+                        ft.Row([
+                            ft.Text(f"Rig: {rep.get('rig_type','')} {rep.get('rig_number','')}".strip() or "—",
+                                    size=12, color=DRILL_MUT),
+                            ft.Container(expand=True),
+                            ft.Text(f"Avance: {rep.get('total_advance',0)} m",
+                                    size=12, color=BLUE, weight=ft.FontWeight.BOLD),
+                        ]),
+                    ], spacing=6),
+                ))
+            if list_col.page: list_col.update()
+
+        # ── Detail view ───────────────────────────────────────────────────────
+        def _show_detail(rep):
+            ds["current"] = rep
+            form_col.controls.clear()
+            status = rep.get("status", "draft")
+            sc = STATUS_COLOR.get(status, MUT)
+            sl = STATUS_LABEL.get(status, status)
+            diesel = rep.get("diesel") or {}
+
+            def _row2(lbl, val):
+                return ft.Row([
+                    ft.Text(lbl + ":", size=12, color=DRILL_MUT, width=130),
+                    ft.Text(str(val or "—"), size=12, color=DRILL_TXT),
+                ], spacing=8)
+
+            entry_widgets = []
+            for e in rep.get("entries") or []:
+                entry_widgets.append(ft.Container(
+                    bgcolor=DRILL_CARD2, border_radius=8, padding=P(10,8,10,8),
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(str(e.get("bh_number") or "—"), size=12, color=DRILL_TXT, weight=ft.FontWeight.BOLD),
+                            ft.Container(expand=True),
+                            ft.Text(f"Avance: {e.get('advance') or '—'} m", size=11, color=BLUE),
+                        ]),
+                        ft.Row([
+                            ft.Text(f"De: {e.get('depth_from','')}m", size=11, color=DRILL_MUT),
+                            ft.Text(f"À: {e.get('depth_to','')}m", size=11, color=DRILL_MUT),
+                            ft.Text(f"Run: {e.get('run','')}m", size=11, color=DRILL_MUT),
+                            ft.Text(f"Temps: {e.get('time_hours','')}h", size=11, color=DRILL_MUT),
+                        ], spacing=8, wrap=True),
+                        ft.Text(str(e.get("comments") or ""), size=11, color=DRILL_MUT),
+                    ], spacing=4),
+                ))
+
+            diesel_widgets = []
+            for eq in equipment:
+                v = diesel.get(eq["code"])
+                if v:
+                    diesel_widgets.append(ft.Row([
+                        ft.Text(eq["name"], size=12, color=DRILL_TXT, expand=True),
+                        ft.Text(f"{v} {eq['unit']}", size=12, color=BLUE, weight=ft.FontWeight.BOLD),
+                    ]))
+
+            # Action buttons based on status
+            action_btns = []
+            if status == "draft":
+                sup_name = _inp("Nom du superviseur")
+                action_btns = [
+                    _btn("Modifier", ft.Icons.EDIT_OUTLINED, BLUE,
+                         lambda _: _show_form(rep), 44),
+                    _btn("Soumettre", ft.Icons.SEND_ROUNDED, OK,
+                         lambda _: _do_submit(rep["uuid"]), 44),
+                    _btn("Supprimer", ft.Icons.DELETE_OUTLINE, DNG,
+                         lambda _: _do_delete(rep["uuid"]), 44),
+                ]
+            elif status == "submitted":
+                sup_inp = _inp("Votre nom (superviseur)")
+                action_btns = [
+                    sup_inp,
+                    _btn("Valider le rapport", ft.Icons.CHECK_CIRCLE_OUTLINED, OK,
+                         lambda _: _do_validate(rep["uuid"], sup_inp.value), 44),
+                    _btn("Annuler soumission", ft.Icons.UNDO_ROUNDED, WARN,
+                         lambda _: _do_unsubmit(rep["uuid"]), 44),
+                ]
+            elif status == "validated":
+                action_btns = [
+                    ft.Container(
+                        ft.Row([
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=OK, size=20),
+                            ft.Text("Validé — prêt à synchroniser", size=13, color=OK),
+                        ], spacing=8),
+                        bgcolor="#0A2A0A", border=ft.border.all(1, OK), border_radius=8, padding=P(12,10,12,10),
+                    ),
+                    _btn("Synchroniser maintenant", ft.Icons.SYNC_ROUNDED, BLUE,
+                         lambda _: go_to("settings"), 44),
+                ]
+
+            form_col.controls = [
+                _hdr("Détail rapport", "drilling"),
+                ft.Container(
+                    ft.Column([
+                        ft.Row([_chip(sl, sc),
+                                ft.Text(f"{rep.get('report_date','')} · Shift {rep.get('shift','')}",
+                                        size=12, color=DRILL_MUT)], spacing=10),
+                        ft.Divider(color=DRILL_BRD),
+                        _row2("Rig", f"{rep.get('rig_type','')} {rep.get('rig_number','')}".strip()),
+                        _row2("Localisation", rep.get("contract_location")),
+                        _row2("N° Trou", rep.get("hole_number")),
+                        _row2("Angle", f"{rep.get('angle','')}°" if rep.get("angle") else "—"),
+                        _row2("Client", rep.get("client")),
+                        _row2("Opérateur", rep.get("operator_name")),
+                        _row2("Superviseur", rep.get("supervisor_name")),
+                        _row2("Avance totale", f"{rep.get('total_advance',0)} m"),
+                    ], spacing=6),
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
+                ),
+                ft.Text("TABLEAU DE FORAGE", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                *(entry_widgets or [ft.Text("Aucune entrée", size=12, color=DRILL_MUT)]),
+                ft.Text("DIESEL RE-FUELING", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                *(diesel_widgets or [ft.Text("Aucun carburant", size=12, color=DRILL_MUT)]),
+                ft.Divider(color=DRILL_BRD),
+                *action_btns,
+                ft.Container(height=80),
+            ]
+            ds["view"] = "detail"
+            content.controls = [form_col]
+            if content.page: content.update()
+
+        # ── Form (create / edit) ──────────────────────────────────────────────
+        def _show_form(existing=None):
+            r = existing or {}
+            log_rows: list[DrillRow] = []
+            rows_col  = ft.Column(spacing=4)
+            form_msg  = ft.Text("", size=12, color=DNG)
+
+            f_shift  = _dd(["DAY", "NIGHT"], r.get("shift","DAY"))
+            f_date   = _inp("YYYY-MM-DD", r.get("report_date") or str(_date.today()))
+            f_rtype  = _inp("AC/RC", r.get("rig_type",""))
+            f_rnum   = _inp("001",   r.get("rig_number",""))
+            f_loc    = _inp("Folona", r.get("contract_location",""))
+            f_hole   = _inp("",      r.get("hole_number",""))
+            f_angle  = _inp("60",    str(r.get("angle") or ""))
+            f_client = _inp("SOMISY", r.get("client",""))
+            f_oper   = _inp("Nom opérateur", r.get("operator_name",""))
+            f_rfuel  = _inp("Ravitailleur", r.get("refueler_name",""))
+
+            diesel_fields: dict[str, ft.TextField] = {}
+            diesel_widgets_form = []
+            existing_diesel = r.get("diesel") or {}
+            for eq in equipment:
+                tf = _inp("0", str(existing_diesel.get(eq["code"]) or ""), 100)
+                diesel_fields[eq["code"]] = tf
+                diesel_widgets_form.append(ft.Row([
+                    ft.Text(eq["name"], size=12, color=DRILL_TXT, expand=True),
+                    tf,
+                    ft.Text(eq.get("unit","L"), size=11, color=DRILL_MUT),
+                ], spacing=8))
+
+            def _del_row(lr):
+                log_rows.remove(lr)
+                rows_col.controls.remove(lr.widget)
+                if rows_col.page: rows_col.update()
+
+            def _add_row(data=None):
+                lr = DrillRow(data, on_del=_del_row)
+                log_rows.append(lr)
+                rows_col.controls.append(lr.widget)
+                if rows_col.page: rows_col.update()
+
+            for e in r.get("entries") or [{}]:
+                _add_row(e)
+            if not log_rows:
+                _add_row()
+
+            def _save(_):
+                try:
+                    adv = sum(
+                        float(lr.f_adv.value or 0)
+                        for lr in log_rows if lr.f_adv.value
+                    )
+                    diesel = {}
+                    for code, tf in diesel_fields.items():
+                        try:
+                            v = float(tf.value or 0)
+                            if v: diesel[code] = v
+                        except: pass
+                    data = {
+                        "uuid":             r.get("uuid"),
+                        "shift":            f_shift.value,
+                        "report_date":      f_date.value,
+                        "rig_type":         f_rtype.value or None,
+                        "rig_number":       f_rnum.value or None,
+                        "contract_location": f_loc.value or None,
+                        "hole_number":      f_hole.value or None,
+                        "angle":            float(f_angle.value) if f_angle.value else None,
+                        "client":           f_client.value or None,
+                        "total_advance":    round(adv, 2),
+                        "diesel":           diesel,
+                        "refueler_name":    f_rfuel.value or None,
+                        "operator_name":    f_oper.value or None,
+                        "entries":          [lr.to_dict() for lr in log_rows],
+                        "status":           r.get("status") or "draft",
+                    }
+                    save_drilling_report(data)
+                    msg_txt.value = "Rapport enregistré."
+                    msg_txt.color = OK
+                    ds["view"] = "list"
+                    _refresh_list()
+                    content.controls = [list_col]
+                    page.update()
+                except Exception as exc:
+                    form_msg.value = str(exc)
+                    if form_msg.page: form_msg.update()
+
+            form_col.controls = [
+                _hdr("Nouveau rapport" if not r else "Modifier rapport", "drilling"),
+                ft.Container(
+                    ft.Column([
+                        ft.Text("INFORMATIONS GÉNÉRALES", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                        ft.Row([_field_row("Shift", f_shift), _field_row("Date", f_date)], spacing=10),
+                        ft.Row([_field_row("Type Rig", f_rtype), _field_row("N° Rig", f_rnum)], spacing=10),
+                        ft.Row([_field_row("Localisation", f_loc), _field_row("Angle°", f_angle)], spacing=10),
+                        ft.Row([_field_row("N° Trou", f_hole), _field_row("Client", f_client)], spacing=10),
+                        ft.Row([_field_row("Opérateur", f_oper), _field_row("Ravitailleur", f_rfuel)], spacing=10),
+                    ], spacing=10),
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
+                ),
+                ft.Container(
+                    ft.Column([
+                        ft.Text("TABLEAU DE FORAGE", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                        rows_col,
+                        ft.TextButton(
+                            content=ft.Row([ft.Icon(ft.Icons.ADD, size=16, color=BLUE),
+                                            ft.Text("Ajouter ligne", color=BLUE, size=12)], tight=True, spacing=4),
+                            on_click=lambda _: _add_row(),
+                        ),
+                    ], spacing=8),
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
+                ),
+                ft.Container(
+                    ft.Column([
+                        ft.Text("DIESEL RE-FUELING", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                        *diesel_widgets_form,
+                    ], spacing=8),
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
+                ),
+                form_msg,
+                ft.Row([
+                    ft.ElevatedButton("Annuler", bgcolor=DRILL_CARD2, color=DRILL_MUT,
+                                      on_click=lambda _: _go_list()),
+                    ft.ElevatedButton("Enregistrer", bgcolor=BLUE, color=DRILL_TXT,
+                                      on_click=_save),
+                ], spacing=12),
+                ft.Container(height=80),
+            ]
+            ds["view"] = "form"
+            content.controls = [form_col]
+            if content.page: content.update()
+
+        # ── Actions ───────────────────────────────────────────────────────────
+        def _go_list():
+            ds["view"] = "list"
+            _refresh_list()
+            content.controls = [list_col]
+            if content.page: content.update()
+
+        def _do_submit(uid):
+            submit_drilling_report(uid)
+            notify("Rapport soumis — en attente de validation.", OK)
+            _go_list()
+
+        def _do_validate(uid, sup_name):
+            if not sup_name.strip():
+                notify("Saisissez votre nom avant de valider.", WARN)
+                return
+            validate_drilling_report_mobile(uid, sup_name.strip())
+            notify("Rapport validé — prêt à synchroniser.", OK)
+            _go_list()
+
+        def _do_unsubmit(uid):
+            with get_mobile_connection() as c:
+                c.execute("UPDATE pending_drilling SET status='draft' WHERE uuid=?", (uid,))
+            notify("Soumission annulée.", WARN)
+            _go_list()
+
+        def _do_delete(uid):
+            delete_pending_drilling(uid)
+            notify("Rapport supprimé.", DNG)
+            _go_list()
+
+        # ── Wire sync: include drilling in payload ────────────────────────────
+        # This is hooked into the existing sync button via the wiring below
+
+        # ── Initial render ────────────────────────────────────────────────────
+        _refresh_list()
+        msg_txt_row = ft.Row([msg_txt], alignment=ft.MainAxisAlignment.CENTER)
+
+        return _scaffold(
+            ft.Column([
+                _hdr("Drilling Reports", "drilling"),
+                msg_txt_row,
+                ft.Row([
+                    ft.Container(expand=True),
+                    ft.ElevatedButton(
+                        "Nouveau rapport",
+                        icon=ft.Icons.ADD,
+                        bgcolor=DRILL_NAV,
+                        color=DRILL_TXT,
+                        on_click=lambda _: _show_form(),
+                    ),
+                ], alignment=ft.MainAxisAlignment.END),
+                ft.Container(
+                    content=content,
+                    expand=True,
+                ),
+            ], spacing=10, expand=True),
+        )
+
     def _s_settings():
         # ── State controls ─────────────────────────────────────────────────────
         cfg     = ft.Text("", size=12, weight=ft.FontWeight.W_500)
@@ -5561,6 +6124,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
         # ── Sous-modules Personnel
         if key=="attendance":  return _s_attendance()
         if key=="timesheet":   return _s_timesheet()
+        if key=="drilling":    return _s_drilling()
         # ── Profil & paramètres
         if key=="profile":     return _s_profile()
         if key=="settings":    return _s_settings()

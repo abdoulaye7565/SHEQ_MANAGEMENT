@@ -1015,6 +1015,88 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    # ── Drilling module ───────────────────────────────────────────────────────
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drilling_equipment (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            code       TEXT NOT NULL UNIQUE,
+            unit       TEXT NOT NULL DEFAULT 'Litre',
+            active     INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drilling_reports (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid              TEXT NOT NULL UNIQUE,
+            shift             TEXT NOT NULL DEFAULT 'DAY',
+            report_date       TEXT NOT NULL,
+            rig_type          TEXT,
+            rig_number        TEXT,
+            contract_location TEXT,
+            hole_number       TEXT,
+            angle             REAL,
+            client            TEXT,
+            total_advance     REAL DEFAULT 0,
+            diesel_json       TEXT,
+            refueler_name     TEXT,
+            operator_name     TEXT,
+            supervisor_name   TEXT,
+            status            TEXT NOT NULL DEFAULT 'draft',
+            site_id           INTEGER,
+            created_by        TEXT,
+            validated_by      TEXT,
+            created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            validated_at      TEXT,
+            synced_at         TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS drilling_log_entries (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_id   INTEGER NOT NULL REFERENCES drilling_reports(id) ON DELETE CASCADE,
+            row_order   INTEGER NOT NULL DEFAULT 0,
+            bh_number   TEXT,
+            depth_from  REAL,
+            depth_to    REAL,
+            run         REAL,
+            advance     REAL,
+            time_hours  REAL,
+            comments    TEXT
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_drilling_reports_date ON drilling_reports(report_date)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_drilling_log_report ON drilling_log_entries(report_id)"
+    )
+    # Seed default equipment once
+    if not connection.execute("SELECT 1 FROM drilling_equipment LIMIT 1").fetchone():
+        connection.executemany(
+            "INSERT OR IGNORE INTO drilling_equipment(name, code, sort_order) VALUES (?,?,?)",
+            [
+                ("RIG – SDMA 01",          "SDMA01", 1),
+                ("COMPRESSOR – SDMC 01",    "SDMC01", 2),
+                ("MOROOKA – OZMD 05",       "OZMD05", 3),
+                ("MOROOKA (CRANE) – OZMD 06", "OZMD06", 4),
+            ],
+        )
+    # Grant Drilling access to Administrateur + Superviseur by default
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO role_module_permissions(role_id, module_key)
+        SELECT id_role, 'Drilling' FROM roles
+        WHERE nom IN ('Administrateur', 'Superviseur')
+        """
+    )
     if _ddl_changes:
         _row = connection.execute("SELECT version FROM schema_version WHERE id=1").fetchone()
         connection.execute(

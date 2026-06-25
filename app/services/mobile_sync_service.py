@@ -373,6 +373,7 @@ def get_mobile_bootstrap(
         "alerts": alerts,
         "alert_summary": get_alert_summary(all_open_alerts) if all_open_alerts else {},
         "timesheet": timesheet,
+        "drilling_equipment": _drilling_equipment_for_mobile(),
         "offline_rules": {
             "attendance_statuses": ["present", "absent"],
             "maintenance_priorities": ["basse", "moyenne", "haute", "critique"],
@@ -402,6 +403,40 @@ def _mobile_timesheet_summary() -> dict[str, Any]:
     }
 
 
+def _drilling_equipment_for_mobile() -> list[dict[str, Any]]:
+    try:
+        from app.services.drilling_service import list_equipment
+        return list_equipment(active_only=True)
+    except Exception:
+        return []
+
+
+def _apply_drilling_reports(
+    device_id: str,
+    reports: list[Any],
+    operator: str,
+    errors: list[str],
+) -> tuple[int, list[str]]:
+    from app.services.drilling_service import upsert_from_mobile
+    applied = 0
+    accepted_uuids: list[str] = []
+    for item in reports:
+        if not isinstance(item, dict):
+            continue
+        try:
+            rep_uuid = str(item.get("uuid") or "")
+            if not rep_uuid:
+                errors.append("Rapport drilling sans UUID ignoré.")
+                continue
+            item["created_by"] = operator
+            upsert_from_mobile(item)
+            applied += 1
+            accepted_uuids.append(rep_uuid)
+        except Exception as exc:
+            errors.append(f"Drilling {item.get('uuid', '?')}: {exc}")
+    return applied, accepted_uuids
+
+
 def apply_mobile_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
     device_id = _required_text(payload.get("device_id"), "device_id")
     device_name = str(payload.get("device_name") or device_id).strip()[:120]
@@ -411,12 +446,15 @@ def apply_mobile_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
     incidents = payload.get("incidents") or []
     ppe_checks = payload.get("ppe_checks") or []
     observations = payload.get("observations") or []
+    drilling_reports = payload.get("drilling_reports") or []
     if not isinstance(attendances, list):
         raise MobileSyncConfigurationError("Le champ attendances doit etre une liste.")
     if not isinstance(toolbox_confirmations, list):
         raise MobileSyncConfigurationError("Le champ toolbox_confirmations doit etre une liste.")
     if not isinstance(maintenance_observations, list):
         raise MobileSyncConfigurationError("Le champ maintenance_observations doit etre une liste.")
+    if not isinstance(drilling_reports, list):
+        raise MobileSyncConfigurationError("Le champ drilling_reports doit etre une liste.")
     if _device_is_blocked(device_id):
         _record_sync_event(
             device_id,
@@ -477,10 +515,13 @@ def apply_mobile_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
     incidents_applied, accepted["incidents"] = _apply_mobile_incidents(incidents, payload.get("operator") or "", errors)
     ppe_applied, accepted["ppe_checks"] = _apply_mobile_ppe_checks(ppe_checks, errors)
     obs_applied, accepted["observations"] = _apply_mobile_observations(observations, errors)
+    drilling_applied, accepted["drilling_reports"] = _apply_drilling_reports(
+        device_id, drilling_reports, str(payload.get("operator") or ""), errors
+    )
     status = "applied" if not errors else "error"
     message = "; ".join(errors) if errors else "Synchronisation appliquee."
     records_count = (len(attendances) + len(toolbox_confirmations) + len(maintenance_observations)
-                     + len(incidents) + len(ppe_checks) + len(observations))
+                     + len(incidents) + len(ppe_checks) + len(observations) + len(drilling_reports))
     _record_sync_event(
         device_id,
         "mobile_sync",
@@ -492,7 +533,8 @@ def apply_mobile_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "status": status,
-        "applied": applied + toolbox_applied + maintenance_applied + incidents_applied + ppe_applied + obs_applied,
+        "applied": applied + toolbox_applied + maintenance_applied + incidents_applied + ppe_applied + obs_applied + drilling_applied,
+        "drilling_applied": drilling_applied,
         "attendance_applied": applied,
         "toolbox_applied": toolbox_applied,
         "maintenance_applied": maintenance_applied,
