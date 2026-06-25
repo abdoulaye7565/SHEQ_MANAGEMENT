@@ -60,27 +60,13 @@ if (Test-Path (Join-Path $ProjectDir "requirements-build.txt")) {
 Write-Ok "PyInstaller et dependances disponibles"
 
 # ── 2. S'assurer que le binaire Flet est disponible pour le hook ──────────────
-Write-Step "Pre-telechargement du binaire Flet desktop (operation unique)"
-# The Flet PyInstaller hook reads the binary from the developer's local cache
-# (~/.flet/client/...) and bundles it automatically. We must ensure it exists.
-$FletCacheScript = @'
-import sys
-try:
-    import flet_desktop
-    cache_dir = flet_desktop.ensure_client_cached()
-    flet_exe  = cache_dir / "flet" / "flet.exe"
-    if flet_exe.is_file():
-        print("OK:" + str(cache_dir))
-    else:
-        print("NOT_FOUND")
-except Exception as exc:
-    print(f"ERROR:{exc}")
-'@
-$FletCacheResult = (& $VenvPython -c $FletCacheScript).Trim()
-if (-not $FletCacheResult -or $FletCacheResult -like "NOT_FOUND*" -or $FletCacheResult -like "ERROR:*") {
-    throw "Impossible de localiser/telecharger le binaire Flet: $FletCacheResult`nVerifie ta connexion internet (telechargement unique ~95 Mo)."
+Write-Step "Verification du binaire Flet desktop"
+$FletCacheRoot = Join-Path $env:USERPROFILE ".flet\client"
+$FletExeSearch = Get-ChildItem $FletCacheRoot -Recurse -Filter "flet.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $FletExeSearch) {
+    throw "Binaire Flet introuvable dans $FletCacheRoot. Lance l'application une fois pour le telecharger (~95 Mo)."
 }
-Write-Ok "Cache Flet pret: $($FletCacheResult -replace '^OK:','')"
+Write-Ok "Cache Flet pret: $($FletExeSearch.DirectoryName)"
 
 # ── 3. Nettoyage ───────────────────────────────────────────────────────────────
 Write-Step "Nettoyage des anciens fichiers de build"
@@ -111,6 +97,7 @@ $addDataFletMaterial = "$FletMaterialDir;flet\controls\material"
 $iconArg = @()
 if (Test-Path $IconPath) { $iconArg = @("--icon", $IconPath) }
 
+$ErrorActionPreference = "Continue"
 & $VenvPython -m PyInstaller `
     --noconfirm `
     --clean `
@@ -124,6 +111,7 @@ if (Test-Path $IconPath) { $iconArg = @("--icon", $IconPath) }
     --add-data "$addDataFletMaterial" `
     @iconArg `
     "main.py"
+$ErrorActionPreference = "Stop"
 
 if ($LASTEXITCODE -ne 0) { throw "Compilation PyInstaller echouee." }
 if (-not (Test-Path $ExePath))  { throw "Executable non trouve apres compilation: $ExePath" }

@@ -510,6 +510,23 @@ def export_monthly_10h_timesheet_xlsx(
         return fallback
 
 
+def export_monthly_10h_timesheet_pdf(
+    month: str | None = None,
+    ts_type: str | None = None,
+    employee_id: int | None = None,
+) -> Path:
+    """Generate a PDF timesheet for the given month/period and return the file path."""
+    from app.services.mobile_sync_service import build_timesheet_pdf_bytes
+    selected_month = month or current_monthly_timesheet_month()
+    type_tag = "21_20" if ts_type == "21_20" else "1_25"
+    emp_suffix = f"_emp{employee_id}" if employee_id else ""
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_export_path(f"timesheet_10h_{type_tag}{emp_suffix}_{selected_month}.pdf")
+    data = build_timesheet_pdf_bytes(selected_month, ts_type=ts_type or "1_25", employee_id=employee_id)
+    output_path.write_bytes(data)
+    return output_path
+
+
 def _write_monthly_10h_timesheet_xlsx(
     path: Path,
     timesheet: dict[str, Any],

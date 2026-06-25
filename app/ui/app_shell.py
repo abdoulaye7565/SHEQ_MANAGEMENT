@@ -195,7 +195,18 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
             active_module_icon.content = ft.Icon(nav_icon, size=20, color="#60A5FA")
             active_module_icon.bgcolor = "#10243A"
         refresh_nav_styles()
-        page.update()
+        try:
+            page.update()
+        except IndexError:
+            # Flet DiffBuilder can raise IndexError on complex control tree diffs;
+            # force a clean page rebuild by clearing the cache and retrying once.
+            screen_cache.clear()
+            try:
+                screen_cache[key] = _build_screen(key, label, page, user, render_key)
+                screen_switcher.content = screen_cache[key]
+                page.update()
+            except Exception:
+                pass
 
     def render_key(key: str) -> None:
         for index, item in enumerate(visible_nav_items):

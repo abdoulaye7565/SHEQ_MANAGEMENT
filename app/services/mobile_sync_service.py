@@ -937,7 +937,7 @@ def build_timesheet_pdf_bytes(month: str, ts_type: str = "1_25", employee_id: in
     HDR = ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=7, leading=8.5,
                          textColor=rlc.white, alignment=TA_CENTER)
 
-    doc = SimpleDocTemplate(str(buf), pagesize=landscape(A4),
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
         leftMargin=9*mm, rightMargin=9*mm, topMargin=9*mm, bottomMargin=10*mm)
     story: list[Any] = []
 

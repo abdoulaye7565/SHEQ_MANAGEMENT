@@ -103,7 +103,9 @@ $mobileBuildRoot = Join-Path $Root "build_mobile_android"
 $mobileAppRoot = Join-Path $mobileBuildRoot "app"
 New-Item -ItemType Directory -Path $mobileAppRoot -Force | Out-Null
 
-$itemsToCopy = @("app", "assets", "mobile_app.py", "requirements.txt")
+# Copier uniquement les fichiers nécessaires (pas le dossier app/ qui contient
+# des imports Windows-spécifiques inutiles sur Android)
+$itemsToCopy = @("assets", "mobile_app.py", "requirements.txt")
 foreach ($item in $itemsToCopy) {
     $source = Join-Path $Root $item
     $destination = Join-Path $mobileAppRoot $item
@@ -113,10 +115,24 @@ foreach ($item in $itemsToCopy) {
     Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
+# Copier le launcher depuis la racine si disponible, sinon utiliser mobile_app directement
+$entryModule = "mobile_app"
+Write-Host "Entree: mobile_app (spinner + error handler integres)" -ForegroundColor Cyan
+
+# Patch gradle.properties pour AndroidX (requis par battery_plus, file_picker, url_launcher, shared_preferences)
+$gradlePropsPath = Join-Path $mobileAppRoot "build\flutter\android\gradle.properties"
+if (Test-Path $gradlePropsPath) {
+    $existingProps = Get-Content $gradlePropsPath -Raw -ErrorAction SilentlyContinue
+    if ($existingProps -notmatch "android.useAndroidX") {
+        Add-Content -Path $gradlePropsPath -Value "`nandroid.useAndroidX=true`nandroid.enableJetifier=true"
+        Write-Host "AndroidX active dans gradle.properties" -ForegroundColor Green
+    }
+}
+
 $buildArgs = @(
     "-c", "from flet_cli.cli import main; main()",
     "build", "apk", $mobileAppRoot,
-    "--module-name", "mobile_app",
+    "--module-name", $entryModule,
     "--project", "orezone_qhse_mobile",
     "--product", $AppName,
     "--build-version", $BuildVersion,

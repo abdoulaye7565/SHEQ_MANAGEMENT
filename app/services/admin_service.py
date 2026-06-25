@@ -424,7 +424,7 @@ def authenticate_user(username: str, password: str) -> dict[str, Any]:
                 r.nom AS role
             FROM utilisateurs u
             JOIN roles r ON r.id_role = u.role_id
-            WHERE u.username = ?
+            WHERE u.username = ? COLLATE NOCASE
             """,
             (user_name,),
         ).fetchone()

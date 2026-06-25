@@ -275,8 +275,8 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 else "TimeSheet actualise depuis la liste de presence.",
                 SUCCESS,
             )
-        except ValueError as exc:
-            notify(str(exc), DANGER)
+        except Exception as exc:
+            notify(str(exc) or type(exc).__name__, DANGER)
         loading_overlay.visible = False
         try:
             loading_overlay.update()
@@ -723,6 +723,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         page_rows = rows[start : start + PAGE_SIZE]
         columns = [
             ft.DataColumn(ft.Text("Employe")),
+            ft.DataColumn(ft.Text("Matricule")),
             ft.DataColumn(ft.Text("Fonction")),
             ft.DataColumn(ft.Text("JT")),
             ft.DataColumn(ft.Text("Repos")),
@@ -786,6 +787,10 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                             ft.DataRow(
                                 cells=[
                                     ft.DataCell(_employee_identity(row["employee"])),
+                                    ft.DataCell(ft.Text(
+                                        str(row["employee"].get("matricule") or row["employee"].get("numero_badge") or "—"),
+                                        color=DARK_MUTED, weight=ft.FontWeight.W_500,
+                                    )),
                                     ft.DataCell(ft.Text(str(row["employee"].get("fonction") or "-"), color=DARK_MUTED)),
                                     ft.DataCell(ft.Text(str(row["worked_days"]), color=SUCCESS, weight=ft.FontWeight.BOLD)),
                                     ft.DataCell(ft.Text(str(row["rest_days"]), color=DARK_MUTED)),
