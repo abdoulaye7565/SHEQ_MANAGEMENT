@@ -5576,7 +5576,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                         ft.Text("Aucun rapport", size=14, color=DRILL_MUT),
                         ft.Text("Créez votre premier rapport de forage", size=12, color=DRILL_MUT),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-                    alignment=ft.alignment.center, expand=True, padding=P(40,40,40,40),
+                    alignment=ft.Alignment(0, 0), expand=True, padding=P(40,40,40,40),
                 ))
             for rep in reports:
                 sc = STATUS_COLOR.get(rep["status"], MUT)
