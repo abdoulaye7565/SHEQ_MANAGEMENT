@@ -648,8 +648,8 @@ def drilling_page(page: ft.Page) -> ft.Control:
         height=40,
         text_size=12,
         width=140,
-        on_change=lambda e: (state.update({"status": e.control.value, "page": 0}), _refresh()),
     )
+    status_dd.on_change = lambda e: (state.update({"status": e.control.value, "page": 0}), _refresh())
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
     def _tab_style(active: bool) -> ft.ButtonStyle:
