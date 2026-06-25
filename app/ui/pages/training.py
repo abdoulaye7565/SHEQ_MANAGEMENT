@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import getpass
+import socket
 from typing import Any
 
 import flet as ft
+
+from app.services.lock_service import acquire_lock, get_lock_info, release_lock
 
 from app.ui.components.tables import professional_data_table
 
@@ -191,6 +195,8 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
         return rows
 
     def clear_form(event: ft.ControlEvent | None = None) -> None:
+        if state["editing_id"] is not None:
+            release_lock("formations", str(state["editing_id"]), getpass.getuser())
         state["editing_id"] = None
         state["selected"].clear()
         date_field.value = today_iso()
@@ -215,6 +221,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             else:
                 update_training(int(state["editing_id"]), values)
                 notify("Formation mise a jour.", SUCCESS)
+                release_lock("formations", str(state["editing_id"]), getpass.getuser())
                 state["editing_id"] = None
             refresh()
             render_form_actions()
@@ -354,6 +361,24 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def edit_record(record: dict[str, Any]) -> None:
+        record_id = str(record["id_formation"])
+        current_user = getpass.getuser()
+        if not acquire_lock("formations", record_id, current_user, socket.gethostname()):
+            lock_info = get_lock_info("formations", record_id)
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
         state["editing_id"] = int(record["id_formation"])
         employee_field.value = str(record["employe_id"])
         training_field.value = str(record["type_training_id"])
