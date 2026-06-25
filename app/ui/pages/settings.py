@@ -35,6 +35,7 @@ from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
 from app.ui.components.tables import professional_data_table
+from app.services.network_client import is_network_mode, _load_config as _load_network_config
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -612,17 +613,84 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             )
             for row in mobile_events
         ] or [ft.Text("Aucune synchronisation mobile pour le moment.", size=12, color=MUTED)]
+        _net_mode = is_network_mode()
+        _net_cfg = _load_network_config()
+        _net_server = f"{_net_cfg.get('host', '')}:{_net_cfg.get('port', '')}" if _net_mode else ""
         table_area.controls = [
             ft.Row(
                 controls=[
                     ft.OutlinedButton("Rafraichir", icon=ft.Icons.REFRESH_OUTLINED, on_click=refresh),
                     ft.OutlinedButton("Verifier les dossiers", icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=ensure_dirs),
                     ft.ElevatedButton("Sauvegarder la base", icon=ft.Icons.BACKUP_OUTLINED, on_click=backup_database),
+                    ft.ElevatedButton(
+                        "Configuration Reseau Multi-PC",
+                        icon=ft.Icons.NETWORK_WIFI,
+                        on_click=lambda event: page.go("/network_settings") if page else None,
+                        style=ft.ButtonStyle(
+                            bgcolor="#1E3A5F",
+                            color="#FFFFFF",
+                        ),
+                        tooltip="Configurer le mode reseau multi-PC (serveur, IP, port, token)",
+                    ),
                     status,
                 ],
                 wrap=True,
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Container(
+                bgcolor="#0D2A1F" if _net_mode else "#0F172A",
+                border=ft.border.all(1, "#34D399" if _net_mode else "#334155"),
+                border_radius=8,
+                padding=12,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(
+                                    ft.Icons.NETWORK_WIFI if _net_mode else ft.Icons.STORAGE_OUTLINED,
+                                    color="#34D399" if _net_mode else "#60A5FA",
+                                    size=20,
+                                ),
+                                ft.Text(
+                                    "Mode de connexion",
+                                    size=15,
+                                    weight=ft.FontWeight.BOLD,
+                                    color="#F1F5F9",
+                                ),
+                                ft.Container(
+                                    bgcolor="#34D399" if _net_mode else "#1E3A5F",
+                                    border_radius=12,
+                                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                                    content=ft.Text(
+                                        "🌐 Mode Reseau" if _net_mode else "💻 Mode Local",
+                                        size=12,
+                                        color="#FFFFFF",
+                                        weight=ft.FontWeight.BOLD,
+                                    ),
+                                ),
+                            ],
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(
+                            f"Mode Reseau actif — Serveur: {_net_server}" if _net_mode
+                            else "Mode Local (SQLite direct) — Toutes les donnees sont stockees localement sur ce PC.",
+                            size=12,
+                            color="#94A3B8",
+                        ),
+                        ft.ElevatedButton(
+                            "Ouvrir la configuration reseau",
+                            icon=ft.Icons.SETTINGS_ETHERNET_OUTLINED,
+                            on_click=lambda event: page.go("/network_settings") if page else None,
+                            style=ft.ButtonStyle(
+                                bgcolor="#1E3A5F",
+                                color="#FFFFFF",
+                            ),
+                        ),
+                    ],
+                    spacing=8,
+                ),
             ),
             ft.Container(
                 bgcolor="#F8FAFC",
