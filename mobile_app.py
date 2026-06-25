@@ -28,6 +28,14 @@ def resolve_mobile_dir() -> Path:
 MOBILE_DIR = resolve_mobile_dir()
 MOBILE_DB  = MOBILE_DIR / "mobile_offline.db"
 
+def _u(ctrl) -> None:
+    """Safe update — no-op if control is not yet attached to a page."""
+    try:
+        ctrl.update()
+    except (RuntimeError, AssertionError):
+        pass
+
+
 # ─── Design Tokens ────────────────────────────────────────────────────────────
 
 # Login / dark
@@ -5605,7 +5613,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                         ]),
                     ], spacing=6),
                 ))
-            if list_col.page: list_col.update()
+            _u(list_col)
 
         # ── Detail view ───────────────────────────────────────────────────────
         def _show_detail(rep):
@@ -5714,7 +5722,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             ]
             ds["view"] = "detail"
             content.controls = [form_col]
-            if content.page: content.update()
+            _u(content)
 
         # ── Form (create / edit) ──────────────────────────────────────────────
         def _show_form(existing=None):
@@ -5749,13 +5757,13 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             def _del_row(lr):
                 log_rows.remove(lr)
                 rows_col.controls.remove(lr.widget)
-                if rows_col.page: rows_col.update()
+                _u(rows_col)
 
             def _add_row(data=None):
                 lr = DrillRow(data, on_del=_del_row)
                 log_rows.append(lr)
                 rows_col.controls.append(lr.widget)
-                if rows_col.page: rows_col.update()
+                _u(rows_col)
 
             for e in r.get("entries") or [{}]:
                 _add_row(e)
@@ -5800,7 +5808,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     page.update()
                 except Exception as exc:
                     form_msg.value = str(exc)
-                    if form_msg.page: form_msg.update()
+                    _u(form_msg)
 
             form_col.controls = [
                 _hdr("Nouveau rapport" if not r else "Modifier rapport", "drilling"),
@@ -5845,14 +5853,14 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             ]
             ds["view"] = "form"
             content.controls = [form_col]
-            if content.page: content.update()
+            _u(content)
 
         # ── Actions ───────────────────────────────────────────────────────────
         def _go_list():
             ds["view"] = "list"
             _refresh_list()
             content.controls = [list_col]
-            if content.page: content.update()
+            _u(content)
 
         def _do_submit(uid):
             submit_drilling_report(uid)
