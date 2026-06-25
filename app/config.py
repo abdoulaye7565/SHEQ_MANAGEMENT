@@ -17,10 +17,11 @@ ALL_MODULES = [
     "AiAssistant",
     "Settings",
     "Admin",
+    "NetworkSettings",
 ]
 
 ROLE_MODULES: dict[str, list[str]] = {
-    "Administrateur": list(ALL_MODULES),
+    "Administrateur": list(ALL_MODULES),  # inclut NetworkSettings
     "Officier HSE": ["Dashboard", "TrainingManagement", "ToolboxTalk", "MaintenanceActions", "Alerts", "AiAssistant"],
     "Superviseur": ["Dashboard", "EmployeeManagement", "ToolboxTalk", "TimeSheet", "MonthlyTimesheet", "Drilling", "MaintenanceActions", "Alerts"],
     "Responsable stock": ["Dashboard", "Ppe", "MaintenanceActions", "Alerts"],
