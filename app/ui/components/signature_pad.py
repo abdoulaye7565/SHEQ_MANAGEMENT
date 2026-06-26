@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import threading
 from typing import Callable
 
 import flet as ft
@@ -42,6 +43,7 @@ class SignaturePad:
         self._w = width
         self._h = height
         self._on_signed = on_signed
+        self._picker = ft.FilePicker()
 
         def _b64_src(b64: str | None) -> str:
             return f"data:image/png;base64,{b64}" if b64 else ""
@@ -90,23 +92,6 @@ class SignaturePad:
             _u(self._placeholder)
             _u(status_txt)
 
-        def _on_result(e: ft.FilePickerResultEvent) -> None:
-            if not e.files:
-                return
-            path = e.files[0].path
-            if not path:
-                return
-            try:
-                with open(path, "rb") as f:
-                    raw = f.read()
-                self._b64 = base64.b64encode(raw).decode()
-                _refresh_display()
-                if self._on_signed:
-                    self._on_signed()
-            except Exception:
-                pass
-
-        self._picker = ft.FilePicker(on_result=_on_result)
         if page is not None:
             page.overlay.append(self._picker)
             try:
@@ -115,10 +100,26 @@ class SignaturePad:
                 pass
 
         def _pick(_) -> None:
-            self._picker.pick_files(
-                allow_multiple=False,
-                file_type=ft.FilePickerFileType.IMAGE,
-            )
+            def _run():
+                files = self._picker.pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.IMAGE,
+                )
+                if not files:
+                    return
+                path = files[0].path
+                if not path:
+                    return
+                try:
+                    with open(path, "rb") as f:
+                        raw = f.read()
+                    self._b64 = base64.b64encode(raw).decode()
+                    _refresh_display()
+                    if self._on_signed:
+                        self._on_signed()
+                except Exception:
+                    pass
+            threading.Thread(target=_run, daemon=True).start()
 
         def _clear(_) -> None:
             self._b64 = None

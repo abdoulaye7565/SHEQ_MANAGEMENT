@@ -5542,20 +5542,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 self._status.value = "✓ Signature ajoutée" if has else ""
                 _u(self._preview); _u(self._placeholder); _u(self._status)
 
-            def _on_result(e: ft.FilePickerResultEvent):
-                if not e.files:
-                    return
-                path = e.files[0].path
-                if not path:
-                    return
-                try:
-                    with open(path, "rb") as f:
-                        self._b64 = _b64.b64encode(f.read()).decode()
-                    _refresh()
-                except Exception:
-                    pass
-
-            self._picker = ft.FilePicker(on_result=_on_result)
+            self._picker = ft.FilePicker()
             page.overlay.append(self._picker)
             try:
                 page.update()
@@ -5563,10 +5550,24 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 pass
 
             def _pick(_):
-                self._picker.pick_files(
-                    allow_multiple=False,
-                    file_type=ft.FilePickerFileType.IMAGE,
-                )
+                import threading as _thr
+                def _run():
+                    files = self._picker.pick_files(
+                        allow_multiple=False,
+                        file_type=ft.FilePickerFileType.IMAGE,
+                    )
+                    if not files:
+                        return
+                    path = files[0].path
+                    if not path:
+                        return
+                    try:
+                        with open(path, "rb") as f:
+                            self._b64 = _b64.b64encode(f.read()).decode()
+                        _refresh()
+                    except Exception:
+                        pass
+                _thr.Thread(target=_run, daemon=True).start()
 
             def _clear(_):
                 self._b64 = None
