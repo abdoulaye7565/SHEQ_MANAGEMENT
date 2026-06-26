@@ -49,7 +49,7 @@ class SignaturePad:
             src_base64=existing_b64,
             width=width,
             height=height,
-            fit=ft.ImageFit.CONTAIN,
+            fit=ft.BoxFit.CONTAIN,
             visible=bool(existing_b64),
         )
 

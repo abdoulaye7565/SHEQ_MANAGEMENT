@@ -5511,7 +5511,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             self._preview = ft.Image(
                 src_base64=existing_b64,
                 width=width, height=height,
-                fit=ft.ImageFit.CONTAIN,
+                fit=ft.BoxFit.CONTAIN,
                 visible=bool(existing_b64),
             )
             self._placeholder = ft.Container(
