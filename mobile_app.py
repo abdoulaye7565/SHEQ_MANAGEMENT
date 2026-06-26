@@ -336,6 +336,10 @@ def get_mobile_connection() -> "sqlite3.Connection":
                         ("statut_changed_at","TEXT")]:
         try: con.execute(f"ALTER TABLE pending_maintenance ADD COLUMN {_col} {_def}")
         except Exception: pass
+    # Migrate pending_drilling with signature columns (safe — ignores if exists)
+    for _col, _def in [("operator_signature", "TEXT"), ("supervisor_signature", "TEXT")]:
+        try: con.execute(f"ALTER TABLE pending_drilling ADD COLUMN {_col} {_def}")
+        except Exception: pass
     return con
 
 
