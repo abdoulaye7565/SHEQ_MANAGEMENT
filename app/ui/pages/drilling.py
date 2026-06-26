@@ -306,7 +306,7 @@ def _report_form_dialog(
 
     # Signature pads
     sig_operator = SignaturePad(
-        "SIGNATURE OPÉRATEUR", width=300, height=110,
+        "SIGNATURE OPÉRATEUR", page=page, width=300, height=110,
         existing_b64=r.get("operator_signature"),
     )
 
@@ -488,7 +488,7 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
     ]
     if status == "submitted":
         def _open_validation_dialog(_) -> None:
-            sig_sup = SignaturePad("SIGNATURE SUPERVISEUR", width=320, height=120)
+            sig_sup = SignaturePad("SIGNATURE SUPERVISEUR", page=page, width=320, height=120)
             val_err = ft.Text("", color=DANGER, size=12)
 
             def _confirm_validate(_) -> None:

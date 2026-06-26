@@ -5500,88 +5500,95 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
     # ══════════════════════════════════════════════════════════════════════════
 
     class _MobileSigPad:
-        """Inline signature pad for mobile drilling forms."""
+        """Signature capture via camera/gallery for mobile drilling forms."""
         def __init__(self, label: str, width: int = 320, height: int = 110,
                      existing_b64: str | None = None):
-            import flet.canvas as _cv
-            self._strokes: list = []
-            self._current: list = []
-            self._existing_b64 = existing_b64
-            self._drew = False
+            import base64 as _b64
+            self._b64: str | None = existing_b64
             self._w = width
             self._h = height
-            self._canvas = _cv.Canvas(shapes=[], width=width, height=height)
 
-            def _start(e: ft.DragStartEvent):
-                self._current = [(e.local_position.x, e.local_position.y)]
+            self._preview = ft.Image(
+                src_base64=existing_b64,
+                width=width, height=height,
+                fit=ft.ImageFit.CONTAIN,
+                visible=bool(existing_b64),
+            )
+            self._placeholder = ft.Container(
+                width=width, height=height,
+                bgcolor="#071321",
+                border=ft.border.all(1, "#1E3A56"),
+                border_radius=8,
+                content=ft.Column([
+                    ft.Icon(ft.Icons.CAMERA_ALT_OUTLINED, color="#9DB0C5", size=32),
+                    ft.Text("Aucune signature", color="#9DB0C5", size=12),
+                ], alignment=ft.MainAxisAlignment.CENTER,
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+                visible=not bool(existing_b64),
+            )
+            self._status = ft.Text(
+                "✓ Signature ajoutée" if existing_b64 else "",
+                color="#4ADE80", size=11,
+            )
 
-            def _update(e: ft.DragUpdateEvent):
-                x, y = e.local_position.x, e.local_position.y
-                if not self._current:
-                    self._current = [(x, y)]
+            def _refresh():
+                has = bool(self._b64)
+                self._preview.src_base64 = self._b64 if has else None
+                self._preview.visible = has
+                self._placeholder.visible = not has
+                self._status.value = "✓ Signature ajoutée" if has else ""
+                _u(self._preview); _u(self._placeholder); _u(self._status)
+
+            def _on_result(e: ft.FilePickerResultEvent):
+                if not e.files:
                     return
-                px, py = self._current[-1]
-                self._current.append((x, y))
-                self._canvas.shapes.append(_cv.Path(
-                    elements=[_cv.Path.MoveTo(px, py), _cv.Path.LineTo(x, y)],
-                    paint=ft.Paint(color="#1E3A8A", stroke_width=3,
-                                   style=ft.PaintingStyle.STROKE,
-                                   stroke_cap=ft.StrokeCap.ROUND,
-                                   stroke_join=ft.StrokeJoin.ROUND),
-                ))
-                _u(self._canvas)
+                path = e.files[0].path
+                if not path:
+                    return
+                try:
+                    with open(path, "rb") as f:
+                        self._b64 = _b64.b64encode(f.read()).decode()
+                    _refresh()
+                except Exception:
+                    pass
 
-            def _end(e: ft.DragEndEvent):
-                if self._current:
-                    self._strokes.append(list(self._current))
-                    self._drew = True
-                self._current = []
+            self._picker = ft.FilePicker(on_result=_on_result)
+            page.overlay.append(self._picker)
+            try:
+                page.update()
+            except Exception:
+                pass
+
+            def _pick(_):
+                self._picker.pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.IMAGE,
+                )
 
             def _clear(_):
-                self._strokes.clear(); self._current.clear()
-                self._drew = False
-                self._canvas.shapes.clear()
-                _u(self._canvas)
+                self._b64 = None
+                _refresh()
 
-            gesture = ft.GestureDetector(
-                content=self._canvas,
-                on_pan_start=_start, on_pan_update=_update, on_pan_end=_end,
-                drag_interval=10,
-            )
             self.widget = ft.Column([
                 ft.Text(label, size=12, color="#9DB0C5", weight=ft.FontWeight.BOLD),
-                ft.Container(content=gesture, width=width, height=height,
-                             bgcolor="#FFFFFF", border=ft.border.all(1, "#1E3A56"),
-                             border_radius=8, clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                ft.Stack([self._placeholder, self._preview], width=width, height=height),
                 ft.Row([
+                    ft.ElevatedButton(
+                        "📷 Scanner signature",
+                        bgcolor="#1E3A8A", color="#FFFFFF",
+                        on_click=_pick,
+                    ),
                     ft.TextButton("Effacer", icon=ft.Icons.CLEAR, icon_color="#EF4444",
                                   on_click=_clear, style=ft.ButtonStyle(color="#EF4444")),
-                ], alignment=ft.MainAxisAlignment.END),
+                ], spacing=8),
+                self._status,
             ], spacing=6, width=width)
 
         def get_base64(self) -> str | None:
-            if self._drew and self._strokes:
-                import base64, io
-                try:
-                    from PIL import Image, ImageDraw
-                    img = Image.new("RGB", (self._w, self._h), "white")
-                    draw = ImageDraw.Draw(img)
-                    for stroke in self._strokes:
-                        pts = [(int(x), int(y)) for x, y in stroke]
-                        if len(pts) == 1:
-                            x, y = pts[0]
-                            draw.ellipse([(x-2,y-2),(x+2,y+2)], fill="#1E3A8A")
-                        elif len(pts) >= 2:
-                            draw.line(pts, fill="#1E3A8A", width=3, joint="curve")
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    return base64.b64encode(buf.getvalue()).decode()
-                except Exception:
-                    return None
-            return self._existing_b64
+            return self._b64
 
         def has_signature(self) -> bool:
-            return self._drew or bool(self._existing_b64)
+            return bool(self._b64)
 
     def _s_drilling():
         import json as _json, uuid as _uuid

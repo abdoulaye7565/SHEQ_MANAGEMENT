@@ -1,4 +1,4 @@
-"""Reusable signature capture pad widget for Flet 0.84."""
+"""Signature capture widget — image file picker (desktop) / camera scan (mobile)."""
 from __future__ import annotations
 
 import base64
@@ -6,13 +6,13 @@ import io
 from typing import Callable
 
 import flet as ft
-import flet.canvas as cv
 
-_SIG_INK = "#1E3A8A"
-_SIG_BG  = "#FFFFFF"
-_BORDER  = "#1E3A56"
-_MUTED   = "#9DB0C5"
-_DANGER  = "#EF4444"
+_SIG_BG   = "#0D1B2A"
+_BORDER   = "#1E3A56"
+_MUTED    = "#9DB0C5"
+_DANGER   = "#EF4444"
+_BTN_BG   = "#1B3A5C"
+_BTN_FG   = "#FFFFFF"
 
 
 def _u(ctrl: ft.Control) -> None:
@@ -22,136 +22,123 @@ def _u(ctrl: ft.Control) -> None:
         pass
 
 
-def strokes_to_png_bytes(
-    strokes: list[list[tuple[float, float]]],
-    width: int = 300,
-    height: int = 110,
-) -> bytes:
-    from PIL import Image, ImageDraw
-    img = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(img)
-    for stroke in strokes:
-        pts = [(int(x), int(y)) for x, y in stroke if 0 <= x <= width and 0 <= y <= height]
-        if len(pts) == 1:
-            x, y = pts[0]
-            draw.ellipse([(x - 2, y - 2), (x + 2, y + 2)], fill=_SIG_INK)
-        elif len(pts) >= 2:
-            draw.line(pts, fill=_SIG_INK, width=3, joint="curve")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def strokes_to_b64(
-    strokes: list[list[tuple[float, float]]],
-    width: int = 300,
-    height: int = 110,
-) -> str:
-    return base64.b64encode(strokes_to_png_bytes(strokes, width, height)).decode()
-
-
 class SignaturePad:
     """
-    Interactive signature pad.  Access .widget to embed in the UI.
-    Call .get_base64() to retrieve the PNG as a base64 string (or None if empty).
+    Signature capture widget using FilePicker.
+    User picks/takes a photo of the handwritten signature.
+    Access .widget to embed in the UI.
     """
 
     def __init__(
         self,
         label: str = "Signature",
+        page: ft.Page | None = None,
         width: int = 300,
         height: int = 110,
         existing_b64: str | None = None,
         on_signed: Callable[[], None] | None = None,
     ) -> None:
-        self._strokes: list[list[tuple[float, float]]] = []
-        self._current: list[tuple[float, float]] = []
-        self._existing_b64: str | None = existing_b64
-        self._drew = False
+        self._b64: str | None = existing_b64
+        self._page = page
         self._w = width
         self._h = height
         self._on_signed = on_signed
 
-        self._canvas = cv.Canvas(shapes=[], width=width, height=height)
-
-        def _on_start(e: ft.DragStartEvent) -> None:
-            self._current = [(e.local_position.x, e.local_position.y)]
-
-        def _on_update(e: ft.DragUpdateEvent) -> None:
-            x, y = e.local_position.x, e.local_position.y
-            if not self._current:
-                self._current = [(x, y)]
-                return
-            px, py = self._current[-1]
-            self._current.append((x, y))
-            self._canvas.shapes.append(
-                cv.Path(
-                    elements=[
-                        cv.Path.MoveTo(px, py),
-                        cv.Path.LineTo(x, y),
-                    ],
-                    paint=ft.Paint(
-                        color=_SIG_INK,
-                        stroke_width=2.5,
-                        style=ft.PaintingStyle.STROKE,
-                        stroke_cap=ft.StrokeCap.ROUND,
-                        stroke_join=ft.StrokeJoin.ROUND,
-                    ),
-                )
-            )
-            _u(self._canvas)
-
-        def _on_end(e: ft.DragEndEvent) -> None:
-            if self._current:
-                self._strokes.append(list(self._current))
-                self._drew = True
-                if self._on_signed:
-                    self._on_signed()
-            self._current = []
-
-        def _clear(_) -> None:
-            self._strokes.clear()
-            self._current.clear()
-            self._drew = False
-            self._canvas.shapes.clear()
-            _u(self._canvas)
-
-        gesture = ft.GestureDetector(
-            content=self._canvas,
-            on_pan_start=_on_start,
-            on_pan_update=_on_update,
-            on_pan_end=_on_end,
-            drag_interval=10,
+        # Preview image
+        self._preview_img = ft.Image(
+            src_base64=existing_b64,
+            width=width,
+            height=height,
+            fit=ft.ImageFit.CONTAIN,
+            visible=bool(existing_b64),
         )
 
-        pad = ft.Container(
-            content=gesture,
+        # Placeholder shown when no signature
+        self._placeholder = ft.Container(
             width=width,
             height=height,
             bgcolor=_SIG_BG,
             border=ft.border.all(1, _BORDER),
             border_radius=6,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            content=ft.Column(
+                [
+                    ft.Icon(ft.Icons.IMAGE_OUTLINED, color=_MUTED, size=28),
+                    ft.Text("Aucune signature", color=_MUTED, size=11),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=4,
+            ),
+            visible=not bool(existing_b64),
         )
 
-        hint_row = ft.Row(
-            controls=[
-                ft.Icon(ft.Icons.DRAW_OUTLINED, size=13, color=_MUTED),
-                ft.Text("Signer ici", size=11, color=_MUTED),
-            ],
-            spacing=4,
+        status_txt = ft.Text(
+            "✓ Signature ajoutée" if existing_b64 else "",
+            color="#4ADE80",
+            size=11,
         )
+
+        def _refresh_display() -> None:
+            has = bool(self._b64)
+            self._preview_img.src_base64 = self._b64 if has else None
+            self._preview_img.visible = has
+            self._placeholder.visible = not has
+            status_txt.value = "✓ Signature ajoutée" if has else ""
+            _u(self._preview_img)
+            _u(self._placeholder)
+            _u(status_txt)
+
+        def _on_result(e: ft.FilePickerResultEvent) -> None:
+            if not e.files:
+                return
+            path = e.files[0].path
+            if not path:
+                return
+            try:
+                with open(path, "rb") as f:
+                    raw = f.read()
+                self._b64 = base64.b64encode(raw).decode()
+                _refresh_display()
+                if self._on_signed:
+                    self._on_signed()
+            except Exception:
+                pass
+
+        self._picker = ft.FilePicker(on_result=_on_result)
+        if page is not None:
+            page.overlay.append(self._picker)
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        def _pick(_) -> None:
+            self._picker.pick_files(
+                allow_multiple=False,
+                file_type=ft.FilePickerFileType.IMAGE,
+            )
+
+        def _clear(_) -> None:
+            self._b64 = None
+            _refresh_display()
 
         self.widget = ft.Column(
             controls=[
                 ft.Text(label, size=12, weight=ft.FontWeight.BOLD, color=_MUTED),
                 ft.Stack(
-                    controls=[pad, ft.Container(content=hint_row, padding=ft.padding.only(left=8, top=4))],
+                    controls=[self._placeholder, self._preview_img],
                     width=width,
                     height=height,
                 ),
                 ft.Row(
                     controls=[
+                        ft.ElevatedButton(
+                            "Importer signature",
+                            icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
+                            bgcolor=_BTN_BG,
+                            color=_BTN_FG,
+                            on_click=_pick,
+                        ),
                         ft.TextButton(
                             "Effacer",
                             icon=ft.Icons.CLEAR,
@@ -160,20 +147,17 @@ class SignaturePad:
                             style=ft.ButtonStyle(color=_DANGER),
                         ),
                     ],
-                    alignment=ft.MainAxisAlignment.END,
+                    spacing=8,
+                    alignment=ft.MainAxisAlignment.START,
                 ),
+                status_txt,
             ],
             spacing=4,
             width=width,
         )
 
     def get_base64(self) -> str | None:
-        if self._drew and self._strokes:
-            return strokes_to_b64(self._strokes, self._w, self._h)
-        return self._existing_b64
+        return self._b64
 
     def has_signature(self) -> bool:
-        return self._drew or bool(self._existing_b64)
-
-    def is_newly_drawn(self) -> bool:
-        return self._drew
+        return bool(self._b64)
