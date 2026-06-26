@@ -5508,8 +5508,11 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             self._w = width
             self._h = height
 
+            def _b64_src(b64):
+                return f"data:image/png;base64,{b64}" if b64 else ""
+
             self._preview = ft.Image(
-                src_base64=existing_b64,
+                src=_b64_src(existing_b64),
                 width=width, height=height,
                 fit=ft.BoxFit.CONTAIN,
                 visible=bool(existing_b64),
@@ -5533,7 +5536,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
 
             def _refresh():
                 has = bool(self._b64)
-                self._preview.src_base64 = self._b64 if has else None
+                self._preview.src = _b64_src(self._b64)
                 self._preview.visible = has
                 self._placeholder.visible = not has
                 self._status.value = "✓ Signature ajoutée" if has else ""

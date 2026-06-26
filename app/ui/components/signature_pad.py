@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import io
 from typing import Callable
 
 import flet as ft
@@ -44,9 +43,12 @@ class SignaturePad:
         self._h = height
         self._on_signed = on_signed
 
+        def _b64_src(b64: str | None) -> str:
+            return f"data:image/png;base64,{b64}" if b64 else ""
+
         # Preview image
         self._preview_img = ft.Image(
-            src_base64=existing_b64,
+            src=_b64_src(existing_b64),
             width=width,
             height=height,
             fit=ft.BoxFit.CONTAIN,
@@ -80,7 +82,7 @@ class SignaturePad:
 
         def _refresh_display() -> None:
             has = bool(self._b64)
-            self._preview_img.src_base64 = self._b64 if has else None
+            self._preview_img.src = _b64_src(self._b64)
             self._preview_img.visible = has
             self._placeholder.visible = not has
             status_txt.value = "✓ Signature ajoutée" if has else ""
