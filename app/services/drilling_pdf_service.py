@@ -7,17 +7,21 @@ from __future__ import annotations
 import io
 from typing import Any
 
+import base64
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    Image as RLImage,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
+from reportlab.lib.utils import ImageReader
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _NAVY   = colors.HexColor("#1E3A8A")
@@ -317,33 +321,49 @@ def build_drilling_pdf(report: dict[str, Any]) -> bytes:
     story.append(Spacer(1, 4 * mm))
 
     # ── 5. Signatures ─────────────────────────────────────────────────────────
-    operator_name    = report.get("operator_name") or ""
-    supervisor_name  = report.get("supervisor_name") or ""
+    operator_name      = report.get("operator_name") or ""
+    supervisor_name    = report.get("supervisor_name") or ""
+    op_sig_b64         = report.get("operator_signature") or ""
+    sup_sig_b64        = report.get("supervisor_signature") or ""
 
+    SIG_W = W * 0.28
+    SIG_H = 18 * mm
+
+    def _sig_cell(b64: str) -> object:
+        if b64:
+            try:
+                png_bytes = base64.b64decode(b64.encode())
+                reader = ImageReader(io.BytesIO(png_bytes))
+                img = RLImage(reader, width=SIG_W - 6, height=SIG_H - 4)
+                return img
+            except Exception:
+                pass
+        return _p("", _VAL_ST)
+
+    s_cw = [38 * mm, W * 0.22, 44 * mm, W - 38*mm - W * 0.22 - 44*mm]
     sig_data = [
         [
             _p("NAME OF OPERATOR:", _LABEL_ST),
             _p(operator_name, _VAL_ST),
             _p("OPERATOR SIGNATURE:", _LABEL_ST),
-            _p("", _VAL_ST),
+            _sig_cell(op_sig_b64),
         ],
         [
             _p("NAME OF SUPERVISOR:", _LABEL_ST),
             _p(supervisor_name, _VAL_ST),
             _p("SUPERVISOR'S SIGNATURE:", _LABEL_ST),
-            _p("", _VAL_ST),
+            _sig_cell(sup_sig_b64),
         ],
     ]
-    s_cw = [38 * mm, W * 0.22, 44 * mm, W - 38*mm - W * 0.22 - 44*mm]
-    sig_tbl = Table(sig_data, colWidths=s_cw)
+    sig_tbl = Table(sig_data, colWidths=s_cw, rowHeights=[SIG_H, SIG_H])
     sig_tbl.setStyle(TableStyle([
         ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
         ("FONTSIZE",      (0, 0), (-1, -1), 8),
         ("GRID",          (0, 0), (-1, -1), 0.5, _MGREY),
         ("BOX",           (0, 0), (-1, -1), 0.8, _BLACK),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING",    (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ("LEFTPADDING",   (0, 0), (-1, -1), 4),
         ("LINEBELOW",     (1, 0), (1, 0), 0.8, _BLACK),
         ("LINEBELOW",     (3, 0), (3, 0), 0.8, _BLACK),

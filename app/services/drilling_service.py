@@ -89,6 +89,8 @@ def _report_params(data: dict[str, Any]) -> tuple:
         str(data.get("refueler_name") or "") or None,
         str(data.get("operator_name") or "") or None,
         str(data.get("supervisor_name") or "") or None,
+        data.get("operator_signature") or None,
+        data.get("supervisor_signature") or None,
         str(data.get("status") or "draft"),
         int(data["site_id"]) if data.get("site_id") else None,
         str(data.get("created_by") or "") or None,
@@ -105,8 +107,9 @@ def create_drilling_report(data: dict[str, Any]) -> int:
             """INSERT INTO drilling_reports
                (uuid, shift, report_date, rig_type, rig_number, contract_location,
                 hole_number, angle, client, total_advance, diesel_json, refueler_name,
-                operator_name, supervisor_name, status, site_id, created_by)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                operator_name, supervisor_name, operator_signature, supervisor_signature,
+                status, site_id, created_by)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (report_uuid, *params),
         )
         report_id = int(cur.lastrowid)
@@ -122,8 +125,9 @@ def update_drilling_report(report_id: int, data: dict[str, Any]) -> None:
             """UPDATE drilling_reports SET
                shift=?, report_date=?, rig_type=?, rig_number=?, contract_location=?,
                hole_number=?, angle=?, client=?, total_advance=?, diesel_json=?,
-               refueler_name=?, operator_name=?, supervisor_name=?, status=?,
-               site_id=?, created_by=?
+               refueler_name=?, operator_name=?, supervisor_name=?,
+               operator_signature=?, supervisor_signature=?,
+               status=?, site_id=?, created_by=?
                WHERE id=?""",
             (*params, report_id),
         )
@@ -135,13 +139,19 @@ def update_drilling_report(report_id: int, data: dict[str, Any]) -> None:
                 _insert_log_entry(conn, report_id, i, entry)
 
 
-def validate_drilling_report(report_id: int, supervisor_name: str) -> None:
+def validate_drilling_report(
+    report_id: int,
+    supervisor_name: str,
+    supervisor_signature: str | None = None,
+) -> None:
     with db_session() as conn:
         conn.execute(
             """UPDATE drilling_reports
-               SET status='validated', supervisor_name=?, validated_at=CURRENT_TIMESTAMP
+               SET status='validated', supervisor_name=?,
+                   supervisor_signature=COALESCE(?, supervisor_signature),
+                   validated_at=CURRENT_TIMESTAMP
                WHERE id=?""",
-            (supervisor_name, report_id),
+            (supervisor_name, supervisor_signature, report_id),
         )
 
 

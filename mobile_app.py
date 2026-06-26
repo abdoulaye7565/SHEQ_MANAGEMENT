@@ -319,10 +319,12 @@ def get_mobile_connection() -> "sqlite3.Connection":
             total_advance     REAL DEFAULT 0,
             diesel_json       TEXT,
             refueler_name     TEXT,
-            operator_name     TEXT,
-            supervisor_name   TEXT,
-            entries_json      TEXT,
-            status            TEXT NOT NULL DEFAULT 'draft'
+            operator_name        TEXT,
+            supervisor_name      TEXT,
+            operator_signature   TEXT,
+            supervisor_signature TEXT,
+            entries_json         TEXT,
+            status               TEXT NOT NULL DEFAULT 'draft'
         );
     """)
     # Migrate pending_maintenance with new GMAO columns (safe — ignores if exists)
@@ -511,8 +513,9 @@ def save_drilling_report(data: dict) -> str:
             """INSERT OR REPLACE INTO pending_drilling
                (uuid, shift, report_date, rig_type, rig_number, contract_location,
                 hole_number, angle, client, total_advance, diesel_json, refueler_name,
-                operator_name, supervisor_name, entries_json, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                operator_name, supervisor_name, operator_signature, supervisor_signature,
+                entries_json, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 report_uuid,
                 str(data.get("shift") or "DAY"),
@@ -528,6 +531,8 @@ def save_drilling_report(data: dict) -> str:
                 data.get("refueler_name") or None,
                 data.get("operator_name") or None,
                 data.get("supervisor_name") or None,
+                data.get("operator_signature") or None,
+                data.get("supervisor_signature") or None,
                 _json.dumps(data.get("entries") or []),
                 str(data.get("status") or "draft"),
             ),
@@ -557,11 +562,18 @@ def submit_drilling_report(report_uuid: str) -> None:
     with get_mobile_connection() as c:
         c.execute("UPDATE pending_drilling SET status='submitted' WHERE uuid=?", (report_uuid,))
 
-def validate_drilling_report_mobile(report_uuid: str, supervisor_name: str) -> None:
+def validate_drilling_report_mobile(
+    report_uuid: str,
+    supervisor_name: str,
+    supervisor_signature: str | None = None,
+) -> None:
     with get_mobile_connection() as c:
         c.execute(
-            "UPDATE pending_drilling SET status='validated', supervisor_name=? WHERE uuid=?",
-            (supervisor_name, report_uuid),
+            """UPDATE pending_drilling
+               SET status='validated', supervisor_name=?,
+                   supervisor_signature=COALESCE(?, supervisor_signature)
+               WHERE uuid=?""",
+            (supervisor_name, supervisor_signature, report_uuid),
         )
 
 def cache_drilling_equipment(equipment_list: list[dict]) -> None:
@@ -1554,6 +1566,8 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     "total_advance": r["total_advance"],
                     "diesel": r["diesel"], "refueler_name": r["refueler_name"],
                     "operator_name": r["operator_name"], "supervisor_name": r["supervisor_name"],
+                    "operator_signature": r.get("operator_signature"),
+                    "supervisor_signature": r.get("supervisor_signature"),
                     "entries": r["entries"], "status": r["status"],
                 } for r in list_pending_drilling() if r.get("status") == "validated"],
             }
@@ -5480,6 +5494,91 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
     # ══════════════════════════════════════════════════════════════════════════
     # DRILLING REPORTS
     # ══════════════════════════════════════════════════════════════════════════
+
+    class _MobileSigPad:
+        """Inline signature pad for mobile drilling forms."""
+        def __init__(self, label: str, width: int = 320, height: int = 110,
+                     existing_b64: str | None = None):
+            import flet.canvas as _cv
+            self._strokes: list = []
+            self._current: list = []
+            self._existing_b64 = existing_b64
+            self._drew = False
+            self._w = width
+            self._h = height
+            self._canvas = _cv.Canvas(shapes=[], width=width, height=height)
+
+            def _start(e: ft.DragStartEvent):
+                self._current = [(e.local_position.x, e.local_position.y)]
+
+            def _update(e: ft.DragUpdateEvent):
+                x, y = e.local_position.x, e.local_position.y
+                if not self._current:
+                    self._current = [(x, y)]
+                    return
+                px, py = self._current[-1]
+                self._current.append((x, y))
+                self._canvas.shapes.append(_cv.Path(
+                    elements=[_cv.Path.MoveTo(px, py), _cv.Path.LineTo(x, y)],
+                    paint=ft.Paint(color="#1E3A8A", stroke_width=3,
+                                   style=ft.PaintingStyle.STROKE,
+                                   stroke_cap=ft.StrokeCap.ROUND,
+                                   stroke_join=ft.StrokeJoin.ROUND),
+                ))
+                _u(self._canvas)
+
+            def _end(e: ft.DragEndEvent):
+                if self._current:
+                    self._strokes.append(list(self._current))
+                    self._drew = True
+                self._current = []
+
+            def _clear(_):
+                self._strokes.clear(); self._current.clear()
+                self._drew = False
+                self._canvas.shapes.clear()
+                _u(self._canvas)
+
+            gesture = ft.GestureDetector(
+                content=self._canvas,
+                on_pan_start=_start, on_pan_update=_update, on_pan_end=_end,
+                drag_interval=10,
+            )
+            self.widget = ft.Column([
+                ft.Text(label, size=12, color="#9DB0C5", weight=ft.FontWeight.BOLD),
+                ft.Container(content=gesture, width=width, height=height,
+                             bgcolor="#FFFFFF", border=ft.border.all(1, "#1E3A56"),
+                             border_radius=8, clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                ft.Row([
+                    ft.TextButton("Effacer", icon=ft.Icons.CLEAR, icon_color="#EF4444",
+                                  on_click=_clear, style=ft.ButtonStyle(color="#EF4444")),
+                ], alignment=ft.MainAxisAlignment.END),
+            ], spacing=6, width=width)
+
+        def get_base64(self) -> str | None:
+            if self._drew and self._strokes:
+                import base64, io
+                try:
+                    from PIL import Image, ImageDraw
+                    img = Image.new("RGB", (self._w, self._h), "white")
+                    draw = ImageDraw.Draw(img)
+                    for stroke in self._strokes:
+                        pts = [(int(x), int(y)) for x, y in stroke]
+                        if len(pts) == 1:
+                            x, y = pts[0]
+                            draw.ellipse([(x-2,y-2),(x+2,y+2)], fill="#1E3A8A")
+                        elif len(pts) >= 2:
+                            draw.line(pts, fill="#1E3A8A", width=3, joint="curve")
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    return base64.b64encode(buf.getvalue()).decode()
+                except Exception:
+                    return None
+            return self._existing_b64
+
+        def has_signature(self) -> bool:
+            return self._drew or bool(self._existing_b64)
+
     def _s_drilling():
         import json as _json, uuid as _uuid
         from datetime import date as _date
@@ -5673,10 +5772,30 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 ]
             elif status == "submitted":
                 sup_inp = _inp("Votre nom (superviseur)")
+                sig_sup = _MobileSigPad("SIGNATURE SUPERVISEUR", width=320, height=110)
+                val_err_txt = ft.Text("", color=DNG, size=12)
+                def _confirm_validate(_):
+                    if not sup_inp.value.strip():
+                        val_err_txt.value = "Saisissez votre nom."
+                        _u(val_err_txt); return
+                    if not sig_sup.has_signature():
+                        val_err_txt.value = "La signature est obligatoire."
+                        _u(val_err_txt); return
+                    _do_validate(rep["uuid"], sup_inp.value, sig_sup.get_base64())
                 action_btns = [
                     sup_inp,
+                    ft.Container(
+                        ft.Column([
+                            ft.Text("SIGNATURE SUPERVISEUR", size=11, color=DRILL_MUT,
+                                    weight=ft.FontWeight.BOLD),
+                            sig_sup.widget,
+                        ], spacing=6),
+                        bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD),
+                        border_radius=8, padding=P(12,10,12,10),
+                    ),
+                    val_err_txt,
                     _btn("Valider le rapport", ft.Icons.CHECK_CIRCLE_OUTLINED, OK,
-                         lambda _: _do_validate(rep["uuid"], sup_inp.value), 44),
+                         _confirm_validate, 44),
                     _btn("Annuler soumission", ft.Icons.UNDO_ROUNDED, WARN,
                          lambda _: _do_unsubmit(rep["uuid"]), 44),
                 ]
@@ -5770,8 +5889,16 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             if not log_rows:
                 _add_row()
 
+            # Operator signature pad
+            sig_op = _MobileSigPad("SIGNATURE OPÉRATEUR", width=320, height=110,
+                                    existing_b64=r.get("operator_signature"))
+
             def _save(_):
                 try:
+                    if not sig_op.has_signature():
+                        form_msg.value = "La signature de l'opérateur est obligatoire."
+                        _u(form_msg)
+                        return
                     adv = sum(
                         float(lr.f_adv.value or 0)
                         for lr in log_rows if lr.f_adv.value
@@ -5783,17 +5910,18 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                             if v: diesel[code] = v
                         except: pass
                     data = {
-                        "uuid":             r.get("uuid"),
-                        "shift":            f_shift.value,
-                        "report_date":      f_date.value,
-                        "rig_type":         f_rtype.value or None,
-                        "rig_number":       f_rnum.value or None,
-                        "contract_location": f_loc.value or None,
-                        "hole_number":      f_hole.value or None,
-                        "angle":            float(f_angle.value) if f_angle.value else None,
-                        "client":           f_client.value or None,
-                        "total_advance":    round(adv, 2),
-                        "diesel":           diesel,
+                        "uuid":               r.get("uuid"),
+                        "shift":              f_shift.value,
+                        "report_date":        f_date.value,
+                        "rig_type":           f_rtype.value or None,
+                        "rig_number":         f_rnum.value or None,
+                        "contract_location":  f_loc.value or None,
+                        "hole_number":        f_hole.value or None,
+                        "angle":              float(f_angle.value) if f_angle.value else None,
+                        "client":             f_client.value or None,
+                        "total_advance":      round(adv, 2),
+                        "diesel":             diesel,
+                        "operator_signature": sig_op.get_base64(),
                         "refueler_name":    f_rfuel.value or None,
                         "operator_name":    f_oper.value or None,
                         "entries":          [lr.to_dict() for lr in log_rows],
@@ -5842,6 +5970,13 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     ], spacing=8),
                     bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
                 ),
+                ft.Container(
+                    ft.Column([
+                        ft.Text("SIGNATURE", size=11, color=DRILL_MUT, weight=ft.FontWeight.BOLD),
+                        sig_op.widget,
+                    ], spacing=8),
+                    bgcolor=DRILL_CARD, border=ft.border.all(1, DRILL_BRD), border_radius=12, padding=P(14,12,14,12),
+                ),
                 form_msg,
                 ft.Row([
                     ft.ElevatedButton("Annuler", bgcolor=DRILL_CARD2, color=DRILL_MUT,
@@ -5867,11 +6002,11 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             notify("Rapport soumis — en attente de validation.", OK)
             _go_list()
 
-        def _do_validate(uid, sup_name):
+        def _do_validate(uid, sup_name, sup_signature=None):
             if not sup_name.strip():
                 notify("Saisissez votre nom avant de valider.", WARN)
                 return
-            validate_drilling_report_mobile(uid, sup_name.strip())
+            validate_drilling_report_mobile(uid, sup_name.strip(), sup_signature)
             notify("Rapport validé — prêt à synchroniser.", OK)
             _go_list()
 

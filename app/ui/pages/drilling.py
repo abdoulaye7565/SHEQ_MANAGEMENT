@@ -5,6 +5,7 @@ from typing import Any
 
 import flet as ft
 
+from app.ui.components.signature_pad import SignaturePad
 from app.services.drilling_service import (
     add_equipment,
     count_drilling_reports,
@@ -90,6 +91,35 @@ def _kpi_card(icon: str, label: str, value: str, color: str = PRIMARY) -> ft.Con
 
 def _section_title(text: str) -> ft.Text:
     return ft.Text(text, size=13, weight=ft.FontWeight.BOLD, color=MUTED)
+
+
+def _sig_preview(label: str, b64: str | None) -> ft.Container:
+    """Read-only display of a stored signature or a placeholder."""
+    inner: ft.Control
+    if b64:
+        inner = ft.Image(src_base64=b64, width=220, height=90, fit=ft.ImageFit.CONTAIN)
+    else:
+        inner = ft.Container(
+            width=220, height=90,
+            bgcolor=CARD2,
+            border=ft.border.all(1, BORDER),
+            border_radius=6,
+            content=ft.Column(
+                controls=[
+                    ft.Icon(ft.Icons.DRAW_OUTLINED, color=MUTED, size=22),
+                    ft.Text("Non signé", size=11, color=MUTED),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+        )
+    return ft.Column(
+        controls=[
+            ft.Text(label, size=11, color=MUTED, weight=ft.FontWeight.BOLD),
+            inner,
+        ],
+        spacing=4,
+    )
 
 
 def _field(label: str, ctrl: ft.Control) -> ft.Column:
@@ -274,10 +304,20 @@ def _report_form_dialog(
     if not log_rows:
         _add_log_row()
 
+    # Signature pads
+    sig_operator = SignaturePad(
+        "SIGNATURE OPÉRATEUR", width=300, height=110,
+        existing_b64=r.get("operator_signature"),
+    )
+
     err_txt = ft.Text("", color=DANGER, size=12)
 
     def _save(_) -> None:
         try:
+            if not sig_operator.has_signature():
+                err_txt.value = "La signature de l'opérateur est obligatoire."
+                _u(err_txt)
+                return
             adv = sum(
                 float(lr.f_adv.value or 0)
                 for lr in log_rows
@@ -292,20 +332,21 @@ def _report_form_dialog(
                 except ValueError:
                     pass
             data = {
-                "shift":             f_shift.value,
-                "report_date":       f_date.value,
-                "rig_type":          f_rig_type.value or None,
-                "rig_number":        f_rig_num.value or None,
-                "contract_location": f_location.value or None,
-                "hole_number":       f_hole.value or None,
-                "angle":             float(f_angle.value) if f_angle.value else None,
-                "client":            f_client.value or None,
-                "total_advance":     round(adv, 2),
-                "diesel":            diesel,
-                "refueler_name":     f_refueler.value or None,
-                "operator_name":     f_operator.value or None,
-                "entries":           [lr.to_dict() for lr in log_rows],
-                "status":            r.get("status") or "draft",
+                "shift":              f_shift.value,
+                "report_date":        f_date.value,
+                "rig_type":           f_rig_type.value or None,
+                "rig_number":         f_rig_num.value or None,
+                "contract_location":  f_location.value or None,
+                "hole_number":        f_hole.value or None,
+                "angle":              float(f_angle.value) if f_angle.value else None,
+                "client":             f_client.value or None,
+                "total_advance":      round(adv, 2),
+                "diesel":             diesel,
+                "refueler_name":      f_refueler.value or None,
+                "operator_name":      f_operator.value or None,
+                "operator_signature": sig_operator.get_base64(),
+                "entries":            [lr.to_dict() for lr in log_rows],
+                "status":             r.get("status") or "draft",
             }
             on_save(data, r.get("id"))
             dlg.open = False
@@ -365,6 +406,9 @@ def _report_form_dialog(
             ft.Divider(color=BORDER),
             _section_title("DIESEL RE-FUELING"),
             *diesel_rows,
+            ft.Divider(color=BORDER),
+            _section_title("SIGNATURES"),
+            ft.Row(controls=[sig_operator.widget], spacing=20),
             err_txt,
         ],
         spacing=10,
@@ -443,9 +487,50 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
         ),
     ]
     if status == "submitted":
+        def _open_validation_dialog(_) -> None:
+            sig_sup = SignaturePad("SIGNATURE SUPERVISEUR", width=320, height=120)
+            val_err = ft.Text("", color=DANGER, size=12)
+
+            def _confirm_validate(_) -> None:
+                if not sig_sup.has_signature():
+                    val_err.value = "La signature du superviseur est obligatoire."
+                    _u(val_err)
+                    return
+                val_dlg.open = False
+                page.update()
+                on_validate(r["id"], sig_sup.get_base64())
+                setattr(dlg, "open", False)
+                page.update()
+
+            val_dlg = ft.AlertDialog(
+                modal=True,
+                bgcolor=CARD,
+                title=ft.Text("Valider le rapport", color=TEXT, size=15, weight=ft.FontWeight.BOLD),
+                content=ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Text("Signez pour confirmer la validation.", size=12, color=MUTED),
+                            sig_sup.widget,
+                            val_err,
+                        ],
+                        spacing=10,
+                        width=360,
+                    ),
+                    padding=10,
+                ),
+                actions=[
+                    ft.TextButton("Annuler", on_click=lambda _: (setattr(val_dlg, "open", False), page.update())),
+                    ft.ElevatedButton("Confirmer", bgcolor=SUCCESS, color=TEXT, on_click=_confirm_validate),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(val_dlg)
+            val_dlg.open = True
+            page.update()
+
         actions.insert(1, ft.ElevatedButton(
             "Valider", bgcolor=SUCCESS, color=TEXT,
-            on_click=lambda _: (on_validate(r["id"]), setattr(dlg, "open", False), page.update()),
+            on_click=_open_validation_dialog,
         ))
     if status == "validated":
         actions.insert(1, ft.TextButton(
@@ -498,6 +583,12 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
                 ft.Text(f"Ravitailleur: {r.get('refueler_name') or '—'}", size=12, color=MUTED, expand=True),
                 ft.Text(f"Validé le: {r.get('validated_at','')[:10] if r.get('validated_at') else '—'}", size=12, color=MUTED),
             ]),
+            ft.Divider(color=BORDER),
+            ft.Text("SIGNATURES", size=11, color=MUTED, weight=ft.FontWeight.BOLD),
+            ft.Row(controls=[
+                _sig_preview("Opérateur", r.get("operator_signature")),
+                _sig_preview("Superviseur", r.get("supervisor_signature")),
+            ], spacing=20),
         ],
         spacing=10,
         scroll=ft.ScrollMode.AUTO,
@@ -866,8 +957,8 @@ def drilling_page(page: ft.Page) -> ft.Control:
         if not rep:
             return
 
-        def _do_validate(rid: int) -> None:
-            validate_drilling_report(rid, "Superviseur")
+        def _do_validate(rid: int, supervisor_signature: str | None = None) -> None:
+            validate_drilling_report(rid, "Superviseur", supervisor_signature)
             msg_bar.value = "Rapport validé."
             msg_bar.color = SUCCESS
             _refresh()
