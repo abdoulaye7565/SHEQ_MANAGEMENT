@@ -5542,12 +5542,8 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 self._status.value = "✓ Signature ajoutée" if has else ""
                 _u(self._preview); _u(self._placeholder); _u(self._status)
 
+            # In Flet 0.84, FilePicker is a pure service — do NOT add to page.overlay
             self._picker = ft.FilePicker()
-            page.overlay.append(self._picker)
-            try:
-                page.update()
-            except Exception:
-                pass
 
             def _pick(_):
                 import threading as _thr

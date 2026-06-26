@@ -44,6 +44,7 @@ class SignaturePad:
         self._h = height
         self._on_signed = on_signed
         self._picker = ft.FilePicker()
+        # In Flet 0.84, FilePicker is a pure service — do NOT add to page.overlay
 
         def _b64_src(b64: str | None) -> str:
             return f"data:image/png;base64,{b64}" if b64 else ""
@@ -91,13 +92,6 @@ class SignaturePad:
             _u(self._preview_img)
             _u(self._placeholder)
             _u(status_txt)
-
-        if page is not None:
-            page.overlay.append(self._picker)
-            try:
-                page.update()
-            except Exception:
-                pass
 
         def _pick(_) -> None:
             def _run():
