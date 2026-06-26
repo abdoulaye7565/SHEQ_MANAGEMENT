@@ -6028,25 +6028,32 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
         _refresh_list()
         msg_txt_row = ft.Row([msg_txt], alignment=ft.MainAxisAlignment.CENTER)
 
-        return _scaffold(
-            ft.Column([
+        return ft.Container(
+            bgcolor=DRILL_BG,
+            expand=True,
+            padding=P(0, 0, 0, 0),
+            content=ft.Column([
                 _hdr("Drilling Reports", "drilling"),
                 msg_txt_row,
-                ft.Row([
-                    ft.Container(expand=True),
-                    ft.ElevatedButton(
-                        "Nouveau rapport",
-                        icon=ft.Icons.ADD,
-                        bgcolor=DRILL_NAV,
-                        color=DRILL_TXT,
-                        on_click=lambda _: _show_form(),
-                    ),
-                ], alignment=ft.MainAxisAlignment.END),
+                ft.Container(
+                    padding=P(12, 8, 12, 4),
+                    content=ft.Row([
+                        ft.Container(expand=True),
+                        ft.ElevatedButton(
+                            "Nouveau rapport",
+                            icon=ft.Icons.ADD,
+                            bgcolor=DRILL_NAV,
+                            color=DRILL_TXT,
+                            on_click=lambda _: _show_form(),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END),
+                ),
                 ft.Container(
                     content=content,
                     expand=True,
+                    padding=P(12, 0, 12, 0),
                 ),
-            ], spacing=10, expand=True),
+            ], spacing=0, expand=True),
         )
 
     def _s_settings():
