@@ -5545,25 +5545,22 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             # In Flet 0.84, FilePicker is a pure service — do NOT add to page.overlay
             self._picker = ft.FilePicker()
 
-            def _pick(_):
-                import threading as _thr
-                def _run():
-                    files = self._picker.pick_files(
-                        allow_multiple=False,
-                        file_type=ft.FilePickerFileType.IMAGE,
-                    )
-                    if not files:
-                        return
-                    path = files[0].path
-                    if not path:
-                        return
-                    try:
-                        with open(path, "rb") as f:
-                            self._b64 = _b64.b64encode(f.read()).decode()
-                        _refresh()
-                    except Exception:
-                        pass
-                _thr.Thread(target=_run, daemon=True).start()
+            async def _pick(_):
+                files = await self._picker.pick_files(
+                    allow_multiple=False,
+                    file_type=ft.FilePickerFileType.IMAGE,
+                )
+                if not files:
+                    return
+                path = files[0].path
+                if not path:
+                    return
+                try:
+                    with open(path, "rb") as f:
+                        self._b64 = _b64.b64encode(f.read()).decode()
+                    _refresh()
+                except Exception:
+                    pass
 
             def _clear(_):
                 self._b64 = None
