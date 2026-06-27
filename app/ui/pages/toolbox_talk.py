@@ -30,7 +30,9 @@ from app.services import (
     list_toolbox_campaigns,
     list_toolbox_effectiveness,
     list_toolbox_theme_usage,
+    get_toolbox_stats,
     list_theme_catalog,
+    list_toolbox_audit,
     list_toolbox_topics,
     preview_intelligent_toolbox_planning,
     save_professional_toolbox_theme,
@@ -1723,6 +1725,189 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True, spacing=10,
            vertical_alignment=ft.CrossAxisAlignment.CENTER),
     )
+
+    stats_area = ft.Column(spacing=10)
+    audit_area = ft.Column(spacing=10)
+    stats_container = ft.Container(visible=False, bgcolor="#FFFFFF", border=ft.border.all(1, "#BFDBFE"), border_radius=8, padding=16, content=stats_area)
+    audit_container = ft.Container(visible=False, bgcolor="#FFFFFF", border=ft.border.all(1, "#BFDBFE"), border_radius=8, padding=16, content=audit_area)
+
+    def toggle_stats(event: ft.ControlEvent | None = None) -> None:
+        stats_container.visible = not stats_container.visible
+        if stats_container.visible:
+            _render_stats()
+        _update()
+
+    def toggle_audit(event: ft.ControlEvent | None = None) -> None:
+        audit_container.visible = not audit_container.visible
+        if audit_container.visible:
+            _render_audit()
+        _update()
+
+    def _render_stats() -> None:
+        try:
+            stats = get_toolbox_stats(months_back=6)
+            monthly = stats.get("monthly", [])
+            by_fac = stats.get("by_facilitator", [])
+            by_site = stats.get("by_site", [])
+            global_s = stats.get("global", {})
+
+            monthly_rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(m["label"], size=12)),
+                    ft.DataCell(ft.Text(str(m["days"]), size=12)),
+                    ft.DataCell(ft.Text(str(m["completed"]), size=12, color=SUCCESS)),
+                    ft.DataCell(ft.Text(str(m["missing"]), size=12, color=DANGER if m["missing"] else MUTED)),
+                    ft.DataCell(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.ProgressBar(value=m["completion"] / 100, color=SUCCESS if m["completion"] >= 80 else WARNING if m["completion"] >= 50 else DANGER, bgcolor="#E2E8F0", height=8, width=80),
+                                ft.Text(f" {m['completion']}%", size=12),
+                            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        )
+                    ),
+                ])
+                for m in monthly
+            ]
+
+            fac_rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(f["facilitateur"], size=12)),
+                    ft.DataCell(ft.Text(str(f["total"]), size=12, color=PRIMARY)),
+                ])
+                for f in by_fac
+            ]
+
+            site_rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(s["site"], size=12)),
+                    ft.DataCell(ft.Text(str(s["total"]), size=12, color=PRIMARY)),
+                ])
+                for s in by_site
+            ]
+
+            stats_area.controls = [
+                ft.Text("Statistiques Toolbox Talk (6 derniers mois)", color=TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    f"Global : {global_s.get('total_done', 0)} causeries sur {global_s.get('total_days', 0)} jours ({global_s.get('completion', 0)}%)",
+                    size=12, color=MUTED,
+                ),
+                ft.Row(
+                    controls=[
+                        ft.Column(
+                            controls=[
+                                ft.Text("Completion mensuelle", size=13, color=TEXT, weight=ft.FontWeight.W_600),
+                                professional_data_table(
+                                    columns=[
+                                        ft.DataColumn(ft.Text("Mois")),
+                                        ft.DataColumn(ft.Text("Jours")),
+                                        ft.DataColumn(ft.Text("Renseignes")),
+                                        ft.DataColumn(ft.Text("Manquants")),
+                                        ft.DataColumn(ft.Text("Avancement")),
+                                    ],
+                                    rows=monthly_rows,
+                                    border=ft.border.all(1, "#BFDBFE"),
+                                    border_radius=8,
+                                    heading_row_color="#DBEAFE",
+                                ),
+                            ],
+                            spacing=8,
+                            expand=2,
+                        ),
+                        ft.Column(
+                            controls=[
+                                ft.Text("Top facilitateurs", size=13, color=TEXT, weight=ft.FontWeight.W_600),
+                                professional_data_table(
+                                    columns=[
+                                        ft.DataColumn(ft.Text("Facilitateur")),
+                                        ft.DataColumn(ft.Text("Total")),
+                                    ],
+                                    rows=fac_rows or [ft.DataRow(cells=[ft.DataCell(ft.Text("Aucun", color=MUTED)), ft.DataCell(ft.Text(""))])],
+                                    border=ft.border.all(1, "#BFDBFE"),
+                                    border_radius=8,
+                                    heading_row_color="#DBEAFE",
+                                ),
+                                ft.Container(height=12),
+                                ft.Text("Par site", size=13, color=TEXT, weight=ft.FontWeight.W_600),
+                                professional_data_table(
+                                    columns=[
+                                        ft.DataColumn(ft.Text("Site")),
+                                        ft.DataColumn(ft.Text("Total")),
+                                    ],
+                                    rows=site_rows or [ft.DataRow(cells=[ft.DataCell(ft.Text("Aucun", color=MUTED)), ft.DataCell(ft.Text(""))])],
+                                    border=ft.border.all(1, "#BFDBFE"),
+                                    border_radius=8,
+                                    heading_row_color="#DBEAFE",
+                                ),
+                            ],
+                            spacing=8,
+                            expand=1,
+                        ),
+                    ],
+                    spacing=16,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    wrap=True,
+                ),
+            ]
+        except Exception as exc:
+            stats_area.controls = [ft.Text(f"Erreur chargement statistiques : {exc}", color=DANGER, size=12)]
+
+    def _render_audit() -> None:
+        try:
+            month = str(month_field.value or "").strip() or None
+            entries = list_toolbox_audit(month=month, limit=50)
+            action_labels = {
+                "CREATE": ("Création", SUCCESS),
+                "UPDATE": ("Modification", WARNING),
+                "DELETE": ("Suppression", DANGER),
+                "AUTO_ASSIGN": ("Affectation auto", PRIMARY),
+                "CLEAR_MONTH": ("Effacement mois", DANGER),
+            }
+            audit_rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(str(e.get("changed_at") or "")[:16], size=11)),
+                    ft.DataCell(
+                        ft.Container(
+                            bgcolor=action_labels.get(str(e.get("action") or ""), ("", MUTED))[1] + "22",
+                            border_radius=6,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            content=ft.Text(
+                                action_labels.get(str(e.get("action") or ""), (str(e.get("action") or ""), MUTED))[0],
+                                size=11,
+                                color=action_labels.get(str(e.get("action") or ""), ("", MUTED))[1],
+                            ),
+                        )
+                    ),
+                    ft.DataCell(ft.Text(str(e.get("date_theme") or "-"), size=11)),
+                    ft.DataCell(ft.Text(str(e.get("theme") or "-")[:60], size=11, width=280)),
+                    ft.DataCell(ft.Text(str(e.get("facilitateur") or "-"), size=11)),
+                ])
+                for e in entries
+            ]
+            audit_area.controls = [
+                ft.Text(f"Journal d'audit Toolbox Talk{' - ' + month if month else ''}", color=TEXT, weight=ft.FontWeight.BOLD),
+                ft.Row(
+                    controls=[
+                        professional_data_table(
+                            columns=[
+                                ft.DataColumn(ft.Text("Date/Heure")),
+                                ft.DataColumn(ft.Text("Action")),
+                                ft.DataColumn(ft.Text("Date theme")),
+                                ft.DataColumn(ft.Text("Theme")),
+                                ft.DataColumn(ft.Text("Facilitateur")),
+                            ],
+                            rows=audit_rows or [
+                                ft.DataRow(cells=[ft.DataCell(ft.Text("Aucune modification enregistree.", color=MUTED))] + [ft.DataCell(ft.Text("")) for _ in range(4)])
+                            ],
+                            border=ft.border.all(1, "#BFDBFE"),
+                            border_radius=8,
+                            heading_row_color="#DBEAFE",
+                        )
+                    ],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+            ]
+        except Exception as exc:
+            audit_area.controls = [ft.Text(f"Erreur chargement audit : {exc}", color=DANGER, size=12)]
 
     root = ft.Column(
         controls=[

@@ -18,7 +18,8 @@ from app.services.secure_config import (
 
 AI_CONFIG_PATH = DATA_DIR / "ai_config.json"
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-DEFAULT_MODEL = "gpt-4.1-mini"
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+DEFAULT_MODEL = "gpt-4o-mini"
 LOGGER = get_logger(__name__)
 
 KNOWN_MODELS = {

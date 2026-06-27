@@ -141,6 +141,14 @@ def dashboard_page(navigate: Any | None = None, user: dict[str, object] | None =
                 ],
                 spacing=10, run_spacing=10,
             ),
+            ft.ResponsiveRow(
+                controls=[
+                    ft.Container(_toolbox_panel(summary), col={"sm": 12, "lg": 6}),
+                    ft.Container(_referential_panel(summary), col={"sm": 12, "lg": 6}),
+                ],
+                spacing=14,
+                run_spacing=14,
+            ),
         ],
         spacing=14,
         expand=True,
@@ -644,6 +652,76 @@ def _recent_activity_panel(rows: list[dict[str, Any]]) -> ft.Control:
             ft.Icons.HISTORY_OUTLINED,
         )
         for item in rows
+def _toolbox_panel(summary: dict[str, Any]) -> ft.Control:
+    toolbox_today = summary.get("toolbox_today", {})
+    toolbox_month = summary.get("toolbox_month", {})
+    completion = int(toolbox_month.get("completion", 0))
+    completed = int(toolbox_month.get("completed", 0))
+    days = int(toolbox_month.get("days", 0))
+    theme = str(toolbox_today.get("theme") or "")
+    facilitateur = str(toolbox_today.get("facilitateur") or "")
+    done_today = bool(toolbox_today.get("done"))
+    completion_color = SUCCESS if completion >= 80 else WARNING if completion >= 50 else DANGER
+
+    today_content = ft.Container(
+        bgcolor=SUCCESS + "18" if done_today else DANGER + "18",
+        border=ft.border.all(1, SUCCESS if done_today else DANGER),
+        border_radius=8,
+        padding=10,
+        content=ft.Column(
+            controls=[
+                ft.Row(
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE_OUTLINE if done_today else ft.Icons.REPORT_PROBLEM_OUTLINED,
+                            color=SUCCESS if done_today else DANGER,
+                            size=18,
+                        ),
+                        ft.Text(
+                            "Causerie du jour renseignee" if done_today else "Causerie du jour manquante",
+                            color=SUCCESS if done_today else DANGER,
+                            size=13,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Text(theme if done_today else "Aucun theme affecte pour aujourd'hui.", size=12, color=TEXT, max_lines=2),
+                ft.Text(f"Facilitateur : {facilitateur}" if facilitateur else "", size=11, color=MUTED) if done_today else ft.Text(""),
+            ],
+            spacing=4,
+        ),
+    )
+
+    return _panel(
+        "Toolbox Talk",
+        "Causerie securite du jour et avancement mensuel.",
+        ft.Column(
+            controls=[
+                today_content,
+                ft.Container(height=6),
+                ft.Row(
+                    controls=[
+                        ft.Text(f"Avancement du mois :", size=12, color=MUTED, expand=True),
+                        ft.Text(f"{completion}%", size=15, weight=ft.FontWeight.BOLD, color=completion_color),
+                    ],
+                ),
+                ft.ProgressBar(value=completion / 100, color=completion_color, bgcolor="#E2E8F0", height=8),
+                ft.Text(f"{completed} causerie(s) renseignee(s) sur {days} jour(s)", size=11, color=MUTED),
+            ],
+            spacing=6,
+        ),
+    )
+
+
+def _referential_panel(summary: dict[str, Any]) -> ft.Control:
+    items = [
+        ("Sites", summary["sites"], ft.Icons.LOCATION_ON_OUTLINED),
+        ("Groupes", summary["groupes"], ft.Icons.GROUPS_OUTLINED),
+        ("Fonctions", summary["fonctions"], ft.Icons.BADGE_OUTLINED),
+        ("Types formation", summary["types_formations"], ft.Icons.SCHOOL_OUTLINED),
+        ("Types EPI", summary["types_epi"], ft.Icons.HEALTH_AND_SAFETY_OUTLINED),
     ]
     return _panel(
         "Activites recentes",

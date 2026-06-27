@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import random
 from datetime import date, datetime
 from typing import Any
@@ -182,6 +183,10 @@ def get_toolbox_dashboard_snapshot(month: str | None = None) -> dict[str, Any]:
 def save_toolbox_topic(values: dict[str, Any]) -> int:
     payload = _clean_payload(values)
     with db_session() as connection:
+        existing = connection.execute(
+            "SELECT id_theme, theme, facilitateur FROM themes_securite WHERE date_theme = ?",
+            (payload["date_theme"],),
+        ).fetchone()
         _ensure_theme_not_used_in_month(connection, payload["date_theme"], payload["theme"])
         cursor = connection.execute(
             """
@@ -205,6 +210,10 @@ def save_toolbox_topic(values: dict[str, Any]) -> int:
             (payload["date_theme"],),
         ).fetchone()
         topic_id = int(row["id_theme"] if row else cursor.lastrowid)
+        action = "UPDATE" if existing else "CREATE"
+        old_val = json.dumps({"theme": existing["theme"], "facilitateur": existing["facilitateur"]}) if existing else None
+        new_val = json.dumps({"theme": payload["theme"], "facilitateur": payload["facilitateur"]})
+        _log_toolbox_audit(connection, action, payload["date_theme"], payload["theme"], payload["facilitateur"], old_val, new_val)
     record_system_audit("save_toolbox_topic", "toolbox_topic", str(topic_id), f"date={payload['date_theme']}")
     return topic_id
 
@@ -227,6 +236,10 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
         for target_date in sorted(set(dates)):
             _ensure_theme_not_used_in_month(connection, target_date, theme)
         for target_date in sorted(set(dates)):
+            existing = connection.execute(
+                "SELECT theme, facilitateur FROM themes_securite WHERE date_theme = ?",
+                (target_date,),
+            ).fetchone()
             connection.execute(
                 """
                 INSERT INTO themes_securite(date_theme, theme, facilitateur, site_id)
@@ -239,6 +252,10 @@ def assign_topic_to_dates(values: dict[str, Any]) -> int:
                 """,
                 (target_date, theme, facilitator, normalized_site_id),
             )
+            action = "UPDATE" if existing else "CREATE"
+            old_val = json.dumps({"theme": existing["theme"], "facilitateur": existing["facilitateur"]}) if existing else None
+            new_val = json.dumps({"theme": theme, "facilitateur": facilitator})
+            _log_toolbox_audit(connection, action, target_date, theme, facilitator, old_val, new_val)
     return len(set(dates))
 
 
@@ -358,24 +375,42 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
                     key = _theme_key(theme)
                     existing_theme_counts[key] = existing_theme_counts.get(key, 0) + 1
         target_days = [day for day in days if overwrite or day not in existing_with_theme]
-        theme_pool: list[str] = []
+
+        # Séparer les thèmes obligatoires des optionnels pour garantir leur présence
+        mandatory_pool: list[str] = []
+        optional_pool: list[str] = []
         for row in catalog:
             theme = _normalize_bilingual_theme(row["theme"])
             if not theme:
                 continue
-            limit = 1
-            remaining = limit - existing_theme_counts.get(_theme_key(theme), 0)
-            theme_pool.extend([theme] * max(0, remaining))
-        random.shuffle(theme_pool)
+            already_used = existing_theme_counts.get(_theme_key(theme), 0)
+            if already_used >= 1:
+                continue
+            if row.get("obligatoire"):
+                mandatory_pool.append(theme)
+            else:
+                optional_pool.append(theme)
+
+        random.shuffle(mandatory_pool)
+        random.shuffle(optional_pool)
+        # Les thèmes obligatoires d'abord, puis les optionnels
+        theme_pool = mandatory_pool + optional_pool
+
         if len(theme_pool) < len(target_days):
+            mandatory_count = len(mandatory_pool)
+            optional_count = len(optional_pool)
+            needed = len(target_days)
+            available = len(theme_pool)
             raise ValueError(
-                "Themes insuffisants pour remplir le mois avec cette regle: "
-                "chaque theme doit etre utilise une seule fois maximum dans le mois."
+                f"Themes insuffisants : {available} themes disponibles ({mandatory_count} obligatoires, "
+                f"{optional_count} optionnels) pour {needed} jours a affecter. "
+                f"Ajoute au moins {needed - available} theme(s) supplementaire(s) dans la banque."
             )
+
         for day in days:
             if day in existing_with_theme and not overwrite:
                 continue
-            theme = theme_pool.pop()
+            theme = theme_pool.pop(0)
             connection.execute(
                 """
                 INSERT INTO themes_securite(date_theme, theme, facilitateur)
@@ -389,6 +424,12 @@ def assign_monthly_topics(month: str | None = None, facilitateur: str | None = N
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (day, theme, selected_facilitator, DEFAULT_TOOLBOX_FACILITATOR, selected_facilitator),
+            )
+            _log_toolbox_audit(
+                connection, "AUTO_ASSIGN", day, theme,
+                selected_facilitator or DEFAULT_TOOLBOX_FACILITATOR,
+                None,
+                json.dumps({"theme": theme, "facilitateur": selected_facilitator or DEFAULT_TOOLBOX_FACILITATOR}),
             )
             assigned += 1
     record_system_audit("assign_monthly_toolbox_topics", "toolbox_month", selected_month, f"assigned={assigned}")
@@ -429,7 +470,10 @@ def get_toolbox_topic_for_date(date_theme: str | None = None, auto_assign: bool 
         return dict(row)
     if not auto_assign:
         return None
-    assign_monthly_topics(target_date[:7])
+    try:
+        assign_monthly_topics(target_date[:7])
+    except ValueError:
+        return None
     with db_session() as connection:
         assigned = connection.execute(
             """
@@ -445,7 +489,18 @@ def get_toolbox_topic_for_date(date_theme: str | None = None, auto_assign: bool 
 def delete_toolbox_topic(date_theme: str) -> None:
     target_date = _parse_date(date_theme)
     with db_session() as connection:
+        existing = connection.execute(
+            "SELECT theme, facilitateur FROM themes_securite WHERE date_theme = ?",
+            (target_date,),
+        ).fetchone()
         connection.execute("DELETE FROM themes_securite WHERE date_theme = ?", (target_date,))
+        if existing:
+            _log_toolbox_audit(
+                connection, "DELETE", target_date,
+                existing["theme"], existing["facilitateur"],
+                json.dumps({"theme": existing["theme"], "facilitateur": existing["facilitateur"]}),
+                None,
+            )
 
 
 def save_desktop_confirmation(values: dict[str, Any]) -> int:
@@ -508,7 +563,14 @@ def clear_monthly_toolbox_topics(month: str | None = None) -> int:
             """,
             (days[0], days[-1]),
         )
-        return int(cursor.rowcount or 0)
+        count = int(cursor.rowcount or 0)
+        if count:
+            _log_toolbox_audit(
+                connection, "CLEAR_MONTH", None, None, None,
+                json.dumps({"month": selected_month, "deleted": count}),
+                None,
+            )
+        return count
 
 
 def get_toolbox_options() -> dict[str, list[dict[str, Any]]]:
@@ -555,6 +617,142 @@ def list_toolbox_facilitators() -> list[dict[str, str]]:
     ordered = [DEFAULT_TOOLBOX_FACILITATOR]
     ordered.extend(sorted(name for name in names if name and name != DEFAULT_TOOLBOX_FACILITATOR))
     return [{"value": name, "label": name} for name in ordered]
+
+
+def get_toolbox_stats(months_back: int = 6) -> dict[str, Any]:
+    """Statistiques avancées Toolbox Talk : complétion mensuelle, par site, par facilitateur."""
+    today = date.today()
+    months = []
+    for offset in range(months_back - 1, -1, -1):
+        m = today.month - offset
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        months.append(f"{y}-{m:02d}")
+
+    with db_session() as connection:
+        monthly_stats = []
+        for month in months:
+            year, month_number = map(int, month.split("-"))
+            days_in_month = calendar.monthrange(year, month_number)[1]
+            start = f"{month}-01"
+            end = f"{month}-{days_in_month:02d}"
+            completed = connection.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM themes_securite
+                WHERE date_theme BETWEEN ? AND ?
+                  AND COALESCE(theme, '') <> ''
+                """,
+                (start, end),
+            ).fetchone()["cnt"]
+            completion = round(completed * 100 / days_in_month) if days_in_month else 0
+            label = f"{calendar.month_abbr[month_number]} {year}"
+            monthly_stats.append({
+                "month": month,
+                "label": label,
+                "days": days_in_month,
+                "completed": int(completed),
+                "missing": days_in_month - int(completed),
+                "completion": completion,
+            })
+
+        # Stats par facilitateur (6 derniers mois)
+        start_all = f"{months[0]}-01"
+        year_last, month_last_num = map(int, months[-1].split("-"))
+        days_last = calendar.monthrange(year_last, month_last_num)[1]
+        end_all = f"{months[-1]}-{days_last:02d}"
+
+        facilitator_rows = connection.execute(
+            """
+            SELECT
+                COALESCE(facilitateur, 'Non renseigne') AS facilitateur,
+                COUNT(*) AS total
+            FROM themes_securite
+            WHERE date_theme BETWEEN ? AND ?
+              AND COALESCE(theme, '') <> ''
+            GROUP BY COALESCE(facilitateur, 'Non renseigne')
+            ORDER BY total DESC
+            LIMIT 10
+            """,
+            (start_all, end_all),
+        ).fetchall()
+        by_facilitator = [{"facilitateur": r["facilitateur"], "total": int(r["total"])} for r in facilitator_rows]
+
+        # Stats par site (6 derniers mois)
+        site_rows = connection.execute(
+            """
+            SELECT
+                COALESCE(s.nom, 'Non renseigne') AS site,
+                COUNT(*) AS total
+            FROM themes_securite ts
+            LEFT JOIN sites s ON s.id_site = ts.site_id
+            WHERE ts.date_theme BETWEEN ? AND ?
+              AND COALESCE(ts.theme, '') <> ''
+            GROUP BY COALESCE(s.nom, 'Non renseigne')
+            ORDER BY total DESC
+            """,
+            (start_all, end_all),
+        ).fetchall()
+        by_site = [{"site": r["site"], "total": int(r["total"])} for r in site_rows]
+
+        # Total global
+        total_done = sum(m["completed"] for m in monthly_stats)
+        total_days = sum(m["days"] for m in monthly_stats)
+        global_completion = round(total_done * 100 / total_days) if total_days else 0
+
+    return {
+        "monthly": monthly_stats,
+        "by_facilitator": by_facilitator,
+        "by_site": by_site,
+        "global": {
+            "total_done": total_done,
+            "total_days": total_days,
+            "completion": global_completion,
+        },
+    }
+
+
+def list_toolbox_audit(month: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    where = ""
+    params: tuple[Any, ...] = ()
+    if month:
+        selected_month = _parse_month(month)
+        days = _month_days(selected_month)
+        where = "WHERE (date_theme BETWEEN ? AND ? OR date_theme IS NULL)"
+        params = (days[0], days[-1])
+    with db_session() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT id_audit, action, date_theme, theme, facilitateur,
+                   ancienne_valeur, nouvelle_valeur, changed_by, changed_at, commentaire
+            FROM toolbox_audit
+            {where}
+            ORDER BY changed_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _log_toolbox_audit(
+    connection: Any,
+    action: str,
+    date_theme: str | None,
+    theme: str | None,
+    facilitateur: str | None,
+    old_val: str | None,
+    new_val: str | None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO toolbox_audit(action, date_theme, theme, facilitateur, ancienne_valeur, nouvelle_valeur)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (action, date_theme, theme, facilitateur, old_val, new_val),
+    )
 
 
 def _clean_payload(values: dict[str, Any]) -> dict[str, Any]:
@@ -617,12 +815,9 @@ def _normalize_bilingual_theme(value: Any) -> str:
     translated = TOOLBOX_SINGLE_LANGUAGE_TRANSLATIONS.get(_plain_key(text))
     if translated:
         return translated
-    language = _detect_theme_language(text)
-    if language == "fr":
-        return f"{text} / {text}"
-    if language == "en":
-        return f"{text} / {text}"
-    return f"{text} / {text}"
+    # Pas de traduction automatique disponible : on retourne le texte tel quel
+    # pour éviter la duplication "texte / texte" qui n'est pas bilingue
+    return text
 
 
 def _ensure_theme_not_used_in_month(connection: Any, target_date: str, theme: str) -> None:
@@ -642,7 +837,9 @@ def _ensure_theme_not_used_in_month(connection: Any, target_date: str, theme: st
     ).fetchall()
     for row in rows:
         if _theme_key(row["theme"]) == theme_key:
-            raise ValueError("Ce theme est deja utilise dans ce mois. Choisis un autre theme.")
+            raise ValueError(
+                f"Ce theme est deja utilise le {row['date_theme']} dans ce mois. Choisis un autre theme."
+            )
 
 
 def _has_bilingual_separator(value: str) -> bool:
@@ -679,7 +876,7 @@ def _detect_theme_language(value: str) -> str:
     tokens = normalized.split()
     french_score = sum(1 for token in tokens if token in french_words)
     english_score = sum(1 for token in tokens if token in english_words)
-    if any(char in text for char in "\u00e0\u00e2\u00e7\u00e9\u00e8\u00ea\u00eb\u00ee\u00ef\u00f4\u00f9\u00fb\u00fc"):
+    if any(char in text for char in "àâçéèêëîïôùûü"):
         french_score += 2
     if french_score > english_score:
         return "fr"
