@@ -23,3 +23,7 @@ backups/*
 downloads/
 tools/
 ~$*
+*.log
+nul
+.claude/
+data/
