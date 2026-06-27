@@ -409,7 +409,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 notify("Intervention modifiée.", SUCCESS)
             reset_maintenance_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -423,7 +423,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             notify("Pièce mise à jour." if state["part_id"] else "Pièce créée.", SUCCESS)
             reset_part_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -451,7 +451,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             delete_maintenance_part(part_id)
             notify("Pièce supprimée.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -472,7 +472,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 notify("Inspection modifiée.", SUCCESS)
             reset_inspection_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -500,7 +500,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             delete_maintenance_inspection(inspection_id)
             notify("Inspection supprimée.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -541,7 +541,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             delete_equipment_maintenance(maintenance_id)
             notify("Intervention supprimée.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -562,7 +562,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 notify("Action modifiée.", SUCCESS)
             reset_action_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -593,7 +593,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             delete_action(action_id)
             notify("Action supprimée.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -608,7 +608,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                 notify("Évaluation des risques modifiée.", SUCCESS)
             reset_risk_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -659,7 +659,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             delete_risk_assessment(risk_id)
             notify("Évaluation des risques supprimée.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -1126,7 +1126,7 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
                     ft.Text("Aucun équipement enregistré.", color=_DK_MUTED, size=14),
                     ft.Text("Cliquez 'Nouvelle intervention' pour commencer.", color=_DK_MUTED, size=11),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment(0, 0),
             ),
         ]
 

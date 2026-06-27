@@ -77,7 +77,7 @@ def employee_form_page(
                 root.update()
                 on_saved()
                 return
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         root.update()
 

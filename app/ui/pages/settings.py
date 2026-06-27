@@ -202,7 +202,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             output = create_settings_backup("sauvegarde_parametres", changed_by=actor)
             notify(f"Sauvegarde creee: {output}", SUCCESS)
             render()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -220,7 +220,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             ai_clear_key.value = False
             notify("Configuration IA enregistree.", SUCCESS)
             render()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -254,7 +254,7 @@ def settings_page(current_user: dict[str, Any] | None = None, page: ft.Page | No
             email_clear_password.value = False
             notify("Configuration email enregistree.", SUCCESS)
             render()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 

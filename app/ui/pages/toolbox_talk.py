@@ -44,6 +44,7 @@ from app.services.toolbox_talk_service import (
     delete_desktop_confirmation,
 )
 from app.services.ai_service import AIConfigurationError, suggest_toolbox_theme
+from app.ui.components.confirm import confirm_action
 from app.ui.components.feedback import show_feedback
 from app.ui.components.module_header import module_header
 from app.ui.components.pagination import PAGE_SIZE, pagination_row
@@ -243,7 +244,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             state["snapshot"] = get_toolbox_dashboard_snapshot(month_field.value)
             render()
             notify("Actualise.", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _upd()
 
@@ -311,7 +312,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             render_preview(result)
             preview_area.visible = True
             notify(f"Apercu : {result['new_assignments']} affectation(s) proposee(s). Confirme pour appliquer.", PRIMARY)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _upd()
 
@@ -326,7 +327,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             preview_area.visible = False
             notify(f"Plan applique : {result['assigned']} jour(s) affecte(s), {result['remaining']} restant(s).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -341,7 +342,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             count = assign_monthly_topics(month_field.value, monthly_facilitator_field.value)
             notify(f"{count} topic(s) affecte(s) aleatoirement.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -350,19 +351,29 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             count = apply_monthly_toolbox_facilitator(month_field.value, monthly_facilitator_field.value)
             notify(f"Facilitateur applique sur {count} jour(s).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
     def do_clear_month(event: ft.ControlEvent | None = None) -> None:
-        try:
-            count = clear_monthly_toolbox_topics(str(month_field.value or ""))
-            state["selected_dates"] = set()
-            notify(f"{count} theme(s) dissocie(s).", WARNING)
-            refresh()
-        except ValueError as exc:
-            notify(str(exc), DANGER)
-            _upd()
+        month = str(month_field.value or "")
+        def _execute() -> None:
+            try:
+                count = clear_monthly_toolbox_topics(month)
+                state["selected_dates"] = set()
+                notify(f"{count} theme(s) dissocie(s).", WARNING)
+                refresh()
+            except Exception as exc:
+                notify(str(exc), DANGER)
+                _upd()
+        confirm_action(
+            page,
+            "Dissocier le mois",
+            f"Tous les themes du mois {month} seront supprimes. Cette action est irreversible.",
+            _execute,
+            confirm_label="Dissocier",
+            danger=True,
+        )
 
     # ── actions réalisation ───────────────────────────────────────────────────
     def start_edit(row: dict[str, Any]) -> None:
@@ -400,7 +411,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             })
             notify("Theme enregistre.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -419,18 +430,27 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
                 })
             notify(f"Realisation confirmee pour {len(dates)} jour(s) — {attendees_field.value} participant(s).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
     def delete_confirmation(date_str: str) -> None:
-        try:
-            delete_desktop_confirmation(date_str)
-            notify("Confirmation supprimee.", WARNING)
-            refresh()
-        except ValueError as exc:
-            notify(str(exc), DANGER)
-            _upd()
+        def _execute() -> None:
+            try:
+                delete_desktop_confirmation(date_str)
+                notify("Confirmation supprimee.", WARNING)
+                refresh()
+            except Exception as exc:
+                notify(str(exc), DANGER)
+                _upd()
+        confirm_action(
+            page,
+            "Supprimer la confirmation",
+            f"La confirmation du {date_str} sera supprimee definitivement.",
+            _execute,
+            confirm_label="Supprimer",
+            danger=True,
+        )
 
     def assign_selected(event: ft.ControlEvent | None = None) -> None:
         try:
@@ -441,18 +461,28 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             })
             notify(f"{count} date(s) mises a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
     def delete_topic(row: dict[str, Any]) -> None:
-        try:
-            delete_toolbox_topic(str(row["date_theme"]))
-            notify("Theme supprime.", WARNING)
-            refresh()
-        except ValueError as exc:
-            notify(str(exc), DANGER)
-            _upd()
+        date_str = str(row["date_theme"])
+        def _execute() -> None:
+            try:
+                delete_toolbox_topic(date_str)
+                notify("Theme supprime.", WARNING)
+                refresh()
+            except Exception as exc:
+                notify(str(exc), DANGER)
+                _upd()
+        confirm_action(
+            page,
+            "Supprimer le theme",
+            f"Le theme du {date_str} sera supprime definitivement.",
+            _execute,
+            confirm_label="Supprimer",
+            danger=True,
+        )
 
     def toggle_date(row: dict[str, Any], selected: bool | None) -> None:
         dates: set[str] = set(state.get("selected_dates") or set())
@@ -479,7 +509,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
         try:
             out = export_toolbox_talk_xlsx(str(month_field.value or ""))
             notify(f"Export cree : {out}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _upd()
 
@@ -497,7 +527,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             state["bank_form_visible"] = False
             notify("Theme professionnel enregistre.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -538,7 +568,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
                 _reset_pro_form()
             notify("Theme supprime.", WARNING)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -547,7 +577,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             count = generate_toolbox_theme_catalog(int(generated_count_field.value or 12))
             notify(f"{count} theme(s) OREZONE ajoutes.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -587,7 +617,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             effectiveness_comments.value = ""
             notify("Evaluation d'effectivite enregistree.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 
@@ -606,7 +636,7 @@ def toolbox_talk_page(page: ft.Page | None = None) -> ft.Control:  # noqa: C901
             notify("Campagne enregistree.", SUCCESS)
             render_campaigns()
             _upd()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _upd()
 

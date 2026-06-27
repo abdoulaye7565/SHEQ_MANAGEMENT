@@ -194,7 +194,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             render_summary()
             render_list()
             render_control_panels()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -238,7 +238,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             render_summary()
             render_list()
             render_control_panels()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -270,7 +270,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             render_summary()
             render_list()
             render_control_panels()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -484,7 +484,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
         confirmed = len(selected_ids)
         try:
             persist_day()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             render_summary()
             render_list()
@@ -551,7 +551,7 @@ def attendance_page(page: ft.Page | None = None) -> ft.Control:
             render_summary()
             render_list()
             render_control_panels()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             render_control_panels()
         _update()

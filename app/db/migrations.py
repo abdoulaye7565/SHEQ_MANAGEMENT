@@ -96,6 +96,17 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS drilling_signatures (
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'operator',
+            signature_b64 TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (name, role)
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS equipment_monthly_checks (
             month TEXT PRIMARY KEY,
             confirmed_by TEXT NOT NULL DEFAULT 'system',

@@ -754,20 +754,16 @@ def risk_analysis_page(page: Any = None) -> ft.Control:  # noqa: C901
                 path = export_risk_fiche_pdf(int(risk["id"]))
                 open_export_file(path)
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Fiche PDF : {path.name}", color="#FFFFFF"),
                         bgcolor=SUCCESS,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
             except Exception as exc:
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Erreur fiche PDF : {exc}", color="#FFFFFF"),
                         bgcolor=DANGER,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
 
         table_area = ft.Column(spacing=8, tight=True)
 
@@ -983,20 +979,16 @@ def risk_analysis_page(page: Any = None) -> ft.Control:  # noqa: C901
                 )
                 open_export_file(path)
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Export Excel : {path.name}", color="#FFFFFF"),
                         bgcolor=SUCCESS,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
             except Exception as exc:
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Erreur export Excel : {exc}", color="#FFFFFF"),
                         bgcolor=DANGER,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
 
         def _do_export_pdf(e: Any = None) -> None:
             try:
@@ -1007,20 +999,16 @@ def risk_analysis_page(page: Any = None) -> ft.Control:  # noqa: C901
                 )
                 open_export_file(path)
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Export PDF : {path.name}", color="#FFFFFF"),
                         bgcolor=SUCCESS,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
             except Exception as exc:
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text(f"Erreur export PDF : {exc}", color="#FFFFFF"),
                         bgcolor=DANGER,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
 
         filter_bar = ft.Container(
             bgcolor=_DK_CARD2,
@@ -1348,12 +1336,10 @@ def risk_analysis_page(page: Any = None) -> ft.Control:  # noqa: C901
                     create_risk(data)
                 state["editing_id"] = None
                 if page:
-                    page.snack_bar = ft.SnackBar(
+                    page.show_dialog(ft.SnackBar(
                         content=ft.Text("Risque enregistré.", color="#FFFFFF"),
                         bgcolor=SUCCESS,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    ))
                 _switch_tab("registre")
             except Exception as exc:
                 feedback.value = f"Erreur: {exc}"

@@ -271,7 +271,7 @@ def training_matrix_page(page: ft.Page | None = None) -> ft.Control:
             state["selected"].clear()
             notify(f"Mise a jour globale terminee: {total} employe(s) actualise(s).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             update_root()
 
@@ -305,7 +305,7 @@ def training_matrix_page(page: ft.Page | None = None) -> ft.Control:
             )
             notify(f"{cell.get('training_name') or 'Formation'} mise a jour pour {employee.get('nom') or 'employe'}.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             update_root()
 

@@ -193,7 +193,7 @@ La base sera creee dans : %APPDATA%\OREZONE_QHSE\data\orezone.db
 DONNEES ET EXPORTS
 ------------------
 - Base de donnees : %APPDATA%\OREZONE_QHSE\data\orezone.db
-- Exports Excel   : Documents\OREZONE_QHSE\exports
+- Exports Excel   : %APPDATA%\OREZONE_QHSE\exports
 - Lors d'une mise a jour, la base existante est conservee
 
 MISE A JOUR

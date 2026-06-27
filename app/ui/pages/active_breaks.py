@@ -95,7 +95,7 @@ def active_breaks_page() -> ft.Control:
             updated = return_employees_to_service([employee_id])
             notify(f"{updated} employe remis en service.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

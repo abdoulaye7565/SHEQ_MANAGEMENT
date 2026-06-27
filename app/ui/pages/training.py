@@ -218,7 +218,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
                 state["editing_id"] = None
             refresh()
             render_form_actions()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -280,7 +280,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             notify(f"{updated} formation(s) mise(s) a jour.", SUCCESS)
             refresh()
             render_form_actions()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -317,7 +317,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
                 SUCCESS,
             )
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -401,7 +401,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             sync_employee_info()
             new_training_field.value = ""
             notify("Nom de formation cree et selectionne.", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -412,7 +412,7 @@ def training_page(page: ft.Page | None = None) -> ft.Control:
             department_field.value = created_name
             new_department_field.value = ""
             notify("Departement cree et selectionne.", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 

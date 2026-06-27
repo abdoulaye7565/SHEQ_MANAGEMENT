@@ -99,7 +99,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
             render_form(default_values())
             render_alerts()
             render_history()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         root.update()
 
@@ -109,7 +109,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
             notify("Break confirme et passe en cours.", SUCCESS)
             render_alerts()
             render_history()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -129,7 +129,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
             notify("Break annule.", WARNING)
             render_alerts()
             render_history()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -156,7 +156,7 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
                 render_alerts()
                 render_history()
                 _update()
-            except ValueError as exc:
+            except Exception as exc:
                 dialog_status.value = str(exc)
                 dialog_status.color = DANGER
                 if page is not None:

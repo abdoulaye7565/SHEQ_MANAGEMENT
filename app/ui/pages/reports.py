@@ -111,7 +111,7 @@ def reports_page(show_header: bool = True) -> ft.Control:
             state["generated"].insert(0, {"report": report["title"], "path": output})
             notify(f"Rapport cree: {output}", SUCCESS)
             render_generated()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         except OSError as exc:
             notify(f"Export impossible: ferme le fichier Excel ouvert puis recommence. Detail: {exc}", DANGER)
@@ -130,7 +130,7 @@ def reports_page(show_header: bool = True) -> ft.Control:
                 created += 1
             notify(f"{created} rapport(s) cree(s).", SUCCESS)
             render_generated()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         except OSError as exc:
             notify(f"Export impossible: ferme le fichier Excel ouvert puis recommence. Detail: {exc}", DANGER)

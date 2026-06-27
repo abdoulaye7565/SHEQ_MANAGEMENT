@@ -2997,3 +2997,170 @@ def _xml_escape(value: Any) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+# ── SHEQ Timesheet export ────────────────────────────────────────────────────
+
+def _write_sheq_timesheet_xls(path: "Path", sheq: dict) -> None:  # noqa: F821
+    """Write SHEQ Timesheet (01-25) to HTML-as-XLS — format SHEQ HOUR STATS."""
+    from datetime import datetime as _dt
+    generated_at = _dt.now().strftime("%Y-%m-%d %H:%M")
+    period  = sheq["period"]
+    days    = sheq["days"]
+    expats  = sheq["expats"]
+    locals_ = sheq["locals"]
+    daily   = sheq["daily_stats"]
+    totals  = sheq["grand_totals"]
+    n_days  = len(days)
+    col_count = 2 + n_days + 3
+
+    css = """
+@page { mso-page-orientation: landscape; margin: 0.3in; }
+body { font-family: Calibri, Arial, sans-serif; font-size: 9pt; color: #111827; }
+table { border-collapse: collapse; }
+td, th { border: 1px solid #94a3b8; padding: 2px 4px; font-size: 8pt; mso-number-format:"\\@"; }
+.title    { background: #1e3a8a; color: #fff; font-size: 13pt; font-weight: bold; text-align: center; padding: 6px; }
+.subtitle { background: #dbeafe; color: #1e3a8a; font-weight: bold; text-align: center; }
+.sec-head { background: #1e3a8a; color: #fff; font-weight: bold; }
+.hdr      { background: #374151; color: #fff; font-weight: bold; text-align: center; }
+.day-hdr  { background: #1f2937; color: #fff; font-weight: bold; text-align: center; width: 28px; }
+.day-sun  { background: #4b5563; color: #e5e7eb; font-weight: bold; text-align: center; width: 28px; }
+.wday     { background: #f3f4f6; color: #6b7280; font-size: 7pt; text-align: center; }
+.wday-sun { background: #d1d5db; color: #374151; font-size: 7pt; text-align: center; }
+.name     { font-weight: bold; min-width: 130px; }
+.poste    { min-width: 150px; }
+.c10      { background: #ffffff; color: #111827; font-weight: bold; text-align: center; }
+.cwor     { background: #fca5a5; color: #7f1d1d; font-weight: bold; text-align: center; }
+.cleave   { background: #c4b5fd; color: #3b0764; font-weight: bold; text-align: center; }
+.csick    { background: #6ee7b7; color: #064e3b; font-weight: bold; text-align: center; }
+.cblank   { background: #f9fafb; color: #d1d5db; text-align: center; }
+.csun     { background: #e5e7eb; color: #9ca3af; text-align: center; }
+.tot-hrs  { background: #dbeafe; color: #1e40af; font-weight: bold; text-align: center; }
+.tot-sh   { background: #dcfce7; color: #14532d; font-weight: bold; text-align: center; }
+.tot-trn  { background: #fef9c3; color: #713f12; font-weight: bold; text-align: center; }
+.grand    { background: #111827; color: #fff; font-weight: bold; text-align: center; }
+.stat-lbl { background: #374151; color: #e5e7eb; font-weight: bold; }
+.stat-lab { background: #dbeafe; color: #1e3a8a; font-weight: bold; text-align: center; }
+.stat-wor { background: #fee2e2; color: #7f1d1d; font-weight: bold; text-align: center; }
+.sig      { background: #eff6ff; font-weight: bold; text-align: center; height: 22px; }
+.sig-box  { height: 55px; }
+"""
+
+    def _hdr_row() -> str:
+        day_ths = "".join(
+            f'<th class="{"day-sun" if d.get("is_sunday") else "day-hdr"}">{d["day"]:02d}</th>'
+            for d in days
+        )
+        return (
+            f'<tr><th class="hdr">NOM &amp; PRENOM</th><th class="hdr">POSTE / OCCUPATION</th>'
+            f'{day_ths}<th class="hdr">Hrs</th><th class="hdr">Shifts</th><th class="hdr">TRN</th></tr>'
+        )
+
+    def _wday_row() -> str:
+        cells = '<td class="hdr"></td><td class="hdr"></td>'
+        for d in days:
+            cls = "wday-sun" if d.get("is_sunday") else "wday"
+            cells += f'<td class="{cls}">{d["weekday"][:3]}</td>'
+        return f'<tr>{cells}<td class="wday"></td><td class="wday"></td><td class="wday"></td></tr>'
+
+    def _emp_row(row: dict) -> str:
+        emp   = row["employee"]
+        nom   = _xml_escape(f'{emp.get("nom") or ""} {emp.get("prenom") or ""}'.strip() or str(emp.get("nom_complet") or "-"))
+        poste = _xml_escape(emp.get("fonction") or "-")
+        cells = f'<td class="name">{nom}</td><td class="poste">{poste}</td>'
+        for c in row["sheq_cells"]:
+            lbl    = c["label"]
+            is_sun = (c.get("weekday") or "").lower() == "sun"
+            if is_sun and not lbl:
+                cells += '<td class="csun"></td>'
+            elif lbl == "10":
+                cells += '<td class="c10">10</td>'
+            elif lbl == "WOR":
+                cells += '<td class="cwor">WOR</td>'
+            elif lbl == "LEAVE":
+                cells += '<td class="cleave">LEAVE</td>'
+            elif lbl == "SICK":
+                cells += '<td class="csick">SICK</td>'
+            else:
+                cells += '<td class="cblank"></td>'
+        cells += (
+            f'<td class="tot-hrs">{row["sheq_hrs"]}</td>'
+            f'<td class="tot-sh">{row["sheq_shifts"]}</td>'
+            f'<td class="tot-trn">{row["sheq_trn"]}</td>'
+        )
+        return f'<tr>{cells}</tr>'
+
+    def _sec(label: str, hrs: int = 0) -> str:
+        extra = f'<td class="grand">{hrs}</td><td colspan="2" class="grand"></td>' if hrs else f'<td colspan="3" class="grand"></td>'
+        return f'<tr><td colspan="2" class="sec-head">{_xml_escape(label)}</td><td colspan="{n_days}" class="sec-head"></td>{extra}</tr>'
+
+    def _grand_row() -> str:
+        day_cells = "".join(f'<td class="grand">{ds["total_hrs"] or ""}</td>' for ds in daily)
+        return (
+            f'<tr><td colspan="2" class="grand">GRAND TOTAL</td>{day_cells}'
+            f'<td class="grand">{totals["total_hrs"]}</td>'
+            f'<td class="grand">{totals["total_shifts"]}</td>'
+            f'<td class="grand">{totals["total_trn"]}</td></tr>'
+        )
+
+    def _stat_row(label: str, cls: str, getter) -> str:
+        cells = "".join(f'<td class="{cls}">{getter(ds) or ""}</td>' for ds in daily)
+        return f'<tr><td class="stat-lbl">{label}</td><td class="stat-lbl"></td>{cells}<td class="{cls}" colspan="3"></td></tr>'
+
+    expat_hrs = sum(r["sheq_hrs"] for r in expats)
+    local_hrs  = sum(r["sheq_hrs"] for r in locals_)
+    expat_rows = "\n".join(_emp_row(r) for r in expats)
+    local_rows = "\n".join(_emp_row(r) for r in locals_)
+
+    content = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>{css}</style></head><body>
+<table>
+<tr><td colspan="{col_count}" class="title">SHEQ HOUR STATS — {_xml_escape(period.get("label", ""))}</td></tr>
+<tr><td colspan="{col_count}" class="subtitle">Période : {_xml_escape(period["start"])} au {_xml_escape(period["end"])} | Généré : {_xml_escape(generated_at)}</td></tr>
+<tr><td colspan="{col_count}"></td></tr>
+{_hdr_row()}
+{_wday_row()}
+{_sec("EXPATS", expat_hrs)}
+{expat_rows}
+{_sec("LOCAL WORKERS", local_hrs)}
+{local_rows}
+{_grand_row()}
+<tr><td colspan="{col_count}"></td></tr>
+{_stat_row("DAILY HOURS TOTAL", "stat-lab", lambda ds: ds["total_hrs"])}
+{_stat_row("ACTIVE LABOUR HEADCOUNT", "stat-lab", lambda ds: ds["labour"])}
+{_stat_row("WOR COUNT", "stat-wor", lambda ds: ds["wor"])}
+<tr><td colspan="{col_count}"></td></tr>
+<tr>
+  <td colspan="4" class="sig">Prepared by</td>
+  <td colspan="4" class="sig">Checked by (SHEQ)</td>
+  <td colspan="4" class="sig">Approved by</td>
+  <td colspan="{max(col_count - 12, 1)}"></td>
+</tr>
+<tr>
+  <td colspan="4" class="sig-box"></td>
+  <td colspan="4" class="sig-box"></td>
+  <td colspan="4" class="sig-box"></td>
+  <td colspan="{max(col_count - 12, 1)}"></td>
+</tr>
+</table></body></html>
+"""
+    path.write_text(content, encoding="utf-8")
+
+
+def export_sheq_timesheet_xls(
+    month: "str | None" = None,
+    site_id: "int | None" = None,
+) -> "Path":  # noqa: F821
+    """Export the SHEQ Timesheet 01-25 to an XLS file (HTML format).
+
+    Returns the path to the generated file.
+    Séparation EXPATS / LOCAL WORKERS, cellules 10/WOR/LEAVE/SICK/blank,
+    Hrs = shifts×10, daily Labour/WOR stats. Vue séparée du timesheet RH.
+    """
+    from app.services.sheq_timesheet_service import build_sheq_timesheet
+    sheq = build_sheq_timesheet(month=month, site_id=site_id)
+    period = sheq["period"]
+    month_tag = (period.get("month") or month or "").replace("-", "")
+    path = _unique_export_path(f"SHEQ_Timesheet_{month_tag}.xls")
+    _write_sheq_timesheet_xls(path, sheq)
+    return path

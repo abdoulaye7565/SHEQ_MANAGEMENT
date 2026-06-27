@@ -139,12 +139,23 @@ def update_drilling_report(report_id: int, data: dict[str, Any]) -> None:
                 _insert_log_entry(conn, report_id, i, entry)
 
 
+def submit_drilling_report(report_id: int) -> None:
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE drilling_reports SET status='submitted' WHERE id=? AND status='draft'",
+            (report_id,),
+        )
+
+
 def validate_drilling_report(
     report_id: int,
     supervisor_name: str,
     supervisor_signature: str | None = None,
 ) -> None:
     with db_session() as conn:
+        row = conn.execute(
+            "SELECT report_date FROM drilling_reports WHERE id=?", (report_id,)
+        ).fetchone()
         conn.execute(
             """UPDATE drilling_reports
                SET status='validated', supervisor_name=?,
@@ -153,6 +164,12 @@ def validate_drilling_report(
                WHERE id=?""",
             (supervisor_name, supervisor_signature, report_id),
         )
+    if row:
+        try:
+            from app.services.timesheet_service import set_day_activity
+            set_day_activity(str(row["report_date"]), has_drilling=True)
+        except Exception:
+            pass
 
 
 def reject_drilling_report(report_id: int) -> None:
@@ -185,6 +202,23 @@ def get_drilling_report(report_id: int) -> dict[str, Any] | None:
         ).fetchall()
         report["entries"] = [dict(e) for e in entries]
         return report
+
+
+def get_last_report(hole_number: str | None = None) -> dict[str, Any] | None:
+    """Return the most recent report (optionally for a given hole) with full entries."""
+    with db_session() as conn:
+        if hole_number:
+            row = conn.execute(
+                "SELECT id FROM drilling_reports WHERE hole_number=? ORDER BY report_date DESC, id DESC LIMIT 1",
+                (hole_number,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM drilling_reports ORDER BY report_date DESC, id DESC LIMIT 1"
+            ).fetchone()
+    if not row:
+        return None
+    return get_drilling_report(int(row["id"]))
 
 
 def get_drilling_report_by_uuid(report_uuid: str) -> dict[str, Any] | None:
@@ -290,6 +324,72 @@ def upsert_from_mobile(payload: dict[str, Any]) -> int:
         update_drilling_report(existing["id"], payload)
         return existing["id"]
     return create_drilling_report(payload)
+
+
+# ── Personnel disponible (non en congé) ──────────────────────────────────────
+
+def list_available_personnel(
+    role_keywords: "str | list[str]",
+    report_date: str | None = None,
+) -> list[str]:
+    """
+    Noms complets des employés actifs dont la fonction contient au moins un
+    des mots-clés (insensible à la casse), non en congé/break à report_date.
+    role_keywords peut être une chaîne ou une liste de chaînes.
+    """
+    ref_date = report_date or date.today().isoformat()
+    keywords: list[str] = [role_keywords] if isinstance(role_keywords, str) else list(role_keywords)
+    kw_clause = " OR ".join(["LOWER(f.nom) LIKE LOWER(?)" for _ in keywords])
+    kw_params = [f"%{kw}%" for kw in keywords]
+    with db_session() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT e.nom_complet
+            FROM employes e
+            JOIN fonctions f ON f.id_fonction = e.fonction_id
+            WHERE e.statut = 'actif'
+              AND ({kw_clause})
+              AND NOT EXISTS (
+                  SELECT 1 FROM employee_breaks eb
+                  WHERE eb.employe_id = e.id_employe
+                    AND eb.statut IN ('planifie', 'en_cours')
+                    AND eb.date_debut <= ?
+                    AND eb.date_fin >= ?
+              )
+            ORDER BY e.nom_complet
+            """,
+            (*kw_params, ref_date, ref_date),
+        ).fetchall()
+    return [row["nom_complet"] for row in rows]
+
+
+# ── Signature cache ──────────────────────────────────────────────────────────
+
+def get_cached_signature(name: str, role: str = "operator") -> str | None:
+    """Return stored base64 signature for this name+role, or None."""
+    if not name or not name.strip():
+        return None
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT signature_b64 FROM drilling_signatures WHERE name=? AND role=?",
+            (name.strip(), role),
+        ).fetchone()
+    return str(row["signature_b64"]) if row else None
+
+
+def save_cached_signature(name: str, role: str, signature_b64: str) -> None:
+    """Persist a signature for this name+role for future reuse."""
+    if not name or not name.strip() or not signature_b64:
+        return
+    with db_session() as conn:
+        conn.execute(
+            """INSERT INTO drilling_signatures (name, role, signature_b64, updated_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(name, role) DO UPDATE SET
+                   signature_b64=excluded.signature_b64,
+                   updated_at=CURRENT_TIMESTAMP""",
+            (name.strip(), role, signature_b64),
+        )
 
 
 def list_validated_since(since_iso: str | None = None) -> list[dict[str, Any]]:

@@ -56,6 +56,7 @@ def dashboard_page(navigate: Any | None = None, user: dict[str, object] | None =
     ppe              = summary["ppe"]
     training         = summary["training"]
     maintenance      = summary["maintenance_actions"]
+    drilling         = summary.get("drilling") or {}
     alerts           = _safe_rows(lambda: list_alerts(statut="ouverte"))[:6]
     maintenance_rows = _safe_rows(lambda: list_equipment_maintenance(limit=6))
     audit_rows       = _safe_rows(lambda: list_admin_audit(limit=6))
@@ -72,6 +73,7 @@ def dashboard_page(navigate: Any | None = None, user: dict[str, object] | None =
         + maintenance["actions_late"]
         + maintenance["maintenance_critical"]
         + maintenance["actions_critical"]
+        + int(drilling.get("pending") or 0)
     )
 
     kpis = [
@@ -83,6 +85,7 @@ def dashboard_page(navigate: Any | None = None, user: dict[str, object] | None =
         ("EPI stock critique",  ppe["low_stock"],                 DANGER,   ft.Icons.HEALTH_AND_SAFETY_OUTLINED,   "Articles sous seuil"),
         ("Alertes critiques",   critical_total,                   DANGER,   ft.Icons.REPORT_PROBLEM_OUTLINED,      "Actions requises"),
         ("Maintenance retard",  maintenance["maintenance_late"],  WARNING,  ft.Icons.HANDYMAN_OUTLINED,            "Interventions dues"),
+        ("Forage en attente",   int(drilling.get("pending") or 0), WARNING if int(drilling.get("pending") or 0) else SUCCESS, ft.Icons.OIL_BARREL_OUTLINED, "Rapports soumis non valides"),
         ("Heures 14 jours",     summary["trend_total_hours"],     PRIMARY,  ft.Icons.ACCESS_TIME_OUTLINED,         "Temps travaille total"),
         ("Timesheets",          f"{validated_ts}/{ts_summary.get('employees') or 0}", SUCCESS, ft.Icons.FACT_CHECK_OUTLINED, "Periode en cours"),
     ]
@@ -611,6 +614,7 @@ def _shift_panel(summary: dict[str, Any]) -> ft.Control:
 def _operational_focus_panel(summary: dict[str, Any]) -> ft.Control:
     today       = summary["presence_today"]
     maintenance = summary["maintenance_actions"]
+    drilling    = summary.get("drilling") or {}
     items = [
         ("Au travail",           summary["workforce_at_work"],          SUCCESS, ft.Icons.ENGINEERING_OUTLINED),
         ("En break",             summary["workforce_on_break"],          WARNING, ft.Icons.BEACH_ACCESS_OUTLINED),
@@ -619,6 +623,8 @@ def _operational_focus_panel(summary: dict[str, Any]) -> ft.Control:
         ("Breaks a planifier",   summary["breaks_dus"],                  DANGER,  ft.Icons.EVENT_BUSY_OUTLINED),
         ("Maintenances ouvertes",maintenance["maintenance_open"],        WARNING if maintenance["maintenance_open"] else SUCCESS, ft.Icons.HANDYMAN_OUTLINED),
         ("Actions ouvertes",     maintenance["actions_open"],            WARNING if maintenance["actions_open"] else SUCCESS, ft.Icons.TASK_ALT_OUTLINED),
+        ("Forage — a valider",   int(drilling.get("pending") or 0),     WARNING if int(drilling.get("pending") or 0) else SUCCESS, ft.Icons.OIL_BARREL_OUTLINED),
+        ("Forage — brouillons",  int(drilling.get("draft") or 0),       DANGER  if int(drilling.get("draft") or 0) else SUCCESS, ft.Icons.EDIT_NOTE_OUTLINED),
     ]
     return _panel(
         "Priorites operationnelles",

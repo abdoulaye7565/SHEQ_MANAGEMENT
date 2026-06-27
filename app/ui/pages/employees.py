@@ -230,7 +230,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             state["selected"].discard(employee_id)
             notify("Employe transfere dans les anciens employes.", SUCCESS)
             refresh_table()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -281,7 +281,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                 state["selected"].difference_update(ids)
                 notify(f"{len(ids)} employe(s) transfere(s) dans les anciens employes.", SUCCESS)
                 refresh_table()
-            except ValueError as exc:
+            except Exception as exc:
                 dialog_status.value = str(exc)
                 dialog_status.color = DANGER
                 page.update()
@@ -378,7 +378,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                 state["selected"].clear()
                 notify(f"{created} employe(s) mis a jour.", SUCCESS)
                 refresh_table()
-            except ValueError as exc:
+            except Exception as exc:
                 dialog_status.value = str(exc)
                 dialog_status.color = DANGER
                 page.update()
@@ -438,7 +438,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             state["selected"].clear()
             notify(f"{updated} employe(s) remis en service.", SUCCESS)
             refresh_table()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -475,7 +475,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             label = "Day Shift" if shift_code == "DAY" else "Night Shift"
             notify(f"{updated} employe(s) affecte(s) a {label}.", SUCCESS)
             refresh_table()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

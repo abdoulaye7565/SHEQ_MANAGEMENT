@@ -133,7 +133,7 @@ def training_bulk_page(page: ft.Page | None = None) -> ft.Control:
             state["employees"].clear()
             state["trainings"].clear()
             render()
-        except ValueError as exc:
+        except Exception as exc:
             status.value = str(exc)
             status.color = DANGER
         update()

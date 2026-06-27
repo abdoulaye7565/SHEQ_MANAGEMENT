@@ -14,10 +14,8 @@ def show_feedback(page: ft.Page | None, message: str, color: str = MUTED) -> Non
             bgcolor=_feedback_bgcolor(color),
             show_close_icon=True,
             duration=3500,
-            open=True,
         )
-        page.overlay.append(snackbar)
-        page.update()
+        page.show_dialog(snackbar)
     except Exception:
         return
 

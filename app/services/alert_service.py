@@ -86,6 +86,7 @@ def list_alerts(
         *_training_alerts(),
         *_attendance_alerts(),
         *_toolbox_alerts(),
+        *_drilling_alerts(),
     ]
     rows.sort(key=lambda row: (_level_rank(row["niveau"]), str(row["date_creation"])), reverse=True)
     filtered = filter_alert_rows(rows, source=source, niveau=niveau, statut=statut, search=search)
@@ -181,6 +182,7 @@ def get_alert_filter_options() -> dict[str, list[dict[str, str]]]:
             {"value": "training", "label": "Formations"},
             {"value": "attendance", "label": "Presence"},
             {"value": "toolbox", "label": "Toolbox Talk"},
+            {"value": "drilling", "label": "Rapports de forage"},
         ],
         "levels": [{"value": "all", "label": "Tous les niveaux"}]
         + [{"value": item, "label": _level_label(item)} for item in ALERT_LEVELS],
@@ -201,6 +203,7 @@ def _default_action_hint(source_key: str) -> str:
         "training": "Programmer les renouvellements de formation.",
         "attendance": "Corriger les presences, badges ou heures.",
         "toolbox": "Completer ou generer les themes Toolbox Talk.",
+        "drilling": "Valider ou soumettre les rapports de forage en attente.",
         "manual": "Qualifier l'alerte et assigner une action.",
     }.get(source_key, "Analyser et traiter l'alerte.")
 
@@ -584,6 +587,73 @@ def _attendance_alerts() -> list[dict[str, Any]]:
                 reference_id=row["id_presence"],
                 reference_label=name,
                 action_hint="Verifier la presence du jour",
+            )
+        )
+    return alerts
+
+
+def _drilling_alerts() -> list[dict[str, Any]]:
+    today = date.today()
+    today_str = today.isoformat()
+    limit_submitted = (today - timedelta(days=1)).isoformat()
+    limit_draft = (today - timedelta(days=2)).isoformat()
+    alerts: list[dict[str, Any]] = []
+    try:
+        with db_session() as connection:
+            submitted_rows = connection.execute(
+                """
+                SELECT id, report_date, shift, rig_type, rig_number, contract_location, operator_name
+                FROM drilling_reports
+                WHERE status = 'submitted'
+                  AND report_date <= ?
+                ORDER BY report_date
+                """,
+                (limit_submitted,),
+            ).fetchall()
+            draft_rows = connection.execute(
+                """
+                SELECT id, report_date, shift, rig_type, rig_number, contract_location, operator_name
+                FROM drilling_reports
+                WHERE status = 'draft'
+                  AND report_date <= ?
+                ORDER BY report_date
+                """,
+                (limit_draft,),
+            ).fetchall()
+    except Exception:
+        return []
+    for row in submitted_rows:
+        rig = f"{row['rig_type'] or ''} {row['rig_number'] or ''}".strip() or "Rig inconnu"
+        loc = row["contract_location"] or "—"
+        alerts.append(
+            _alert(
+                alert_id=f"drilling-submitted:{row['id']}",
+                source_key="drilling",
+                source="Rapport de forage",
+                type_alerte="Rapport en attente de validation",
+                message=f"{rig} - {loc} - rapport du {row['report_date']} (shift {row['shift']}) soumis non valide.",
+                niveau="haut",
+                date_creation=str(row["report_date"]),
+                reference_id=row["id"],
+                reference_label=f"{rig} {row['report_date']}",
+                action_hint="Valider dans le module Drilling",
+            )
+        )
+    for row in draft_rows:
+        rig = f"{row['rig_type'] or ''} {row['rig_number'] or ''}".strip() or "Rig inconnu"
+        loc = row["contract_location"] or "—"
+        alerts.append(
+            _alert(
+                alert_id=f"drilling-draft:{row['id']}",
+                source_key="drilling",
+                source="Rapport de forage",
+                type_alerte="Rapport brouillon non soumis",
+                message=f"{rig} - {loc} - rapport du {row['report_date']} reste en brouillon depuis plus de 2 jours.",
+                niveau="moyen",
+                date_creation=str(row["report_date"]),
+                reference_id=row["id"],
+                reference_label=f"{rig} {row['report_date']}",
+                action_hint="Soumettre ou supprimer dans le module Drilling",
             )
         )
     return alerts

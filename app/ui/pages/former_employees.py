@@ -50,7 +50,7 @@ def former_employees_page() -> ft.Control:
             restore_employee(int(record["id_employe"]))
             notify("Employe reintegre dans la liste active.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

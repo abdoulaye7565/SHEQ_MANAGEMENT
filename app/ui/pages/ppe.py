@@ -280,7 +280,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
                 _required_ppe_row(r) for r in profile["requirements"]
             ] or [ft.Text("Aucun EPI obligatoire configure pour cette fonction.", color=DARK_MUTED, size=10)]
             notify("Dotation obligatoire comparee avec les EPI deja attribues.", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -297,7 +297,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             refresh_ppe_alerts()
             refresh()
             prepare_employee_assignment()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -339,7 +339,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
                 notify("EPI modifie.", SUCCESS)
             reset_item_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -380,7 +380,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             reset_item_form()
             notify("EPI supprime." if result == "supprime" else "EPI desactive (historique conserve).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -395,7 +395,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             })
             notify("Mouvement de stock enregistre.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -419,7 +419,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
                 })
             render_assignment_basket()
             notify(f"{label} ajoute au panier.", PRIMARY)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -781,7 +781,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             try:
                 assign_multiple_ppe(emp["id_employe"], items, assignment_date_field.value, str(assignment_observation_field.value or ""))
                 success_count += 1
-            except ValueError as exc:
+            except Exception as exc:
                 errors.append(f"{emp['nom']} {emp['prenom']}: {exc}")
         msg = f"Dotation effectuée pour {success_count} employé(s)."
         if errors:
@@ -1009,7 +1009,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             render_assignment_basket()
             notify(f"Dotation enregistree: {len(assignment_ids)} EPI attribue(s).", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -1026,7 +1026,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             return_ppe_assignment(assignment_id, status=close_status)
             notify("Affectation cloturee.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -1040,7 +1040,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             })
             notify("Dotation obligatoire mise a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -1057,7 +1057,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             delete_ppe_requirement(requirement_id)
             notify("Dotation obligatoire supprimee.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -1074,7 +1074,7 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
             inspection_observation_field.value = ""
             notify("Inspection EPI enregistree.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

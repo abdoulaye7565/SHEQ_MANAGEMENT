@@ -20,6 +20,7 @@ from app.services import (
     send_timesheet_email,
     update_timesheet_day_status,
 )
+from app.services.attendance_export_service import export_sheq_timesheet_xls
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
 
@@ -178,7 +179,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             update_timesheet_day_status(emp_id, date_str, status_val)
             notify(f"Correction enregistree — statut '{status_val}' pour le {date_str}.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         try:
             root.update()
@@ -198,7 +199,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
             refresh_monthly_edit_options()
             render()
             notify("TimeSheet 1-25 actualise.", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         try:
             root.update()
@@ -212,7 +213,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 site_id=selected_site_id(),
             )
             notify(f"Export Excel TimeSheet 1-25 cree: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         try:
             root.update()
@@ -283,8 +284,22 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
         try:
             output = export_timesheet_annual_history_xls(site_id=selected_site_id())
             notify(f"Historique 12 mois des deux TimeSheets exporte: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
+        try:
+            root.update()
+        except RuntimeError:
+            pass
+
+    def export_sheq(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_sheq_timesheet_xls(
+                month=selected_month(),
+                site_id=selected_site_id(),
+            )
+            notify(f"Export SHEQ Timesheet cree : {output}", SUCCESS)
+        except Exception as exc:
+            notify(f"Erreur export SHEQ : {exc}", DANGER)
         try:
             root.update()
         except RuntimeError:
@@ -635,6 +650,7 @@ def monthly_timesheet_page(page: ft.Page | None = None) -> ft.Control:
                     prepare_timesheet_in_whatsapp,
                     export_history,
                     lambda event: set_view("validation"),
+                    export_sheq=export_sheq,
                 ),
                 ft.Container(
                     bgcolor=CARD,
@@ -846,6 +862,7 @@ def _monthly_header(
     whatsapp: Any,
     history: Any,
     validation: Any,
+    export_sheq: Any = None,
 ) -> ft.Control:
     return ft.Container(
         bgcolor=CARD,
@@ -885,6 +902,16 @@ def _monthly_header(
                     tooltip="Exports et partage",
                     items=[
                         ft.PopupMenuItem(content=ft.Text("Exporter Excel"), on_click=export_excel),
+                        ft.PopupMenuItem(
+                            content=ft.Row(
+                                controls=[
+                                    ft.Icon(ft.Icons.SHIELD_OUTLINED, size=14, color="#F59E0B"),
+                                    ft.Text("Exporter SHEQ (01-25)", color="#F59E0B"),
+                                ],
+                                spacing=6,
+                            ),
+                            on_click=export_sheq,
+                        ),
                         ft.PopupMenuItem(content=ft.Text("Envoyer par email"), on_click=email),
                         ft.PopupMenuItem(content=ft.Text("Preparer dans Outlook"), on_click=outlook),
                         ft.PopupMenuItem(content=ft.Text("Preparer dans WhatsApp"), on_click=whatsapp),

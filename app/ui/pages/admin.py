@@ -8,6 +8,7 @@ import flet as ft
 from app.services import (
     create_database_backup,
     create_user,
+    export_full_database,
     export_rows_xlsx,
     get_admin_summary,
     get_role_modules,
@@ -23,6 +24,7 @@ from app.services import (
     update_user_status,
 )
 from app.services.admin_service import ALL_MODULES
+from app.ui.components.confirm import confirm_action
 from app.ui.components.feedback import show_feedback
 from app.ui.theme import DANGER, MUTED, PRIMARY, SUCCESS, TEXT, WARNING
 
@@ -163,7 +165,7 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
                 notify("Utilisateur modifie.", SUCCESS)
             clear_form()
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -184,20 +186,59 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
             update_user_status(user_id, "actif" if active else "inactif", changed_by=actor)
             notify("Statut utilisateur mis a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
     def reset_password(user_id: int) -> None:
-        try:
-            password = str(password_field.value or "")
-            reset_user_password(user_id, password, changed_by=actor)
-            password_field.value = ""
-            notify("Mot de passe reinitialise avec la valeur du champ mot de passe.", SUCCESS)
-            refresh()
-        except ValueError as exc:
-            notify(str(exc), DANGER)
-            _update()
+        new_pw  = _dark_text_field("Nouveau mot de passe", None, password=True)
+        conf_pw = _dark_text_field("Confirmer le mot de passe", None, password=True)
+        dlg_status = ft.Text("", size=11, color=DANGER)
+
+        def _do_reset(event: ft.ControlEvent | None = None) -> None:
+            pw  = str(new_pw.value or "")
+            cpw = str(conf_pw.value or "")
+            if pw != cpw:
+                dlg_status.value = "Les mots de passe ne correspondent pas."
+                dlg.update()
+                return
+            try:
+                reset_user_password(user_id, pw, changed_by=actor)
+                dlg.open = False
+                page.update()
+                notify("Mot de passe reinitialise avec succes.", SUCCESS)
+                refresh()
+            except Exception as exc:
+                dlg_status.value = str(exc)
+                dlg.update()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor="#0C1C2E",
+            title=ft.Text("Reinitialiser le mot de passe", color="#FFFFFF", size=15, weight=ft.FontWeight.BOLD),
+            content=ft.Container(
+                width=360,
+                content=ft.Column(
+                    controls=[
+                        ft.Text("Saisir un nouveau mot de passe (min. 8 car., lettres + chiffres).", size=11, color="#9DB0C5"),
+                        new_pw,
+                        conf_pw,
+                        dlg_status,
+                    ],
+                    spacing=10,
+                    tight=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Annuler", style=ft.ButtonStyle(color="#9DB0C5"), on_click=lambda _: (setattr(dlg, "open", False), page.update())),
+                ft.ElevatedButton("Appliquer", bgcolor=WARNING, color="#000000", on_click=_do_reset),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        if page:
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
 
     def create_backup(event: ft.ControlEvent | None = None) -> None:
         try:
@@ -205,18 +246,35 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
             backup_label_field.value = ""
             notify(f"Sauvegarde creee: {output}", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
-    def restore_backup(name: str) -> None:
+    def export_db(event: ft.ControlEvent | None = None) -> None:
         try:
-            safety = restore_database_backup(name, changed_by=actor)
-            notify(f"Base restauree. Copie avant restauration: {safety}", WARNING)
-            refresh()
-        except ValueError as exc:
+            out = export_full_database(changed_by=actor)
+            notify(f"Export cree : {out}", SUCCESS)
+        except Exception as exc:
             notify(str(exc), DANGER)
-            _update()
+        _update()
+
+    def restore_backup(name: str) -> None:
+        def _execute() -> None:
+            try:
+                safety = restore_database_backup(name, changed_by=actor)
+                notify(f"Base restauree. Copie avant restauration: {safety}", WARNING)
+                refresh()
+            except Exception as exc:
+                notify(str(exc), DANGER)
+                _update()
+        confirm_action(
+            page,
+            "Restaurer la sauvegarde",
+            f"La base de donnees sera remplacee par la sauvegarde \"{name}\". Toutes les donnees non sauvegardees seront perdues.",
+            _execute,
+            confirm_label="Restaurer",
+            danger=True,
+        )
 
     def save_role_permissions(role_id: int) -> None:
         controls = state["role_checks"].get(role_id, {})
@@ -225,7 +283,7 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
             update_role_modules(role_id, selected, changed_by=actor)
             notify("Permissions du role mises a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -643,6 +701,13 @@ def admin_page(current_user: dict[str, Any] | None = None, page: ft.Page | None 
                         controls=[
                             backup_label_field,
                             ft.ElevatedButton("Creer sauvegarde", icon=ft.Icons.BACKUP_OUTLINED, on_click=create_backup),
+                            ft.OutlinedButton(
+                                "Exporter base complete",
+                                icon=ft.Icons.CLOUD_DOWNLOAD_OUTLINED,
+                                style=ft.ButtonStyle(color=SUCCESS),
+                                on_click=export_db,
+                                tooltip="Exporte toute la base de donnees dans un ZIP (orezone.db + schema.sql)",
+                            ),
                         ],
                         spacing=8,
                         wrap=True,

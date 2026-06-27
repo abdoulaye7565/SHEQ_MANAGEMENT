@@ -56,6 +56,7 @@ def get_dashboard_summary() -> dict[str, Any]:
         summary["ppe"] = _ppe_summary(connection)
         summary["training"] = _training_summary(connection, today_text)
         summary["maintenance_actions"] = _maintenance_action_summary(connection, today_text)
+        summary["drilling"] = _drilling_summary(connection, today_text)
         summary["attendance_rate"] = summary["presence_today"]["rate"]
         summary["workforce_rate"] = _percent(
             max(summary["employes"] - summary["employes_hors_service"], 0),
@@ -398,6 +399,30 @@ def _maintenance_action_summary(connection: Any, current_date: str) -> dict[str,
         "actions_open": int(actions["open_count"] or 0),
         "actions_late": int(actions["late_count"] or 0),
         "actions_critical": int(actions["critical_count"] or 0),
+    }
+
+
+def _drilling_summary(connection: Any, current_date: str) -> dict[str, Any]:
+    row = connection.execute(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'validated' THEN 1 ELSE 0 END) AS validated,
+            SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = 'draft'     THEN 1 ELSE 0 END) AS draft,
+            COALESCE(SUM(CASE WHEN status = 'validated' THEN total_advance ELSE 0 END), 0) AS total_advance,
+            SUM(CASE WHEN report_date = ? THEN 1 ELSE 0 END) AS today
+        FROM drilling_reports
+        """,
+        (current_date,),
+    ).fetchone()
+    return {
+        "total":         int(row["total"] or 0),
+        "validated":     int(row["validated"] or 0),
+        "pending":       int(row["pending"] or 0),
+        "draft":         int(row["draft"] or 0),
+        "total_advance": round(float(row["total_advance"] or 0), 1),
+        "today":         int(row["today"] or 0),
     }
 
 

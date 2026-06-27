@@ -5502,7 +5502,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
     class _MobileSigPad:
         """Signature capture via camera/gallery for mobile drilling forms."""
         def __init__(self, label: str, width: int = 320, height: int = 110,
-                     existing_b64: str | None = None):
+                     existing_b64: str | None = None, page: ft.Page | None = None):
             import base64 as _b64
             self._b64: str | None = existing_b64
             self._w = width
@@ -5542,8 +5542,12 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 self._status.value = "✓ Signature ajoutée" if has else ""
                 _u(self._preview); _u(self._placeholder); _u(self._status)
 
-            # In Flet 0.84, FilePicker is a pure service — do NOT add to page.overlay
+            self._refresh_fn = _refresh
+
+            # In Flet 0.84, FilePicker is a Service — must be in page.services for pick_files to work
             self._picker = ft.FilePicker()
+            if page is not None and self._picker not in page.services:
+                page.services.append(self._picker)
 
             async def _pick(_):
                 files = await self._picker.pick_files(
@@ -5587,9 +5591,24 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
         def has_signature(self) -> bool:
             return bool(self._b64)
 
+        def set_signature(self, b64: str | None) -> None:
+            """Charge une signature base64 et rafraîchit l'affichage."""
+            self._b64 = b64
+            self._refresh_fn()
+
     def _s_drilling():
         import json as _json, uuid as _uuid
         from datetime import date as _date
+        try:
+            from app.services.drilling_service import (
+                list_available_personnel as _list_personnel,
+                get_cached_signature     as _get_sig_cache,
+                save_cached_signature    as _save_sig_cache,
+            )
+        except Exception:
+            def _list_personnel(kw, d=None): return []  # type: ignore[misc]
+            def _get_sig_cache(n, r="operator"): return None  # type: ignore[misc]
+            def _save_sig_cache(n, r, b): pass  # type: ignore[misc]
 
         DRILL_BG   = "#071321"
         DRILL_CARD = "#0F2336"
@@ -5637,6 +5656,21 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
 
         def _field_row(lbl, ctrl):
             return ft.Column([_lbl(lbl), ctrl], spacing=4)
+
+        def _pers_dd(names: list, current: str | None = None, w: int = 260) -> ft.Dropdown:
+            opts = list(names)
+            if current and current not in opts:
+                opts.insert(0, current)
+            return ft.Dropdown(
+                value=current or None,
+                options=[ft.dropdown.Option(n) for n in opts],
+                hint_text="Sélectionner…" if opts else "Aucun disponible",
+                border_color=DRILL_BRD, focused_border_color=BLUE,
+                color=DRILL_TXT, bgcolor=DRILL_CARD2,
+                border_radius=8, height=44, text_size=12,
+                content_padding=P(12, 0, 12, 0),
+                width=w,
+            )
 
         def _chip(lbl, color):
             return ft.Container(
@@ -5779,19 +5813,34 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                          lambda _: _do_delete(rep["uuid"]), 44),
                 ]
             elif status == "submitted":
-                sup_inp = _inp("Votre nom (superviseur)")
-                sig_sup = _MobileSigPad("SIGNATURE SUPERVISEUR", width=320, height=110)
+                _sups = _list_personnel("supervis", rep.get("report_date"))
+                sup_inp = _pers_dd(_sups, rep.get("supervisor_name") or None)
+                _sup_cached = _get_sig_cache(rep.get("supervisor_name") or "", "supervisor")
+                sig_sup = _MobileSigPad("SIGNATURE SUPERVISEUR", width=320, height=110,
+                                        existing_b64=_sup_cached, page=page)
                 val_err_txt = ft.Text("", color=DNG, size=12)
+
+                def _on_sup_change(_) -> None:
+                    name = (sup_inp.value or "").strip()
+                    if not name:
+                        return
+                    sig_sup.set_signature(_get_sig_cache(name, "supervisor"))
+
+                sup_inp.on_change = _on_sup_change
+
                 def _confirm_validate(_):
-                    if not sup_inp.value.strip():
-                        val_err_txt.value = "Saisissez votre nom."
+                    sup_name = (sup_inp.value or "").strip()
+                    if not sup_name:
+                        val_err_txt.value = "Sélectionnez un superviseur."
                         _u(val_err_txt); return
                     if not sig_sup.has_signature():
                         val_err_txt.value = "La signature est obligatoire."
                         _u(val_err_txt); return
-                    _do_validate(rep["uuid"], sup_inp.value, sig_sup.get_base64())
+                    sup_sig = sig_sup.get_base64()
+                    _save_sig_cache(sup_name, "supervisor", sup_sig)
+                    _do_validate(rep["uuid"], sup_name, sup_sig)
                 action_btns = [
-                    sup_inp,
+                    _field_row("Superviseur", sup_inp),
                     ft.Container(
                         ft.Column([
                             ft.Text("SIGNATURE SUPERVISEUR", size=11, color=DRILL_MUT,
@@ -5866,7 +5915,9 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             f_hole   = _inp("",      r.get("hole_number",""))
             f_angle  = _inp("60",    str(r.get("angle") or ""))
             f_client = _inp("SOMISY", r.get("client",""))
-            f_oper   = _inp("Nom opérateur", r.get("operator_name",""))
+            _ref_date = r.get("report_date") or str(_date.today())
+            _ops = _list_personnel("operat", _ref_date)
+            f_oper = _pers_dd(_ops, r.get("operator_name") or None)
             f_rfuel  = _inp("Ravitailleur", r.get("refueler_name",""))
 
             diesel_fields: dict[str, ft.TextField] = {}
@@ -5897,9 +5948,29 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             if not log_rows:
                 _add_row()
 
-            # Operator signature pad
+            # Operator signature pad — pre-load from cache if operator already selected
+            _op_existing = r.get("operator_signature") or _get_sig_cache(r.get("operator_name") or "", "operator")
             sig_op = _MobileSigPad("SIGNATURE OPÉRATEUR", width=320, height=110,
-                                    existing_b64=r.get("operator_signature"))
+                                    existing_b64=_op_existing, page=page)
+
+            def _on_oper_change(_) -> None:
+                name = (f_oper.value or "").strip()
+                if not name:
+                    return
+                sig_op.set_signature(_get_sig_cache(name, "operator"))
+
+            f_oper.on_change = _on_oper_change
+
+            def _on_date_change(_) -> None:
+                ref = (f_date.value or "").strip() or str(_date.today())
+                names = _list_personnel("operat", ref)
+                cur = f_oper.value
+                if cur and cur not in names:
+                    names.insert(0, cur)
+                f_oper.options = [ft.dropdown.Option(n) for n in names]
+                _u(f_oper)
+
+            f_date.on_blur = _on_date_change
 
             def _save(_):
                 try:
@@ -5931,11 +6002,15 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                         "diesel":             diesel,
                         "operator_signature": sig_op.get_base64(),
                         "refueler_name":    f_rfuel.value or None,
-                        "operator_name":    f_oper.value or None,
+                        "operator_name":    (f_oper.value or "").strip() or None,
                         "entries":          [lr.to_dict() for lr in log_rows],
                         "status":           r.get("status") or "draft",
                     }
                     save_drilling_report(data)
+                    op_name = data.get("operator_name") or ""
+                    op_sig  = data.get("operator_signature") or ""
+                    if op_name and op_sig:
+                        _save_sig_cache(op_name, "operator", op_sig)
                     msg_txt.value = "Rapport enregistré."
                     msg_txt.color = OK
                     ds["view"] = "list"

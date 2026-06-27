@@ -43,7 +43,9 @@ class SignaturePad:
         self._h = height
         self._on_signed = on_signed
         self._picker = ft.FilePicker()
-        # In Flet 0.84, FilePicker is a pure service — do NOT add to page.overlay
+        # In Flet 0.84, FilePicker is a Service — must be in page.services for _invoke_method to work
+        if page is not None and self._picker not in page.services:
+            page.services.append(self._picker)
 
         def _b64_src(b64: str | None) -> str:
             return f"data:image/png;base64,{b64}" if b64 else ""
@@ -91,6 +93,8 @@ class SignaturePad:
             _u(self._preview_img)
             _u(self._placeholder)
             _u(status_txt)
+
+        self._refresh_display = _refresh_display
 
         async def _pick(_) -> None:
             files = await self._picker.pick_files(
@@ -155,3 +159,8 @@ class SignaturePad:
 
     def has_signature(self) -> bool:
         return bool(self._b64)
+
+    def set_signature(self, b64: str | None) -> None:
+        """Charge une signature (base64 brut) et rafraîchit l'affichage."""
+        self._b64 = b64
+        self._refresh_display()

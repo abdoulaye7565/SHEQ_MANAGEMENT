@@ -339,7 +339,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             day_type_field.value = str(activity.get("day_type") or "work")
             comment_field.value = str(activity.get("commentaire") or "")
             notify("Activite du jour chargee.", MUTED)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -353,7 +353,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             )
             notify("Activite du jour mise a jour. Le TimeSheet est recalcule.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -368,7 +368,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             )
             notify(f"{updated} jour(s) d'activite mis a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -381,7 +381,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             )
             notify("Modification enregistree. Le TimeSheet est recalcule depuis les donnees source.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -390,7 +390,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             timesheet = get_timesheet(selected_month(), site_id=selected_site_id())
             output = export_timesheet_xls(selected_month(), site_id=selected_site_id())
             notify(f"Export Excel TimeSheet complet: {len(timesheet['rows'])} employe(s) exporte(s) - {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -442,7 +442,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             output = export_timesheet_employee_xls(selected_month(), employee_id)
             employee_label = edit_employee_field.value or employee_id
             notify(f"Export Excel TimeSheet individuel cree pour {employee_label}: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -479,7 +479,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 return
             output = export_timesheet_selected_employees_xls(selected_month(), ids)
             notify(f"Export Excel pour {len(ids)} employe(s) cree: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -520,7 +520,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
                 SUCCESS if not errors else WARNING,
             )
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -528,7 +528,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         try:
             output = export_timesheet_all_employees_xls(selected_month())
             notify(f"Exports TimeSheet individuels crees pour tous les employes: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -536,7 +536,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         try:
             output = export_timesheet_audit_xlsx(selected_month())
             notify(f"Export audit TimeSheet cree: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -544,7 +544,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
         try:
             output = export_timesheet_annual_history_xls(site_id=selected_site_id())
             notify(f"Historique annuel TimeSheet exporte: {output}", SUCCESS)
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         _update()
 
@@ -562,7 +562,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             lock_timesheet_month(selected_month(), commentaire=str(comment_field.value or ""))
             notify("TimeSheet verrouille.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -581,7 +581,7 @@ def timesheet_page(page: ft.Page | None = None) -> ft.Control:
             unlock_timesheet_month(selected_month(), commentaire=str(comment_field.value or ""))
             notify("TimeSheet deverrouille.", WARNING)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

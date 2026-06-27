@@ -77,7 +77,7 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
                 notify("Element mis a jour.", SUCCESS)
             render_form()
             render_table()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         root.update()
 
@@ -94,7 +94,7 @@ def referentials_page(page: ft.Page | None = None) -> ft.Control:
             notify("Element supprime.", SUCCESS)
             render_form()
             render_table()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
         root.update()
 

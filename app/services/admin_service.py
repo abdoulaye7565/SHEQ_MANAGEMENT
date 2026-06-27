@@ -11,7 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.config import ALL_MODULES, BASE_DIR, ROLE_MODULES
+import zipfile
+
+from app.config import ALL_MODULES, BASE_DIR, EXPORTS_DIR, ROLE_MODULES, SCHEMA_PATH
 from app.db import connection as db_connection
 from app.db.connection import db_session
 
@@ -513,6 +515,39 @@ def list_backups() -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def export_full_database(changed_by: str = "system") -> Path:
+    """Export the entire SQLite database as a ZIP archive to EXPORTS_DIR."""
+    if not db_connection.DATABASE_PATH.exists():
+        raise ValueError("Base de donnees introuvable.")
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_path = EXPORTS_DIR / f"orezone_export_complet_{timestamp}.zip"
+    db_copy = BACKUPS_DIR / f"_tmp_export_{timestamp}.db"
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _backup_database_to(db_copy)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(db_copy, "orezone.db")
+            if SCHEMA_PATH.exists():
+                zf.write(SCHEMA_PATH, "schema.sql")
+            info = (
+                f"OREZONE QHSE — Export complet de la base de donnees\n"
+                f"Date       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Exporte par: {changed_by}\n"
+                f"Fichier DB : orezone.db  (SQLite 3)\n"
+                f"Schema     : schema.sql  (DDL de reference)\n\n"
+                f"Pour restaurer : copier orezone.db vers le dossier data/ de l'application.\n"
+            )
+            zf.writestr("EXPORT_INFO.txt", info)
+    finally:
+        if db_copy.exists():
+            db_copy.unlink()
+    record_system_audit(
+        "export_full_database", "database", str(zip_path), changed_by
+    )
+    return zip_path
 
 
 def list_admin_audit(limit: int = 100) -> list[dict[str, Any]]:

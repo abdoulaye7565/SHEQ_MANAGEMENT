@@ -41,7 +41,7 @@ if getattr(sys, "frozen", False):
 else:
     DATA_DIR = BASE_DIR / "data"
 if getattr(sys, "frozen", False):
-    EXPORTS_DIR = Path.home() / "Documents" / "OREZONE_QHSE" / "exports"
+    EXPORTS_DIR = runtime_root / "OREZONE_QHSE" / "exports"
 else:
     EXPORTS_DIR = BASE_DIR / "exports"
 DATABASE_PATH = DATA_DIR / "orezone.db"

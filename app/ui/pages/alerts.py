@@ -180,7 +180,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
             manual_message_field.value = ""
             notify("Alerte manuelle creee.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -189,7 +189,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
             update_manual_alert_status(_manual_id(alert_id), new_status)
             notify("Statut d'alerte mis a jour.", SUCCESS)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 
@@ -198,7 +198,7 @@ def alerts_page(navigate: Any | None = None, show_header: bool = True) -> ft.Con
             delete_manual_alert(_manual_id(alert_id))
             notify("Alerte supprimee.", MUTED)
             refresh()
-        except ValueError as exc:
+        except Exception as exc:
             notify(str(exc), DANGER)
             _update()
 

@@ -14,8 +14,12 @@ from app.services.drilling_service import (
     delete_equipment,
     get_drilling_kpis,
     get_drilling_report,
+    get_cached_signature,
+    save_cached_signature,
+    list_available_personnel,
     list_drilling_reports,
     list_equipment,
+    submit_drilling_report,
     update_drilling_report,
     validate_drilling_report,
     reject_drilling_report,
@@ -97,7 +101,7 @@ def _sig_preview(label: str, b64: str | None) -> ft.Container:
     """Read-only display of a stored signature or a placeholder."""
     inner: ft.Control
     if b64:
-        inner = ft.Image(src_base64=b64, width=220, height=90, fit=ft.ImageFit.CONTAIN)
+        inner = ft.Image(src=f"data:image/png;base64,{b64}", width=220, height=90, fit=ft.BoxFit.CONTAIN)
     else:
         inner = ft.Container(
             width=220, height=90,
@@ -160,6 +164,27 @@ def _dropdown(options: list[str], value: str | None = None) -> ft.Dropdown:
         text_size=13,
         content_padding=ft.padding.symmetric(horizontal=10, vertical=0),
         expand=True,
+    )
+
+
+def _personnel_dd(names: list[str], current: str | None = None, width: int = 320) -> ft.Dropdown:
+    """Dropdown thémé pour sélectionner un employé dans une liste de noms."""
+    opts = list(names)
+    if current and current not in opts:
+        opts.insert(0, current)
+    return ft.Dropdown(
+        value=current or None,
+        options=[ft.dropdown.Option(n) for n in opts],
+        hint_text="Sélectionner…" if opts else "Aucun personnel disponible",
+        border_color=BORDER,
+        focused_border_color=PRIMARY,
+        color=TEXT,
+        bgcolor=CARD2,
+        border_radius=6,
+        height=40,
+        text_size=12,
+        content_padding=ft.padding.symmetric(horizontal=10, vertical=0),
+        width=width,
     )
 
 
@@ -264,8 +289,36 @@ def _report_form_dialog(
     f_hole     = _txt("", r.get("hole_number") or "")
     f_angle    = _txt("60", str(r.get("angle") or ""))
     f_client   = _txt("SOMISY", r.get("client") or "")
-    f_operator = _txt("", r.get("operator_name") or "")
+    _ref_date = r.get("report_date") or date.today().isoformat()
+    _operators = list_available_personnel("operat", _ref_date)
+    dd_operator = _personnel_dd(_operators, r.get("operator_name") or None, width=360)
     f_refueler = _txt("", r.get("refueler_name") or "")
+
+    # Signature pads
+    _op_existing = r.get("operator_signature") or get_cached_signature(r.get("operator_name") or "", "operator")
+    sig_operator = SignaturePad(
+        "SIGNATURE OPÉRATEUR", page=page, width=300, height=110,
+        existing_b64=_op_existing,
+    )
+
+    def _on_operator_change(_) -> None:
+        name = (dd_operator.value or "").strip()
+        if not name:
+            return
+        sig_operator.set_signature(get_cached_signature(name, "operator"))
+
+    dd_operator.on_change = _on_operator_change
+
+    def _on_date_change(_) -> None:
+        ref = (f_date.value or "").strip() or date.today().isoformat()
+        names = list_available_personnel("operat", ref)
+        cur = dd_operator.value
+        if cur and cur not in names:
+            names.insert(0, cur)
+        dd_operator.options = [ft.dropdown.Option(n) for n in names]
+        _u(dd_operator)
+
+    f_date.on_blur = _on_date_change
 
     # Diesel fields
     diesel_data = r.get("diesel") or {}
@@ -304,12 +357,6 @@ def _report_form_dialog(
     if not log_rows:
         _add_log_row()
 
-    # Signature pads
-    sig_operator = SignaturePad(
-        "SIGNATURE OPÉRATEUR", page=page, width=300, height=110,
-        existing_b64=r.get("operator_signature"),
-    )
-
     err_txt = ft.Text("", color=DANGER, size=12)
 
     def _save(_) -> None:
@@ -331,6 +378,10 @@ def _report_form_dialog(
                         diesel[code] = v
                 except ValueError:
                     pass
+            op_sig = sig_operator.get_base64()
+            op_name = (dd_operator.value or "").strip()
+            if op_sig and op_name:
+                save_cached_signature(op_name, "operator", op_sig)
             data = {
                 "shift":              f_shift.value,
                 "report_date":        f_date.value,
@@ -343,8 +394,8 @@ def _report_form_dialog(
                 "total_advance":      round(adv, 2),
                 "diesel":             diesel,
                 "refueler_name":      f_refueler.value or None,
-                "operator_name":      f_operator.value or None,
-                "operator_signature": sig_operator.get_base64(),
+                "operator_name":      op_name or None,
+                "operator_signature": op_sig,
                 "entries":            [lr.to_dict() for lr in log_rows],
                 "status":             r.get("status") or "draft",
             }
@@ -389,7 +440,7 @@ def _report_form_dialog(
                 _field("Client", f_client),
             ], spacing=12),
             ft.Row(controls=[
-                _field("Opérateur", f_operator),
+                _field("Opérateur", dd_operator),
                 _field("Ravitailleur", f_refueler),
             ], spacing=12),
             ft.Divider(color=BORDER),
@@ -437,7 +488,7 @@ def _report_form_dialog(
 
 # ── Detail view (read-only) ───────────────────────────────────────────────────
 
-def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject, on_delete, on_export_pdf) -> ft.AlertDialog:
+def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject, on_delete, on_export_pdf, on_submit) -> ft.AlertDialog:
     r = report
     equipment = list_equipment(active_only=False)
     diesel = r.get("diesel") or {}
@@ -488,18 +539,37 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
     ]
     if status == "submitted":
         def _open_validation_dialog(_) -> None:
-            sig_sup = SignaturePad("SIGNATURE SUPERVISEUR", page=page, width=320, height=120)
+            _supervisors = list_available_personnel("supervis", r.get("report_date"))
+            dd_supervisor = _personnel_dd(_supervisors, r.get("supervisor_name") or None, width=320)
+            _sup_cached = get_cached_signature(r.get("supervisor_name") or "", "supervisor")
+            sig_sup = SignaturePad("SIGNATURE SUPERVISEUR", page=page, width=320, height=120,
+                                   existing_b64=_sup_cached)
             val_err = ft.Text("", color=DANGER, size=12)
 
+            def _on_supervisor_change(_) -> None:
+                name = (dd_supervisor.value or "").strip()
+                if not name:
+                    return
+                sig_sup.set_signature(get_cached_signature(name, "supervisor"))
+
+            dd_supervisor.on_change = _on_supervisor_change
+
             def _confirm_validate(_) -> None:
+                sup_name = (dd_supervisor.value or "").strip()
+                if not sup_name:
+                    val_err.value = "Sélectionnez un superviseur."
+                    _u(val_err)
+                    return
                 if not sig_sup.has_signature():
                     val_err.value = "La signature du superviseur est obligatoire."
                     _u(val_err)
                     return
+                sup_sig = sig_sup.get_base64()
+                save_cached_signature(sup_name, "supervisor", sup_sig)
                 val_dlg.open = False
                 page.update()
-                on_validate(r["id"], sig_sup.get_base64())
-                setattr(dlg, "open", False)
+                on_validate(r["id"], sup_name, sup_sig)
+                dlg.open = False
                 page.update()
 
             val_dlg = ft.AlertDialog(
@@ -509,7 +579,8 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
                 content=ft.Container(
                     content=ft.Column(
                         controls=[
-                            ft.Text("Signez pour confirmer la validation.", size=12, color=MUTED),
+                            _field("Superviseur", dd_supervisor),
+                            ft.Text("Signature (importez ou rechargez depuis le cache)", size=11, color=MUTED),
                             sig_sup.widget,
                             val_err,
                         ],
@@ -524,9 +595,7 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.overlay.append(val_dlg)
-            val_dlg.open = True
-            page.update()
+            page.show_dialog(val_dlg)
 
         actions.insert(1, ft.ElevatedButton(
             "Valider", bgcolor=SUCCESS, color=TEXT,
@@ -536,6 +605,14 @@ def _detail_dialog(page: ft.Page, report: dict[str, Any], on_validate, on_reject
         actions.insert(1, ft.TextButton(
             "Rejeter", style=ft.ButtonStyle(color=DANGER),
             on_click=lambda _: (on_reject(r["id"]), setattr(dlg, "open", False), page.update()),
+        ))
+    if status == "draft":
+        actions.insert(1, ft.ElevatedButton(
+            "Soumettre",
+            icon=ft.Icons.SEND_OUTLINED,
+            bgcolor=WARNING,
+            color=TEXT,
+            on_click=lambda _: (on_submit(r["id"]), setattr(dlg, "open", False), page.update()),
         ))
     if status in ("draft", "submitted"):
         actions.insert(1, ft.TextButton(
@@ -931,9 +1008,7 @@ def drilling_page(page: ft.Page) -> ft.Control:
             _u(msg_bar)
 
         dlg = _report_form_dialog(page, _save)
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
     def _open_edit(report_id: int) -> None:
         rep = get_drilling_report(report_id)
@@ -948,17 +1023,15 @@ def drilling_page(page: ft.Page) -> ft.Control:
             _u(msg_bar)
 
         dlg = _report_form_dialog(page, _save, rep)
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
     def _open_detail(report_id: int) -> None:
         rep = get_drilling_report(report_id)
         if not rep:
             return
 
-        def _do_validate(rid: int, supervisor_signature: str | None = None) -> None:
-            validate_drilling_report(rid, "Superviseur", supervisor_signature)
+        def _do_validate(rid: int, supervisor_name: str, supervisor_signature: str | None = None) -> None:
+            validate_drilling_report(rid, supervisor_name, supervisor_signature)
             msg_bar.value = "Rapport validé."
             msg_bar.color = SUCCESS
             _refresh()
@@ -978,13 +1051,19 @@ def drilling_page(page: ft.Page) -> ft.Control:
             _refresh()
             _u(msg_bar)
 
-        def _do_export(r: dict) -> None:
-            _export_pdf(page, r, msg_bar)
+        def _do_submit(rid: int) -> None:
+            submit_drilling_report(rid)
+            msg_bar.value = "Rapport soumis pour validation."
+            msg_bar.color = WARNING
+            _refresh()
+            _u(msg_bar)
 
-        dlg = _detail_dialog(page, rep, _do_validate, _do_reject, _do_delete, _do_export)
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        def _do_export(r: dict) -> None:
+            fresh = get_drilling_report(r["id"]) or r
+            _export_pdf(page, fresh, msg_bar)
+
+        dlg = _detail_dialog(page, rep, _do_validate, _do_reject, _do_delete, _do_export, _do_submit)
+        page.show_dialog(dlg)
 
     # ── Init ──────────────────────────────────────────────────────────────────
     _switch_tab("list")

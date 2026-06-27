@@ -794,13 +794,11 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
                 except RuntimeError:
                     pass
                 if page:
-                    page.snack_bar = ft.SnackBar(
-                        content=ft.Text(msg, color="#FFFFFF"),
-                        bgcolor=SUCCESS,
-                    )
-                    page.snack_bar.open = True
                     try:
-                        page.update()
+                        page.show_dialog(ft.SnackBar(
+                            content=ft.Text(msg, color="#FFFFFF"),
+                            bgcolor=SUCCESS,
+                        ))
                     except RuntimeError:
                         pass
                 state["editing_id"] = None
@@ -906,13 +904,11 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
                     _switch_tab("formulaire")
                 except Exception as exc:
                     if page:
-                        page.snack_bar = ft.SnackBar(
-                            content=ft.Text(f"Erreur: {exc}", color="#FFFFFF"),
-                            bgcolor=DANGER,
-                        )
-                        page.snack_bar.open = True
                         try:
-                            page.update()
+                            page.show_dialog(ft.SnackBar(
+                                content=ft.Text(f"Erreur: {exc}", color="#FFFFFF"),
+                                bgcolor=DANGER,
+                            ))
                         except RuntimeError:
                             pass
 
@@ -1017,13 +1013,11 @@ def permits_page(page: Any = None) -> ft.Control:  # noqa: C901
                         _switch_tab("formulaire")
                     except Exception as exc:
                         if page:
-                            page.snack_bar = ft.SnackBar(
-                                content=ft.Text(f"Erreur: {exc}", color="#FFFFFF"),
-                                bgcolor=DANGER,
-                            )
-                            page.snack_bar.open = True
                             try:
-                                page.update()
+                                page.show_dialog(ft.SnackBar(
+                                    content=ft.Text(f"Erreur: {exc}", color="#FFFFFF"),
+                                    bgcolor=DANGER,
+                                ))
                             except RuntimeError:
                                 pass
 

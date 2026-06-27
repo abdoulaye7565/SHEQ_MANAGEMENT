@@ -21,7 +21,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-from reportlab.lib.utils import ImageReader
+
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _NAVY   = colors.HexColor("#1E3A8A")
@@ -332,9 +332,8 @@ def build_drilling_pdf(report: dict[str, Any]) -> bytes:
     def _sig_cell(b64: str) -> object:
         if b64:
             try:
-                png_bytes = base64.b64decode(b64.encode())
-                reader = ImageReader(io.BytesIO(png_bytes))
-                img = RLImage(reader, width=SIG_W - 6, height=SIG_H - 4)
+                img_bytes = base64.b64decode(b64.encode())
+                img = RLImage(io.BytesIO(img_bytes), width=SIG_W - 6, height=SIG_H - 4)
                 return img
             except Exception:
                 pass
