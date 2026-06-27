@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import getpass
+import socket
 from typing import Any
 
 import flet as ft
+
+from app.services.lock_service import acquire_lock, get_lock_info, release_lock
 
 from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.components.tables import professional_data_table
@@ -301,6 +305,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
     # ── Reset helpers ───────────────────────────────────────────────────────────────────
 
     def reset_maintenance_form() -> None:
+        if state["maintenance_id"] is not None:
+            release_lock("equipment_maintenance", str(state["maintenance_id"]), getpass.getuser())
         state["maintenance_id"] = None
         equipment_code.value = equipment_name.value = equipment_category.value = ""
         maintenance_site.value = maintenance_responsible.value = ""
@@ -317,6 +323,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         cancel_maintenance_button.visible = False
 
     def reset_action_form() -> None:
+        if state["action_id"] is not None:
+            release_lock("equipment_maintenance", str(state["action_id"]), getpass.getuser())
         state["action_id"] = None
         action_source.value = "HSE"
         action_title.value = action_description.value = ""
@@ -331,6 +339,8 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         cancel_action_button.visible = False
 
     def reset_risk_form() -> None:
+        if state["risk_id"] is not None:
+            release_lock("equipment_maintenance", str(state["risk_id"]), getpass.getuser())
         state["risk_id"] = None
         risk_activity.value = risk_task.value = risk_hazard.value = risk_event.value = ""
         risk_consequences.value = risk_existing_controls.value = ""
@@ -505,6 +515,24 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             _update()
 
     def edit_maintenance(row: dict[str, Any]) -> None:
+        record_id = str(row["id_maintenance"])
+        current_user = getpass.getuser()
+        if not acquire_lock("equipment_maintenance", record_id, current_user, socket.gethostname()):
+            lock_info = get_lock_info("equipment_maintenance", record_id)
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
         state["maintenance_id"] = int(row["id_maintenance"])
         equipment_code.value        = str(row.get("equipment_code") or "")
         equipment_name.value        = str(row.get("equipment_name") or "")
@@ -567,6 +595,24 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
             _update()
 
     def edit_action(row: dict[str, Any]) -> None:
+        record_id = str(row["id_action"])
+        current_user = getpass.getuser()
+        if not acquire_lock("equipment_maintenance", record_id, current_user, socket.gethostname()):
+            lock_info = get_lock_info("equipment_maintenance", record_id)
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
         state["action_id"] = int(row["id_action"])
         action_source.value      = str(row.get("source") or "HSE")
         action_title.value       = str(row.get("title") or "")
@@ -625,6 +671,24 @@ def maintenance_actions_page(page: ft.Page | None = None) -> ft.Control:
         _update()
 
     def edit_risk(row: dict[str, Any]) -> None:
+        record_id = str(row["id_risk"])
+        current_user = getpass.getuser()
+        if not acquire_lock("equipment_maintenance", record_id, current_user, socket.gethostname()):
+            lock_info = get_lock_info("equipment_maintenance", record_id)
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
         state["risk_id"] = int(row["id_risk"])
         risk_activity.value          = str(row.get("activity") or "")
         risk_task.value              = str(row.get("task") or "")

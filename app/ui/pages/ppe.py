@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import getpass
+import socket
 from typing import Any
 
 import flet as ft
+
+from app.services.lock_service import acquire_lock, get_lock_info, release_lock
 
 from app.ui.components.tables import professional_data_table
 
@@ -303,6 +307,8 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
 
     def reset_item_form() -> None:
         nonlocal selected_item_id
+        if selected_item_id is not None:
+            release_lock("epi", str(selected_item_id), getpass.getuser())
         selected_item_id = None
         item_name_field.value = ""
         size_field.value = ""
@@ -345,7 +351,25 @@ def ppe_page(page: ft.Page | None = None) -> ft.Control:
 
     def edit_item(row: dict[str, Any]) -> None:
         nonlocal selected_item_id
-        selected_item_id = int(row["id_epi"])
+        item_id = int(row["id_epi"])
+        current_user = getpass.getuser()
+        if not acquire_lock("epi", str(item_id), current_user, socket.gethostname()):
+            lock_info = get_lock_info("epi", str(item_id))
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
+        selected_item_id = item_id
         type_field.value = str(row["type_epi_id"])
         item_name_field.value = str(row.get("nom") or "")
         size_field.value = str(row.get("taille") or "")

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import getpass
+import socket
 from datetime import date, timedelta
 from typing import Any
 
 import flet as ft
+
+from app.services.lock_service import acquire_lock, get_lock_info, release_lock
 
 from app.ui.components.tables import professional_data_table
 from app.ui.components.confirm import confirm_action
@@ -207,6 +211,28 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
         render_table()
         _update()
 
+    def _try_edit_employee(employee_id: int) -> None:
+        """Acquire lock then open the employee editor."""
+        current_user = getpass.getuser()
+        if not acquire_lock("employes", str(employee_id), current_user, socket.gethostname()):
+            lock_info = get_lock_info("employes", str(employee_id))
+            if lock_info:
+                msg = (
+                    f"Fiche en cours de modification par {lock_info['utilisateur']}"
+                    f" depuis {lock_info['verrouille_depuis']}"
+                )
+            else:
+                msg = "Fiche verrouilee par un autre utilisateur."
+            if page is not None:
+                page.show_snack_bar(ft.SnackBar(ft.Text(msg), bgcolor=DANGER))
+                page.update()
+            else:
+                notify(msg, DANGER)
+                _update()
+            return
+        if on_edit_employee is not None:
+            on_edit_employee(employee_id)
+
     def edit_selected_employee(event: ft.ControlEvent | None = None) -> None:
         ids = selected_ids()
         if len(ids) != 1:
@@ -217,7 +243,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
             notify("Edition indisponible depuis cet ecran.", DANGER)
             _update()
             return
-        on_edit_employee(ids[0])
+        _try_edit_employee(ids[0])
 
     def exit_employee(
         employee_id: int,
@@ -586,9 +612,7 @@ def employees_page(page: ft.Page | None = None, on_edit_employee: Any | None = N
                                                     icon=ft.Icons.EDIT_OUTLINED,
                                                     tooltip="Modifier la fiche employe",
                                                     icon_color=TEXT,
-                                                    on_click=lambda event, current=record: on_edit_employee(int(current["id_employe"]))
-                                                    if on_edit_employee is not None
-                                                    else None,
+                                                    on_click=lambda event, current=record: _try_edit_employee(int(current["id_employe"])),
                                                 ),
                                                 ft.IconButton(
                                                     icon=ft.Icons.WB_SUNNY_OUTLINED,

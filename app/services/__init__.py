@@ -347,6 +347,20 @@ from app.services.notification_service import (
     sync_module_alerts,
 )
 
+from app.services.network_client import (
+    NetworkClient,
+    get_client,
+    is_network_mode,
+    save_network_config,
+)
+from app.services.lock_service import (
+    acquire_lock,
+    release_lock,
+    get_lock_info,
+    release_expired_locks,
+    release_all_locks_for_user,
+    list_active_locks,
+)
 from app.services.permit_service import (
     create_permit,
     update_permit,
@@ -613,6 +627,17 @@ __all__ = [
     "record_maintenance_inspection",
     "delete_maintenance_inspection",
     "update_mobile_device_status",
+    # network / lock
+    "NetworkClient",
+    "get_client",
+    "is_network_mode",
+    "save_network_config",
+    "acquire_lock",
+    "release_lock",
+    "get_lock_info",
+    "release_expired_locks",
+    "release_all_locks_for_user",
+    "list_active_locks",
     "update_risk_assessment",
     "log_risk_action",
     "get_risk_history",

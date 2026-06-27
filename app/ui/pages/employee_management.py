@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import getpass
 import flet as ft
+
+from app.services.lock_service import release_lock
 
 from app.ui.pages.active_breaks import active_breaks_page
 from app.ui.pages.attendance import attendance_page
@@ -61,6 +64,9 @@ def employee_management_page(page: ft.Page | None = None) -> ft.Control:
         render()
 
     def back_to_list() -> None:
+        editing_id = state.get("editing_employee_id")
+        if editing_id is not None:
+            release_lock("employes", str(editing_id), getpass.getuser())
         state["view"] = "employees"
         state["editing_employee_id"] = None
 

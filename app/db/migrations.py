@@ -1142,6 +1142,22 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         )
     connection.execute("PRAGMA optimize")
 
+    # Table verrous — multi-PC file locking
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS verrous (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_cible         TEXT NOT NULL,
+            id_enregistrement   TEXT NOT NULL,
+            utilisateur         TEXT NOT NULL,
+            pc_nom              TEXT NOT NULL,
+            verrouille_depuis   TEXT NOT NULL,
+            expire_a            TEXT NOT NULL,
+            UNIQUE(table_cible, id_enregistrement)
+        )
+        """
+    )
+
 
 def _add_column_if_missing(
     connection: sqlite3.Connection,

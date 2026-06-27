@@ -4,6 +4,8 @@ from datetime import date, datetime, timedelta
 from app.services import authenticate_user, create_user, get_dashboard_summary, get_role_modules, has_users, list_roles
 from app.services.settings_service import APP_VERSION
 from app.services.app_logger import log_exception
+from app.services.network_client import is_network_mode
+from app.services.lock_service import release_all_locks_for_user
 from app.services.automation_service import run_startup_automations
 from app.services.equipment_check_service import confirm_monthly_equipment_check, get_monthly_equipment_check_status
 from app.services.mobile_sync_service import ensure_mobile_sync_server
@@ -27,6 +29,7 @@ from app.ui.pages.drilling import drilling_page
 from app.ui.pages.qhse_dashboard import qhse_dashboard_page
 from app.ui.pages.notifications import notifications_page
 from app.ui.pages.statistics import statistics_page
+from app.ui.pages.network_settings import network_settings_page
 from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_ACTIVE, SIDEBAR_MUTED, SUCCESS, SURFACE, TEXT, WARNING, dark_page_theme, page_theme
 
 # Quand un module est rechargé (force_reload), ces écrans dépendants sont aussi invalidés.
@@ -66,6 +69,7 @@ NAV_ITEMS = [
     ("AiAssistant", "Assistant IA", ft.Icons.AUTO_AWESOME_OUTLINED),
     ("Settings", "Parametres", ft.Icons.SETTINGS_OUTLINED),
     ("Admin", "Administrateur", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
+    ("NetworkSettings", "Configuration Reseau", ft.Icons.NETWORK_WIFI),
 ]
 
 _NAV_SECTIONS: list[tuple[str, list[str]]] = [
@@ -73,7 +77,7 @@ _NAV_SECTIONS: list[tuple[str, list[str]]] = [
     ("SUPERVISION", ["Dashboard", "Alerts"]),
     ("RESSOURCES", ["EmployeeManagement", "TrainingManagement", "ToolboxTalk", "Ppe"]),
     ("OPERATIONS", ["MaintenanceActions", "RiskAnalysis", "Accidents", "Permits", "TimeSheet", "Drilling"]),
-    ("SYSTEME", ["AiAssistant", "Referentials", "Settings", "Admin"]),
+    ("SYSTEME", ["AiAssistant", "Referentials", "Settings", "Admin", "NetworkSettings"]),
 ]
 
 
@@ -100,6 +104,13 @@ def build_app(page: ft.Page) -> None:
         page.update()
 
     def logout() -> None:
+        try:
+            current_user = dict(session.get("user") or {})
+            username = str(current_user.get("username") or "")
+            if username:
+                release_all_locks_for_user(username)
+        except Exception as exc:
+            log_exception("Erreur liberation verrous au logout", exc)
         session["user"] = None
         show_login("Session fermee.")
 
@@ -391,8 +402,38 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
             )
         )
 
-    sync_icon = ft.Icon(ft.Icons.STORAGE_OUTLINED, size=15, color="#60A5FA")
-    sync_text = ft.Text("Local DB", size=11, color="#FFFFFF", weight=ft.FontWeight.W_600)
+    _net_mode = is_network_mode()
+    sync_icon = ft.Icon(
+        ft.Icons.NETWORK_WIFI if _net_mode else ft.Icons.STORAGE_OUTLINED,
+        size=15,
+        color="#34D399" if _net_mode else "#60A5FA",
+    )
+    sync_text = ft.Text(
+        "Reseau" if _net_mode else "Local DB",
+        size=11,
+        color="#FFFFFF",
+        weight=ft.FontWeight.W_600,
+    )
+    network_mode_badge = ft.Container(
+        bgcolor="#0D2A1F" if _net_mode else "#10243A",
+        border=ft.border.all(1, "#34D399" if _net_mode else "#1E3A56"),
+        border_radius=20,
+        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+        content=ft.Row(
+            controls=[
+                ft.Text("🌐" if _net_mode else "💻", size=12),
+                ft.Text(
+                    "Reseau" if _net_mode else "Local",
+                    size=10,
+                    color="#34D399" if _net_mode else "#9DB0C5",
+                    weight=ft.FontWeight.W_600,
+                ),
+            ],
+            spacing=4,
+            tight=True,
+        ),
+        tooltip="Mode reseau multi-PC actif" if _net_mode else "Mode local SQLite direct",
+    )
     sync_badge = ft.Container(
         bgcolor="#10243A",
         border=ft.border.all(1, "#1E3A56"),
@@ -430,6 +471,7 @@ def _app_view(page: ft.Page, session: dict[str, object], logout: object) -> ft.C
                     spacing=1,
                     expand=True,
                 ),
+                network_mode_badge,
                 sync_badge,
                 refresh_button,
             ],
@@ -564,6 +606,7 @@ def _module_subtitle(key: str) -> str:
         "AiAssistant": "Assistant QHSE pour analyses, priorites et aide a la decision.",
         "Settings": "Chemins, exports, base SQLite, sauvegardes et installation.",
         "Admin": "Utilisateurs, roles, permissions, audits et sauvegardes.",
+        "NetworkSettings": "Configuration du mode multi-PC : serveur, adresse IP, port et token.",
     }
     return subtitles.get(key, "Module OREZONE QHSE.")
 
@@ -611,6 +654,7 @@ def _screen_registry(
         "AiAssistant":        lambda: ai_assistant_page(page),
         "Settings":           lambda: settings_page(user, page),
         "Admin":              lambda: admin_page(user, page),
+        "NetworkSettings":    lambda: network_settings_page(page),
         "MonthlyTimesheet":   lambda: placeholder_page("Feuille mensuelle"),
     }
 
