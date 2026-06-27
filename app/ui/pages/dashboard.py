@@ -652,6 +652,15 @@ def _recent_activity_panel(rows: list[dict[str, Any]]) -> ft.Control:
             ft.Icons.HISTORY_OUTLINED,
         )
         for item in rows
+    ]
+    return _panel(
+        "Activites recentes",
+        "Dernieres operations enregistrees.",
+        ft.Column(controls=controls or [ft.Text("Aucune activite.", color=MUTED, size=12)], spacing=6),
+        PRIMARY,
+    )
+
+
 def _toolbox_panel(summary: dict[str, Any]) -> ft.Control:
     toolbox_today = summary.get("toolbox_today", {})
     toolbox_month = summary.get("toolbox_month", {})
@@ -723,10 +732,14 @@ def _referential_panel(summary: dict[str, Any]) -> ft.Control:
         ("Types formation", summary["types_formations"], ft.Icons.SCHOOL_OUTLINED),
         ("Types EPI", summary["types_epi"], ft.Icons.HEALTH_AND_SAFETY_OUTLINED),
     ]
+    controls = [
+        _list_row(label, f"{count} entree(s)", "", PRIMARY, icon)
+        for label, count, icon in items
+    ]
     return _panel(
-        "Activites recentes",
-        "Dernieres operations enregistrees.",
-        ft.Column(controls=controls or [ft.Text("Aucune activite.", color=_MUTED, size=12)], spacing=6),
+        "Referentiels",
+        "Configuration des donnees de base.",
+        ft.Column(controls=controls, spacing=6),
         PRIMARY,
     )
 
