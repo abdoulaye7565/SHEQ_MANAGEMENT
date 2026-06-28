@@ -46,6 +46,7 @@ WARNING  = "#F59E0B"
 DANGER   = "#EF4444"
 GOLD     = "#C8A400"
 LIGHT_GOLD = "#FFD700"
+NAVY     = "#0D1B2A"
 FIELD    = "#0F172A"
 
 _MONTHS = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"]
