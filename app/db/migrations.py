@@ -1158,6 +1158,115 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
     )
 
+    # ── Gestion Magasin — Diamond Drilling ───────────────────────────────────
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS magasin_articles (
+            id_article          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_article        TEXT NOT NULL UNIQUE,
+            designation         TEXT NOT NULL,
+            categorie           TEXT,
+            sous_categorie      TEXT,
+            unite               TEXT,
+            stock_min           REAL NOT NULL DEFAULT 0,
+            stock_max           REAL NOT NULL DEFAULT 0,
+            stock_alerte        REAL NOT NULL DEFAULT 0,
+            prix_unitaire       REAL NOT NULL DEFAULT 0,
+            fournisseur_prefere TEXT,
+            emplacement         TEXT,
+            observations        TEXT,
+            actif               INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at          TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS magasin_fournisseurs (
+            id_fournisseur      INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_fournisseur    TEXT NOT NULL UNIQUE,
+            raison_sociale      TEXT NOT NULL,
+            categorie           TEXT,
+            contact             TEXT,
+            telephone           TEXT,
+            email               TEXT,
+            delai_livraison     TEXT,
+            conditions_paiement TEXT,
+            note_qualite        REAL NOT NULL DEFAULT 0,
+            actif               INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS magasin_entrees (
+            id_entree           INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_be           TEXT NOT NULL UNIQUE,
+            date_entree         TEXT NOT NULL,
+            code_article        TEXT NOT NULL,
+            designation         TEXT,
+            categorie           TEXT,
+            quantite            REAL NOT NULL DEFAULT 0,
+            unite               TEXT,
+            prix_unitaire       REAL NOT NULL DEFAULT 0,
+            valeur_totale       REAL NOT NULL DEFAULT 0,
+            fournisseur         TEXT,
+            numero_bl           TEXT,
+            numero_commande     TEXT,
+            receptionne_par     TEXT,
+            observations        TEXT,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (code_article) REFERENCES magasin_articles(code_article)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS magasin_sorties (
+            id_sortie           INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_bs           TEXT NOT NULL UNIQUE,
+            date_sortie         TEXT NOT NULL,
+            code_article        TEXT NOT NULL,
+            designation         TEXT,
+            categorie           TEXT,
+            quantite            REAL NOT NULL DEFAULT 0,
+            unite               TEXT,
+            prix_unitaire       REAL NOT NULL DEFAULT 0,
+            valeur_totale       REAL NOT NULL DEFAULT 0,
+            site_chantier       TEXT,
+            reference_forage    TEXT,
+            demandeur           TEXT,
+            autorise_par        TEXT,
+            motif_sortie        TEXT,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (code_article) REFERENCES magasin_articles(code_article)
+        )
+        """
+    )
+    # Indexes for performance on frequent joins
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_entrees_code ON magasin_entrees(code_article)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sorties_code ON magasin_sorties(code_article)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_entrees_date ON magasin_entrees(date_entree)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sorties_date ON magasin_sorties(date_sortie)"
+    )
+    # Nav permission for Magasin
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO role_module_permissions(role_id, module_key)
+        SELECT id_role, 'Magasin' FROM roles
+        WHERE nom IN ('Administrateur', 'Superviseur', 'Magasinier')
+        """
+    )
+
 
 def _add_column_if_missing(
     connection: sqlite3.Connection,
