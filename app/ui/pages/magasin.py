@@ -247,7 +247,7 @@ def magasin_page(page: Any = None) -> ft.Control:
                             ft.Container(
                                 width=36, height=36, bgcolor=color + "22",
                                 border_radius=8,
-                                alignment=ft.alignment.center,
+                                alignment=ft.Alignment(0, 0),
                                 content=ft.Icon(icon, color=color, size=20),
                             ),
                             ft.Column(controls=[
@@ -1101,7 +1101,7 @@ def magasin_page(page: Any = None) -> ft.Control:
             alerte = float(r.get("stock_alerte") or 0)
             min_s  = float(r.get("stock_min") or 0)
             color  = DANGER if stock <= min_s else (WARNING if stock <= alerte else SUCCESS)
-            pct = min(100, int(stock / max(float(r.get("stock_max") or 1), 0.001) * 100))
+            pct = max(0, min(100, int(stock / max(float(r.get("stock_max") or 1), 0.001) * 100)))
             return ft.Container(
                 bgcolor=CARD2, border=ft.border.all(1, color + "33"),
                 border_radius=8, padding=10,
