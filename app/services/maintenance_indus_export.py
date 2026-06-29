@@ -9,9 +9,7 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+# openpyxl importé en lazy dans export_maintenance_xlsx() pour ne pas bloquer le chargement de la page
 
 from app.services.maintenance_indus_service import (
     get_indicateurs_mtbf,
@@ -170,6 +168,21 @@ def _unique_path(base: str) -> Path:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 def export_maintenance_xlsx() -> Path:
+    # Import lazy — ne bloque pas le chargement de la page si openpyxl absent
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    # Injecter dans le scope du module pour que les helpers _fill/_font/etc. fonctionnent
+    import sys
+    _mod = sys.modules[__name__]
+    _mod.openpyxl = openpyxl
+    _mod.Alignment = Alignment
+    _mod.Border    = Border
+    _mod.Font      = Font
+    _mod.PatternFill = PatternFill
+    _mod.Side      = Side
+    _mod.get_column_letter = get_column_letter
+
     path = _unique_path(f"maintenance_industrielle_{YEAR}.xlsx")
 
     # Charger données
