@@ -1267,6 +1267,147 @@ def run_lightweight_migrations(connection: sqlite3.Connection) -> None:
         """
     )
 
+    # ── Maintenance Industrielle ─────────────────────────────────────────────
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maint_equipements (
+            id_equipement           INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_equipement         TEXT NOT NULL UNIQUE,
+            designation             TEXT NOT NULL,
+            famille                 TEXT,
+            sous_famille            TEXT,
+            criticite               TEXT NOT NULL DEFAULT 'B'
+                                        CHECK(criticite IN ('A','B','C')),
+            site_zone               TEXT,
+            emplacement             TEXT,
+            marque                  TEXT,
+            modele                  TEXT,
+            numero_serie            TEXT,
+            date_mise_en_service    TEXT,
+            capacite_puissance      TEXT,
+            fournisseur             TEXT,
+            valeur_remplacement     REAL NOT NULL DEFAULT 0,
+            statut                  TEXT NOT NULL DEFAULT 'En service'
+                                        CHECK(statut IN ('En service','Maintenance','Arret','Reforme')),
+            observations            TEXT,
+            created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at              TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maint_plan_pm (
+            id_plan                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_equipement         TEXT NOT NULL,
+            designation_eq          TEXT,
+            tache                   TEXT NOT NULL,
+            frequence               TEXT NOT NULL DEFAULT 'Mensuel',
+            derniere_realisation    TEXT,
+            prochaine_echeance      TEXT,
+            duree_h                 REAL NOT NULL DEFAULT 0,
+            ressources              TEXT,
+            pieces_necessaires      TEXT,
+            instructions            TEXT,
+            responsable             TEXT,
+            actif                   INTEGER NOT NULL DEFAULT 1,
+            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maint_interventions (
+            id_intervention         INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_ot               TEXT NOT NULL UNIQUE,
+            date_ouverture          TEXT NOT NULL,
+            date_cloture            TEXT,
+            code_equipement         TEXT NOT NULL,
+            designation_eq          TEXT,
+            type_maintenance        TEXT NOT NULL DEFAULT 'Corrective urgente',
+            nature_panne            TEXT,
+            description_travaux     TEXT,
+            technicien              TEXT,
+            temps_arret             REAL NOT NULL DEFAULT 0,
+            duree_intervention      REAL NOT NULL DEFAULT 0,
+            pieces_utilisees        TEXT,
+            cout_mo                 REAL NOT NULL DEFAULT 0,
+            cout_pieces             REAL NOT NULL DEFAULT 0,
+            cout_total              REAL NOT NULL DEFAULT 0,
+            statut                  TEXT NOT NULL DEFAULT 'Ouvert'
+                                        CHECK(statut IN ('Ouvert','En cours','Cloture')),
+            observations            TEXT,
+            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maint_pieces (
+            id_piece                INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_piece              TEXT NOT NULL UNIQUE,
+            designation             TEXT NOT NULL,
+            reference_fabricant     TEXT,
+            equipements_concernes   TEXT,
+            unite                   TEXT NOT NULL DEFAULT 'Pièce',
+            stock_actuel            REAL NOT NULL DEFAULT 0,
+            stock_min               REAL NOT NULL DEFAULT 0,
+            stock_max               REAL NOT NULL DEFAULT 0,
+            emplacement_magasin     TEXT,
+            prix_unitaire           REAL NOT NULL DEFAULT 0,
+            fournisseur             TEXT,
+            delai_appro             INTEGER NOT NULL DEFAULT 0,
+            criticite               TEXT NOT NULL DEFAULT 'B'
+                                        CHECK(criticite IN ('A','B','C')),
+            observations            TEXT,
+            created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at              TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS maint_prestataires (
+            id_prestataire          INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_prestataire        TEXT NOT NULL UNIQUE,
+            raison_sociale          TEXT NOT NULL,
+            specialite              TEXT,
+            contact                 TEXT,
+            telephone               TEXT,
+            email                   TEXT,
+            contrat                 TEXT NOT NULL DEFAULT 'Non',
+            type_contrat            TEXT,
+            debut_contrat           TEXT,
+            fin_contrat             TEXT,
+            montant_contrat         REAL NOT NULL DEFAULT 0,
+            note_qualite            REAL NOT NULL DEFAULT 0,
+            observations            TEXT,
+            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    # Indexes maintenance industrielle
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_maint_interv_eq ON maint_interventions(code_equipement)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_maint_interv_date ON maint_interventions(date_ouverture)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_maint_pm_eq ON maint_plan_pm(code_equipement)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_maint_pm_ech ON maint_plan_pm(prochaine_echeance)"
+    )
+    # Nav permission Maintenance Industrielle
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO role_module_permissions(role_id, module_key)
+        SELECT id_role, 'MaintenanceIndustrielle' FROM roles
+        WHERE nom IN ('Administrateur', 'Superviseur', 'Technicien')
+        """
+    )
+
 
 def _add_column_if_missing(
     connection: sqlite3.Connection,

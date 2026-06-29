@@ -31,6 +31,7 @@ from app.ui.pages.notifications import notifications_page
 from app.ui.pages.statistics import statistics_page
 from app.ui.pages.network_settings import network_settings_page
 from app.ui.pages.magasin import magasin_page
+from app.ui.pages.maintenance_indus import maintenance_indus_page
 from app.ui.theme import BORDER, DANGER, MUTED, PANEL, PRIMARY, SIDEBAR, SIDEBAR_ACTIVE, SIDEBAR_MUTED, SUCCESS, SURFACE, TEXT, WARNING, dark_page_theme, page_theme
 
 # Quand un module est rechargé (force_reload), ces écrans dépendants sont aussi invalidés.
@@ -68,6 +69,7 @@ NAV_ITEMS = [
     ("Permits", "Permis de Travail", ft.Icons.ASSIGNMENT_OUTLINED),
     ("Alerts", "Alertes & Rapports", ft.Icons.NOTIFICATIONS_ACTIVE_OUTLINED),
     ("Magasin", "Gestion Magasin", ft.Icons.WAREHOUSE_OUTLINED),
+    ("MaintenanceIndustrielle", "Maintenance Industrielle", ft.Icons.HANDYMAN_OUTLINED),
     ("AiAssistant", "Assistant IA", ft.Icons.AUTO_AWESOME_OUTLINED),
     ("Settings", "Parametres", ft.Icons.SETTINGS_OUTLINED),
     ("Admin", "Administrateur", ft.Icons.ADMIN_PANEL_SETTINGS_OUTLINED),
@@ -79,7 +81,7 @@ _NAV_SECTIONS: list[tuple[str, list[str]]] = [
     ("SUPERVISION", ["Dashboard", "Alerts"]),
     ("RESSOURCES", ["EmployeeManagement", "TrainingManagement", "ToolboxTalk", "Ppe"]),
     ("OPERATIONS", ["MaintenanceActions", "RiskAnalysis", "Accidents", "Permits", "TimeSheet", "Drilling"]),
-    ("LOGISTIQUE", ["Magasin"]),
+    ("LOGISTIQUE", ["Magasin", "MaintenanceIndustrielle"]),
     ("SYSTEME", ["AiAssistant", "Referentials", "Settings", "Admin", "NetworkSettings"]),
 ]
 
@@ -658,7 +660,8 @@ def _screen_registry(
         "Settings":           lambda: settings_page(user, page),
         "Admin":              lambda: admin_page(user, page),
         "NetworkSettings":    lambda: network_settings_page(page),
-        "Magasin":            lambda: magasin_page(page),
+        "Magasin":                    lambda: magasin_page(page),
+        "MaintenanceIndustrielle":    lambda: maintenance_indus_page(page),
         "MonthlyTimesheet":   lambda: placeholder_page("Feuille mensuelle"),
     }
 
