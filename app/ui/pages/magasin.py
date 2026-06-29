@@ -58,12 +58,13 @@ def _fmt_fcfa(val: float) -> str:
     return f"{val:,.0f} FCFA".replace(",", " ")
 
 
-def _card(content: ft.Control, padding: int = 14) -> ft.Container:
+def _card(content: ft.Control, padding: int = 14, expand: bool | int = False) -> ft.Container:
     return ft.Container(
         bgcolor=CARD,
         border=ft.border.all(1, BORDER),
         border_radius=10,
         padding=padding,
+        expand=expand or None,
         content=content,
     )
 
