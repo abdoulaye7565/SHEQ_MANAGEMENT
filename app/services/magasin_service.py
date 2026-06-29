@@ -192,6 +192,28 @@ def delete_fournisseur(code_fournisseur: str) -> None:
         )
 
 
+# ── Helper interne ───────────────────────────────────────────────────────────
+
+def _ensure_article_exists(conn: Any, code: str, designation: str, categorie: str,
+                           unite: str, prix: float) -> None:
+    """Crée un article minimal si le code n'existe pas encore dans le catalogue."""
+    existing = conn.execute(
+        "SELECT 1 FROM magasin_articles WHERE code_article = ?", (code,)
+    ).fetchone()
+    if not existing:
+        now = datetime.now().isoformat(timespec="seconds")
+        conn.execute(
+            """INSERT INTO magasin_articles
+               (code_article, designation, categorie, sous_categorie, unite,
+                stock_min, stock_max, stock_alerte, prix_unitaire,
+                fournisseur_prefere, emplacement, observations, created_at)
+            VALUES (?,?,?,?,?,0,0,0,?,?,?,?,?)""",
+            (code, designation or code, categorie or "", "", unite or "",
+             prix, "", "", "", now),
+        )
+        _log.info("[magasin] article %s auto-créé depuis bon d'entrée/sortie", code)
+
+
 # ── Entrées (Bons d'Entrée) ───────────────────────────────────────────────────
 
 def list_entrees(
@@ -229,6 +251,15 @@ def save_entree(data: dict[str, Any]) -> int:
     prix  = float(data.get("prix_unitaire") or 0)
     valeur = round(qte * prix, 2)
     with db_session() as conn:
+        code = str(data.get("code_article") or "").strip().upper()
+        if code:
+            _ensure_article_exists(
+                conn, code,
+                str(data.get("designation") or ""),
+                str(data.get("categorie") or ""),
+                str(data.get("unite") or ""),
+                prix,
+            )
         eid = data.get("id_entree")
         if eid:
             conn.execute(
@@ -327,6 +358,15 @@ def save_sortie(data: dict[str, Any]) -> int:
     prix  = float(data.get("prix_unitaire") or 0)
     valeur = round(qte * prix, 2)
     with db_session() as conn:
+        code = str(data.get("code_article") or "").strip().upper()
+        if code:
+            _ensure_article_exists(
+                conn, code,
+                str(data.get("designation") or ""),
+                str(data.get("categorie") or ""),
+                str(data.get("unite") or ""),
+                prix,
+            )
         sid = data.get("id_sortie")
         if sid:
             conn.execute(
