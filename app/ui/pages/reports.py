@@ -6,6 +6,7 @@ from typing import Any
 import flet as ft
 
 from app.services import generate_report, get_report_summary, list_employees, list_report_definitions
+from app.services import export_monthly_qhse_report
 from app.ui.components.document_share_dialog import show_document_share_dialog
 from app.ui.components.module_header import module_header
 from app.ui.components.stats import stat_card
@@ -278,6 +279,30 @@ def reports_page(show_header: bool = True) -> ft.Control:
     for control in (search_field, category_filter):
         control.on_change = refresh
 
+    qhse_report_status = ft.Text("", size=11, color=_DK_MUTED)
+
+    def _gen_monthly_qhse(event: ft.ControlEvent | None = None) -> None:
+        month_val = str(month_field.value or "").strip()
+        try:
+            if month_val and len(month_val) == 7:
+                y, m = int(month_val[:4]), int(month_val[5:7])
+                path = export_monthly_qhse_report(y, m)
+            else:
+                path = export_monthly_qhse_report()
+            state["generated"].insert(0, {"report": f"Rapport QHSE {path.stem}", "path": str(path)})
+            qhse_report_status.value = f"PDF cree : {path.name}"
+            qhse_report_status.color = SUCCESS
+            import os as _os
+            _os.startfile(str(path))
+            render_generated()
+        except Exception as exc:
+            qhse_report_status.value = str(exc)
+            qhse_report_status.color = DANGER
+        try:
+            root.update()
+        except Exception:
+            pass
+
     controls = [
         module_header(
             "Rapports",
@@ -286,6 +311,38 @@ def reports_page(show_header: bool = True) -> ft.Control:
     ] if show_header else []
     controls.extend(
         [
+            ft.Container(
+                bgcolor=_DK_CARD,
+                border=ft.border.all(1, _DK_BORDER),
+                border_radius=8,
+                padding=14,
+                content=ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.PICTURE_AS_PDF_OUTLINED, color=DANGER, size=22),
+                        ft.Column(
+                            controls=[
+                                ft.Text("Rapport QHSE Mensuel PDF", color="#E2E8F0", size=14, weight=ft.FontWeight.BOLD),
+                                ft.Text("Rapport consolide : accidents, KPIs, alertes, formations, EPI, toolbox.", color=_DK_MUTED, size=11),
+                            ],
+                            spacing=2,
+                            expand=True,
+                        ),
+                        qhse_report_status,
+                        ft.ElevatedButton(
+                            "Generer PDF",
+                            icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
+                            style=ft.ButtonStyle(
+                                bgcolor=DANGER,
+                                color="#FFFFFF",
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                            ),
+                            on_click=_gen_monthly_qhse,
+                        ),
+                    ],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
             ft.Container(
                 bgcolor=_DK_CARD,
                 border=ft.border.all(1, _DK_BORDER),

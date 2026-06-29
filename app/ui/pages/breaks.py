@@ -10,8 +10,10 @@ from app.ui.components.tables import professional_data_table
 from app.services import (
     create_break,
     delete_break,
+    export_active_breaks_xlsx,
     export_rows_xlsx,
     list_break_alerts,
+    list_active_break_employees,
     list_breaks,
     list_employees,
     postpone_break,
@@ -236,6 +238,14 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
         notify(f"Export Excel cree: {output}", SUCCESS)
         root.update()
 
+    def export_active(event: ft.ControlEvent | None = None) -> None:
+        try:
+            output = export_active_breaks_xlsx()
+            notify(f"Export actifs cree: {output}", SUCCESS)
+        except Exception as exc:
+            notify(str(exc), DANGER)
+        root.update()
+
     def remove(break_id: int) -> None:
         confirm_action(
             page,
@@ -351,7 +361,8 @@ def breaks_page(page: ft.Page | None = None) -> ft.Control:
                         history_status_filter,
                         ft.IconButton(icon=ft.Icons.FILTER_ALT_OUTLINED, tooltip="Appliquer", on_click=refresh_history_filters),
                         ft.IconButton(icon=ft.Icons.RESTART_ALT_OUTLINED, tooltip="Reinitialiser", on_click=reset_history_filters),
-                        ft.OutlinedButton("Exporter Excel", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_history),
+                        ft.OutlinedButton("Exporter historique", icon=ft.Icons.DOWNLOAD_OUTLINED, on_click=export_history),
+                        ft.OutlinedButton("Exporter actifs", icon=ft.Icons.PEOPLE_OUTLINED, on_click=export_active),
                         ft.Text(f"{len(records)} ligne(s)", size=12, color=_DK_MUTED),
                     ],
                     spacing=10,

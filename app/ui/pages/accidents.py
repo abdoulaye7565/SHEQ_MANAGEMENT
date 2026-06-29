@@ -27,6 +27,7 @@ from app.services.accident_service import (
     delete_action,
     get_accident_options,
 )
+from app.services import export_accident_report
 from app.ui.components.pagination import PAGE_SIZE, pagination_row
 from app.ui.theme import DANGER, PRIMARY, SUCCESS, WARNING
 
@@ -702,6 +703,23 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
                 _selected_accident["v"] = None
                 _switch_tab("registre")
 
+            _export_status = ft.Text("", size=11, color=SUCCESS)
+
+            def _export_pdf(e: Any) -> None:
+                try:
+                    path = export_accident_report(acc_id)
+                    _export_status.value = f"PDF : {path.name}"
+                    _export_status.color = SUCCESS
+                    import os as _os
+                    _os.startfile(str(path))
+                except Exception as _exc:
+                    _export_status.value = str(_exc)
+                    _export_status.color = DANGER
+                try:
+                    action_bar.update()
+                except Exception:
+                    pass
+
             action_bar = ft.Row(
                 controls=[
                     ft.OutlinedButton(
@@ -715,6 +733,17 @@ def accidents_page(page: Any = None) -> ft.Control:  # noqa: ANN001
                         on_click=_back,
                     ),
                     ft.Container(expand=True),
+                    _export_status,
+                    ft.OutlinedButton(
+                        "Exporter PDF",
+                        icon=ft.Icons.PICTURE_AS_PDF_OUTLINED,
+                        style=ft.ButtonStyle(
+                            color=SUCCESS,
+                            side=ft.BorderSide(1, SUCCESS),
+                            shape=ft.RoundedRectangleBorder(radius=8),
+                        ),
+                        on_click=_export_pdf,
+                    ),
                     ft.OutlinedButton(
                         "Modifier",
                         icon=ft.Icons.EDIT_OUTLINED,

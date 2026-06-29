@@ -563,9 +563,12 @@ def clear_pending_maintenance() -> None:
     with get_mobile_connection() as c: c.execute("DELETE FROM pending_maintenance")
 
 def clear_pending_ids(kind: str, ids: list[Any]) -> None:
-    table = {"attendance":"pending_attendance","toolbox":"pending_toolbox","maintenance":"pending_maintenance",
-             "incidents":"pending_incidents","ppe_checks":"pending_ppe_checks","observations":"pending_observations",
-             "panne":"pending_panne"}.get(kind)
+    table = {
+        "attendance":"pending_attendance","toolbox":"pending_toolbox","maintenance":"pending_maintenance",
+        "incidents":"pending_incidents","ppe_checks":"pending_ppe_checks","observations":"pending_observations",
+        "panne":"pending_panne","permits":"pending_permits","risk_analyses":"pending_risk_analysis",
+        "breaks":"pending_breaks","ppe_assignments":"pending_ppe_assign",
+    }.get(kind)
     clean = [int(v) for v in (ids or []) if str(v).strip().isdigit()]
     if not table or not clean: return
     ph = ",".join("?" * len(clean))
@@ -1728,10 +1731,21 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                 if not addr or not tk or not sess: continue
                 addr=addr.rstrip("/")
                 # Upload pending records
-                pending_a=list(list_pending())
-                pending_t=list(list_pending_toolbox())
-                pending_m=list(list_pending_maintenance())
-                if pending_a or pending_t or pending_m:
+                pending_a  = list(list_pending())
+                pending_t  = list(list_pending_toolbox())
+                pending_m  = list(list_pending_maintenance())
+                pending_i  = list(list_pending_incidents())
+                pending_p  = list(list_pending_ppe_checks())
+                pending_o  = list(list_pending_observations())
+                pending_pn = list(list_pending_panne())
+                pending_pm = list(list_pending_permits())
+                pending_ra = list(list_pending_risks())
+                pending_br = list(list_pending_breaks())
+                pending_pa = list(list_pending_ppe_assigns())
+                pending_dr = [r for r in list_pending_drilling() if r.get("status") == "validated"]
+                _all_pending = [pending_a,pending_t,pending_m,pending_i,pending_p,pending_o,
+                                pending_pn,pending_pm,pending_ra,pending_br,pending_pa,pending_dr]
+                if any(_all_pending):
                     payload={
                         "device_id":get_setting("device_id") or "",
                         "device_name":get_setting("device_name") or "Terrain",
@@ -1746,29 +1760,62 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                             "observation_date":r["observation_date"],"equipment_label":r["equipment_label"],
                             "site_id":r["site_id"],"priority":r["priority"],"observation":r["observation"]}
                             for r in pending_m],
-                        "incidents":[],"ppe_checks":[],"observations":[],
+                        "incidents":[{"local_id":r["id_pending"],"type_evenement":r["type_evenement"],
+                            "date_heure":r["date_heure"],"lieu":r["lieu"],"description":r["description"],
+                            "gravite":r["gravite"],"employe_name":r["employe_name"],
+                            "employe_id":r["employe_id"],"action_immediate":r["action_immediate"]} for r in pending_i],
+                        "ppe_checks":[{"local_id":r["id_pending"],"check_date":r["check_date"],
+                            "employe_name":r["employe_name"],"employe_id":r["employe_id"],
+                            "resultats":json.loads(r["resultats_json"] or "{}"),"statut_global":r["statut_global"],
+                            "observations":r["observations"]} for r in pending_p],
+                        "observations":[{"local_id":r["id_pending"],"obs_date":r["obs_date"],
+                            "lieu":r["lieu"],"type_obs":r["type_obs"],"description":r["description"],
+                            "priorite":r["priorite"],"action_requise":bool(r["action_requise"]),
+                            "notes":r["notes"]} for r in pending_o],
+                        "pannes":[{"local_id":r["id_pending"],"panne_date":r["panne_date"],
+                            "panne_heure":r["panne_heure"],"equipment_label":r["equipment_label"],
+                            "site_id":r["site_id"],"type_panne":r["type_panne"],
+                            "symptomes":r["symptomes"],"impact_production":r["impact_production"],
+                            "duree_arret_min":r["duree_arret_min"],"priorite":r["priorite"]} for r in pending_pn],
                         "permits":[{"local_id":r["id_pending"],"permit_date":r["permit_date"],
                             "type_travaux":r["type_travaux"],"lieu":r["lieu"],
                             "description":r["description"],"risques":r["risques"],
                             "mesures":r["mesures"],"responsable":r["responsable"],
                             "employe_id":r["employe_id"],"employe_name":r["employe_name"],
                             "validite_debut":r["validite_debut"],"validite_fin":r["validite_fin"]}
-                            for r in list_pending_permits()],
+                            for r in pending_pm],
                         "risk_analyses":[{"local_id":r["id_pending"],"analysis_date":r["analysis_date"],
                             "activite":r["activite"],"lieu":r["lieu"],
                             "risques_json":r["risques_json"],"responsable":r["responsable"]}
-                            for r in list_pending_risks()],
+                            for r in pending_ra],
                         "breaks":[{"local_id":r["id_pending"],"employe_id":r["employe_id"],
                             "employe_name":r["employe_name"],"break_date":r["break_date"],
                             "heure_debut":r["heure_debut"],"heure_fin":r["heure_fin"],
                             "type_pause":r["type_pause"],"notes":r["notes"]}
-                            for r in list_pending_breaks()],
+                            for r in pending_br],
+                        "ppe_assignments":[{"local_id":r["id_pending"],"assign_date":r["assign_date"],
+                            "employe_name":r["employe_name"],"employe_id":r["employe_id"],
+                            "items":json.loads(r["items_json"] or "[]"),"taille":r["taille"],
+                            "observations":r["observations"]} for r in pending_pa],
+                        "drilling_reports":[{"uuid":r["uuid"],"shift":r["shift"],
+                            "report_date":r["report_date"],"rig_type":r["rig_type"],
+                            "rig_number":r["rig_number"],"contract_location":r["contract_location"],
+                            "hole_number":r["hole_number"],"angle":r["angle"],"client":r["client"],
+                            "total_advance":r["total_advance"],"diesel":r.get("diesel_json"),
+                            "refueler_name":r["refueler_name"],"operator_name":r["operator_name"],
+                            "supervisor_name":r["supervisor_name"],
+                            "operator_signature":r.get("operator_signature"),
+                            "supervisor_signature":r.get("supervisor_signature"),
+                            "entries":r.get("entries_json")} for r in pending_dr],
                     }
-                    result=post_json(f"{addr}/api/mobile/sync",tk,payload,timeout=20)
+                    result=post_json(f"{addr}/api/mobile/sync",tk,payload,timeout=30)
                     accepted=result.get("accepted") or {}
                     if accepted.get("attendances"): clear_pending(list(accepted["attendances"]),"pending_attendance")
                     if accepted.get("toolbox"): clear_pending(list(accepted["toolbox"]),"pending_toolbox")
                     if accepted.get("maintenance"): clear_pending(list(accepted["maintenance"]),"pending_maintenance")
+                    for _kind in ("incidents","ppe_checks","observations","panne"):
+                        if accepted.get(_kind): clear_pending_ids(_kind,accepted[_kind])
+                    if accepted.get("pannes"): clear_pending_ids("panne",accepted["pannes"])
                     if accepted.get("permits"):
                         with get_mobile_connection() as _c:
                             for _id in accepted["permits"]:
@@ -1784,8 +1831,16 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                             for _id in accepted["breaks"]:
                                 try: _c.execute("DELETE FROM pending_breaks WHERE id_pending=?", (int(_id),))
                                 except Exception: pass
+                    if accepted.get("ppe_assignments"):
+                        with get_mobile_connection() as _c:
+                            for _id in accepted["ppe_assignments"]:
+                                try: _c.execute("DELETE FROM pending_ppe_assign WHERE id_pending=?", (int(_id),))
+                                except Exception: pass
+                    if accepted.get("drilling_reports"):
+                        for synced_uuid in accepted["drilling_reports"]:
+                            delete_pending_drilling(synced_uuid)
                     # Inject system notification on successful sync
-                    tot_sent = (len(pending_a)+len(pending_t)+len(pending_m))
+                    tot_sent = sum(len(x) for x in _all_pending)
                     if tot_sent > 0:
                         add_notification("Synchronisation réussie",
                             f"{tot_sent} enregistrement(s) envoyé(s) au serveur.",
@@ -1818,7 +1873,12 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             ra=list(list_pending()); rt=list(list_pending_toolbox())
             rm=list(list_pending_maintenance()); ri=list_pending_incidents()
             rp=list_pending_ppe_checks(); ro=list_pending_observations()
-            if not(len(ra)+len(rt)+len(rm)+len(ri)+len(rp)+len(ro)):
+            rpn=list_pending_panne(); rpm=list_pending_permits()
+            rra=list_pending_risks(); rbr=list_pending_breaks()
+            rpa=list_pending_ppe_assigns()
+            rdr=[r for r in list_pending_drilling() if r.get("status")=="validated"]
+            _all_m=[ra,rt,rm,ri,rp,ro,rpn,rpm,rra,rbr,rpa,rdr]
+            if not any(_all_m):
                 notify("Aucun élément en attente.",MUT); return
             payload={
                 "device_id":get_setting("device_id") or str(uuid4()),
@@ -1846,31 +1906,74 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                     "lieu":r["lieu"],"type_obs":r["type_obs"],"description":r["description"],
                     "priorite":r["priorite"],"action_requise":bool(r["action_requise"]),
                     "notes":r["notes"]} for r in ro],
+                "pannes":[{"local_id":r["id_pending"],"panne_date":r["panne_date"],
+                    "panne_heure":r["panne_heure"],"equipment_label":r["equipment_label"],
+                    "site_id":r["site_id"],"type_panne":r["type_panne"],
+                    "symptomes":r["symptomes"],"impact_production":r["impact_production"],
+                    "duree_arret_min":r["duree_arret_min"],"priorite":r["priorite"]} for r in rpn],
+                "permits":[{"local_id":r["id_pending"],"permit_date":r["permit_date"],
+                    "type_travaux":r["type_travaux"],"lieu":r["lieu"],
+                    "description":r["description"],"risques":r["risques"],
+                    "mesures":r["mesures"],"responsable":r["responsable"],
+                    "employe_id":r["employe_id"],"employe_name":r["employe_name"],
+                    "validite_debut":r["validite_debut"],"validite_fin":r["validite_fin"]} for r in rpm],
+                "risk_analyses":[{"local_id":r["id_pending"],"analysis_date":r["analysis_date"],
+                    "activite":r["activite"],"lieu":r["lieu"],
+                    "risques_json":r["risques_json"],"responsable":r["responsable"]} for r in rra],
+                "breaks":[{"local_id":r["id_pending"],"employe_id":r["employe_id"],
+                    "employe_name":r["employe_name"],"break_date":r["break_date"],
+                    "heure_debut":r["heure_debut"],"heure_fin":r["heure_fin"],
+                    "type_pause":r["type_pause"],"notes":r["notes"]} for r in rbr],
+                "ppe_assignments":[{"local_id":r["id_pending"],"assign_date":r["assign_date"],
+                    "employe_name":r["employe_name"],"employe_id":r["employe_id"],
+                    "items":json.loads(r["items_json"] or "[]"),"taille":r["taille"],
+                    "observations":r["observations"]} for r in rpa],
                 "drilling_reports":[{
                     "uuid": r["uuid"], "shift": r["shift"], "report_date": r["report_date"],
                     "rig_type": r["rig_type"], "rig_number": r["rig_number"],
                     "contract_location": r["contract_location"], "hole_number": r["hole_number"],
                     "angle": r["angle"], "client": r["client"],
                     "total_advance": r["total_advance"],
-                    "diesel": r["diesel"], "refueler_name": r["refueler_name"],
+                    "diesel": r.get("diesel_json"), "refueler_name": r["refueler_name"],
                     "operator_name": r["operator_name"], "supervisor_name": r["supervisor_name"],
                     "operator_signature": r.get("operator_signature"),
                     "supervisor_signature": r.get("supervisor_signature"),
-                    "entries": r["entries"], "status": r["status"],
-                } for r in list_pending_drilling() if r.get("status") == "validated"],
+                    "entries": r.get("entries_json"),
+                } for r in rdr],
             }
-            data=post_json(f"{addr}/api/mobile/sync",get_setting("token") or srv_token.value,payload)
+            data=post_json(f"{addr}/api/mobile/sync",get_setting("token") or srv_token.value,payload,timeout=30)
             acc=data.get("accepted") or {}
             # Clear synced drilling reports by UUID
             for synced_uuid in (acc.get("drilling_reports") or []):
                 delete_pending_drilling(synced_uuid)
             if acc:
                 for k,v in [("attendance",ra),("toolbox",rt),("maintenance",rm),
-                            ("incidents",ri),("ppe_checks",rp),("observations",ro)]:
+                            ("incidents",ri),("ppe_checks",rp),("observations",ro),("panne",rpn)]:
                     clear_pending_ids(k,acc.get(k) or [])
+                if acc.get("pannes"): clear_pending_ids("panne",acc["pannes"])
+                if acc.get("permits"):
+                    with get_mobile_connection() as _c:
+                        for _id in (acc["permits"] or []):
+                            try: _c.execute("DELETE FROM pending_permits WHERE id_pending=?", (int(_id),))
+                            except Exception: pass
+                if acc.get("risk_analyses"):
+                    with get_mobile_connection() as _c:
+                        for _id in (acc["risk_analyses"] or []):
+                            try: _c.execute("DELETE FROM pending_risk_analysis WHERE id_pending=?", (int(_id),))
+                            except Exception: pass
+                if acc.get("breaks"):
+                    with get_mobile_connection() as _c:
+                        for _id in (acc["breaks"] or []):
+                            try: _c.execute("DELETE FROM pending_breaks WHERE id_pending=?", (int(_id),))
+                            except Exception: pass
+                if acc.get("ppe_assignments"):
+                    with get_mobile_connection() as _c:
+                        for _id in (acc["ppe_assignments"] or []):
+                            try: _c.execute("DELETE FROM pending_ppe_assign WHERE id_pending=?", (int(_id),))
+                            except Exception: pass
             elif data.get("status")=="applied":
                 clear_pending(); clear_pending_toolbox(); clear_pending_maintenance()
-                for k,rr in [("incidents",ri),("ppe_checks",rp),("observations",ro)]:
+                for k,rr in [("incidents",ri),("ppe_checks",rp),("observations",ro),("panne",rpn)]:
                     clear_pending_ids(k,[r["id_pending"] for r in rr])
             notify(f"Sync : {data.get('applied',0)} appliqué(s).",OK)
         except Exception as exc: notify(f"Sync : {exc}",DNG)
