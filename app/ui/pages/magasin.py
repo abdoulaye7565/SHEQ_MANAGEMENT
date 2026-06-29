@@ -234,26 +234,87 @@ def magasin_page(page: Any = None) -> ft.Control:
             _log.warning("[magasin] dashboard load failed: %s", exc)
             dash = {}
 
+        def _kpi_card(title: str, value: str, subtitle: str, color: str, icon: str) -> ft.Container:
+            return ft.Container(
+                bgcolor=CARD2,
+                border=ft.border.all(1, color + "55"),
+                border_radius=10,
+                padding=14,
+                width=260,
+                content=ft.Column(
+                    controls=[
+                        ft.Row(controls=[
+                            ft.Container(
+                                width=36, height=36, bgcolor=color + "22",
+                                border_radius=8,
+                                alignment=ft.alignment.center,
+                                content=ft.Icon(icon, color=color, size=20),
+                            ),
+                            ft.Column(controls=[
+                                ft.Text(title, color=MUTED, size=10),
+                                ft.Text(value, color=color, size=16, weight=ft.FontWeight.BOLD),
+                            ], spacing=2, tight=True),
+                        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Text(subtitle, color=MUTED, size=10),
+                    ],
+                    spacing=6, tight=True,
+                ),
+            )
+
         kpi_row = ft.Row(
             controls=[
-                _kpi("Valeur Stock", _fmt_fcfa(dash.get("valeur_stock_actuel", 0)),
-                     "Stock total estimé", GOLD, ft.Icons.INVENTORY_2_OUTLINED),
-                _kpi("Valeur Entrées", _fmt_fcfa(dash.get("total_entrees_valeur", 0)),
-                     f"{dash.get('nb_entrees',0)} bons d'entrée", SUCCESS, ft.Icons.MOVE_TO_INBOX_OUTLINED),
-                _kpi("Valeur Sorties", _fmt_fcfa(dash.get("total_sorties_valeur", 0)),
-                     f"{dash.get('nb_sorties',0)} bons de sortie", DANGER, ft.Icons.OUTBOX_OUTLINED),
-                _kpi("Références", str(dash.get("nb_articles", 0)),
-                     f"{dash.get('nb_fournisseurs',0)} fournisseurs", PRIMARY, ft.Icons.CATEGORY_OUTLINED),
+                _kpi_card("Valeur Stock", _fmt_fcfa(dash.get("valeur_stock_actuel", 0)),
+                          "Stock total estimé", GOLD, ft.Icons.INVENTORY_2_OUTLINED),
+                _kpi_card("Valeur Entrées", _fmt_fcfa(dash.get("total_entrees_valeur", 0)),
+                          f"{dash.get('nb_entrees',0)} bons d'entrée", SUCCESS, ft.Icons.MOVE_TO_INBOX_OUTLINED),
+                _kpi_card("Valeur Sorties", _fmt_fcfa(dash.get("total_sorties_valeur", 0)),
+                          f"{dash.get('nb_sorties',0)} bons de sortie", DANGER, ft.Icons.OUTBOX_OUTLINED),
+                _kpi_card("Références", str(dash.get("nb_articles", 0)),
+                          f"{dash.get('nb_fournisseurs',0)} fournisseurs", PRIMARY, ft.Icons.CATEGORY_OUTLINED),
             ],
-            spacing=10, wrap=True,
+            spacing=10,
+            wrap=True,
         )
+
+        # Graphique mensuel simplifié — tableau texte
+        monthly = dash.get("monthly", [])
+        month_rows = []
+        for m in monthly:
+            ent = float(m.get("entrees") or 0)
+            sor = float(m.get("sorties") or 0)
+            if ent == 0 and sor == 0:
+                continue
+            solde = ent - sor
+            s_color = SUCCESS if solde >= 0 else DANGER
+            month_rows.append(
+                ft.Container(
+                    bgcolor=CARD2, border_radius=6, padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    content=ft.Row(controls=[
+                        ft.Text(m["mois"], color=TEXT, size=11, weight=ft.FontWeight.BOLD, width=40),
+                        ft.Container(width=80, content=ft.Text(f"{ent:,.0f}", color=SUCCESS, size=10, text_align=ft.TextAlign.RIGHT)),
+                        ft.Container(width=80, content=ft.Text(f"{sor:,.0f}", color=DANGER, size=10, text_align=ft.TextAlign.RIGHT)),
+                        ft.Container(width=100, content=ft.Text(f"{solde:+,.0f}", color=s_color, size=10, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.RIGHT)),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                )
+            )
+
+        monthly_section = ft.Column(controls=[
+            ft.Row(controls=[
+                ft.Text("Mois", color=MUTED, size=10, width=40),
+                ft.Container(width=80, content=ft.Text("Entrées FCFA", color=SUCCESS, size=10, text_align=ft.TextAlign.RIGHT)),
+                ft.Container(width=80, content=ft.Text("Sorties FCFA", color=DANGER, size=10, text_align=ft.TextAlign.RIGHT)),
+                ft.Container(width=100, content=ft.Text("Solde FCFA", color=MUTED, size=10, text_align=ft.TextAlign.RIGHT)),
+            ], spacing=8),
+            *(month_rows if month_rows else [ft.Text("Aucun mouvement enregistré.", color=MUTED, size=11)]),
+        ], spacing=4)
 
         alerts = dash.get("alerts", [])
         nb_crit = dash.get("nb_critiques", 0)
+        nb_alert_only = len(alerts) - nb_crit
 
         alert_rows = []
         for a in alerts[:8]:
-            is_crit = a["stock_actuel"] <= a["stock_min"]
+            is_crit = float(a.get("stock_actuel") or 0) <= float(a.get("stock_min") or 0)
             color = DANGER if is_crit else WARNING
             label = "CRITIQUE" if is_crit else "ALERTE"
             alert_rows.append(
@@ -262,37 +323,75 @@ def magasin_page(page: Any = None) -> ft.Control:
                     border=ft.border.all(1, color + "55"),
                     border_radius=6,
                     padding=8,
-                    content=ft.Row(
-                        controls=[
-                            ft.Container(
-                                bgcolor=color, border_radius=4,
-                                padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                                content=ft.Text(label, color="#FFFFFF", size=8, weight=ft.FontWeight.BOLD),
-                            ),
-                            ft.Text(f"[{a['code_article']}]", color=MUTED, size=10),
-                            ft.Text(str(a["designation"] or ""), color=TEXT, size=11, expand=True),
-                            ft.Text(
-                                f"Stock: {a['stock_actuel']:.0f} {a.get('unite','') or ''}  |  Min: {a['stock_min']:.0f}",
-                                color=color, size=10, weight=ft.FontWeight.BOLD,
-                            ),
-                        ],
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+                    content=ft.Row(controls=[
+                        ft.Container(
+                            bgcolor=color, border_radius=4,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            content=ft.Text(label, color="#FFFFFF", size=8, weight=ft.FontWeight.BOLD),
+                        ),
+                        ft.Text(f"[{a.get('code_article','')}]", color=MUTED, size=10, width=90),
+                        ft.Text(str(a.get("designation") or ""), color=TEXT, size=11, width=200),
+                        ft.Text(
+                            f"Stock: {float(a.get('stock_actuel') or 0):.0f} {a.get('unite','') or ''}  |  Min: {float(a.get('stock_min') or 0):.0f}",
+                            color=color, size=10, weight=ft.FontWeight.BOLD,
+                        ),
+                    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 )
             )
 
-        alert_section = _card(ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[
-                        _section_title("Alertes Stock", ft.Icons.WARNING_AMBER_OUTLINED, DANGER),
-                        ft.Container(expand=True),
-                        _alert_badge(nb_crit, DANGER),
-                        _alert_badge(len(alerts) - nb_crit, WARNING),
-                    ],
-                    spacing=8,
-                ),
+        recent_ent = dash.get("recent_entrees", [])
+        recent_sor = dash.get("recent_sorties", [])
+
+        def _recent_ent_item(r: dict) -> ft.Container:
+            return ft.Container(
+                bgcolor=CARD2, border_radius=6, padding=8,
+                content=ft.Column(controls=[
+                    ft.Row(controls=[
+                        ft.Text(str(r.get("numero_be") or ""), color=SUCCESS, size=10, weight=ft.FontWeight.BOLD, width=110),
+                        ft.Text(str(r.get("date_entree") or "")[:10], color=MUTED, size=10),
+                    ], spacing=8),
+                    ft.Row(controls=[
+                        ft.Text(str(r.get("designation") or ""), color=TEXT, size=11, width=200),
+                        ft.Text(f"{float(r.get('quantite') or 0):.0f} {r.get('unite') or ''}", color=PRIMARY, size=10),
+                    ], spacing=8),
+                ], spacing=2, tight=True),
+            )
+
+        def _recent_sor_item(r: dict) -> ft.Container:
+            return ft.Container(
+                bgcolor=CARD2, border_radius=6, padding=8,
+                content=ft.Column(controls=[
+                    ft.Row(controls=[
+                        ft.Text(str(r.get("numero_bs") or ""), color=DANGER, size=10, weight=ft.FontWeight.BOLD, width=110),
+                        ft.Text(str(r.get("date_sortie") or "")[:10], color=MUTED, size=10),
+                    ], spacing=8),
+                    ft.Row(controls=[
+                        ft.Text(str(r.get("designation") or ""), color=TEXT, size=11, width=200),
+                        ft.Text(str(r.get("demandeur") or ""), color=MUTED, size=10),
+                    ], spacing=8),
+                ], spacing=2, tight=True),
+            )
+
+        content_area.controls = [
+            # KPIs
+            _card(ft.Column(controls=[
+                _section_title("Tableau de bord Magasin", ft.Icons.STORE_OUTLINED, GOLD),
+                kpi_row,
+            ], spacing=12)),
+            # Mouvements mensuels
+            _card(ft.Column(controls=[
+                _section_title(f"Mouvements {date.today().year}", ft.Icons.BAR_CHART_OUTLINED, PRIMARY),
+                ft.Divider(color=BORDER, height=1),
+                monthly_section,
+            ], spacing=8)),
+            # Alertes
+            _card(ft.Column(controls=[
+                ft.Row(controls=[
+                    _section_title("Alertes Stock", ft.Icons.WARNING_AMBER_OUTLINED, DANGER),
+                    ft.Container(expand=True),
+                    _alert_badge(nb_crit, DANGER),
+                    _alert_badge(nb_alert_only, WARNING),
+                ], spacing=8),
                 ft.Divider(color=BORDER, height=1),
                 *(alert_rows if alert_rows else [
                     ft.Row(controls=[
@@ -300,78 +399,32 @@ def magasin_page(page: Any = None) -> ft.Control:
                         ft.Text("Aucun article en alerte", color=SUCCESS, size=12),
                     ], spacing=8)
                 ]),
-            ],
-            spacing=8,
-        ))
-
-        recent_ent = dash.get("recent_entrees", [])
-        recent_sor = dash.get("recent_sorties", [])
-
-        def _recent_row(items: list, cols: list[str], colors: list[str]) -> ft.DataTable:
-            return ft.DataTable(
-                columns=[ft.DataColumn(ft.Text(c, color=MUTED, size=10)) for c in cols],
-                rows=[
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(r.get(k) or "-"), color=colors[i] if i < len(colors) else TEXT, size=10))
-                        for i, k in enumerate(cols)
-                    ])
-                    for r in items
-                ],
-                border=ft.border.all(1, BORDER),
-                border_radius=6,
-                heading_row_color=CARD2,
-                data_row_color={ft.ControlState.HOVERED: "#1E3A5F"},
-                column_spacing=16,
-            )
-
-        content_area.controls = [
-            _card(ft.Column(controls=[
-                _section_title("Tableau de bord Magasin", ft.Icons.STORE_OUTLINED, GOLD),
-                kpi_row,
-                _mini_bar_chart(dash.get("monthly", [])),
-            ], spacing=12)),
-            alert_section,
-            ft.Row(
-                controls=[
-                    _card(ft.Column(controls=[
+            ], spacing=8)),
+            # Récents
+            ft.Row(controls=[
+                ft.Container(
+                    expand=True,
+                    content=_card(ft.Column(controls=[
                         _section_title("Dernières Entrées", ft.Icons.MOVE_TO_INBOX_OUTLINED, SUCCESS),
                         ft.Divider(color=BORDER, height=1),
                         *(
-                            [
-                                ft.Container(
-                                    bgcolor=CARD2, border_radius=6, padding=8,
-                                    content=ft.Row(controls=[
-                                        ft.Text(str(r.get("numero_be") or ""), color=SUCCESS, size=10, width=100),
-                                        ft.Text(str(r.get("date_entree") or "")[:10], color=MUTED, size=10, width=80),
-                                        ft.Text(str(r.get("designation") or ""), color=TEXT, size=10, expand=True),
-                                        ft.Text(f"{r.get('quantite') or 0:.0f} {r.get('unite') or ''}", color=PRIMARY, size=10),
-                                    ], spacing=6),
-                                )
-                                for r in recent_ent
-                            ] if recent_ent else [ft.Text("Aucune entrée récente.", color=MUTED, size=11)]
+                            [_recent_ent_item(r) for r in recent_ent]
+                            if recent_ent else [ft.Text("Aucune entrée récente.", color=MUTED, size=11)]
                         ),
-                    ], spacing=6), expand=True),
-                    _card(ft.Column(controls=[
+                    ], spacing=6)),
+                ),
+                ft.Container(
+                    expand=True,
+                    content=_card(ft.Column(controls=[
                         _section_title("Dernières Sorties", ft.Icons.OUTBOX_OUTLINED, DANGER),
                         ft.Divider(color=BORDER, height=1),
                         *(
-                            [
-                                ft.Container(
-                                    bgcolor=CARD2, border_radius=6, padding=8,
-                                    content=ft.Row(controls=[
-                                        ft.Text(str(r.get("numero_bs") or ""), color=DANGER, size=10, width=100),
-                                        ft.Text(str(r.get("date_sortie") or "")[:10], color=MUTED, size=10, width=80),
-                                        ft.Text(str(r.get("designation") or ""), color=TEXT, size=10, expand=True),
-                                        ft.Text(str(r.get("demandeur") or ""), color=MUTED, size=10),
-                                    ], spacing=6),
-                                )
-                                for r in recent_sor
-                            ] if recent_sor else [ft.Text("Aucune sortie récente.", color=MUTED, size=11)]
+                            [_recent_sor_item(r) for r in recent_sor]
+                            if recent_sor else [ft.Text("Aucune sortie récente.", color=MUTED, size=11)]
                         ),
-                    ], spacing=6), expand=True),
-                ],
-                spacing=12, expand=True,
-            ),
+                    ], spacing=6)),
+                ),
+            ], spacing=12),
         ]
 
     # ── TAB: CATALOGUE ────────────────────────────────────────────────────────
