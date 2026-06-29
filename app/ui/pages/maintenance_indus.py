@@ -196,7 +196,7 @@ def maintenance_indus_page(page: Any = None) -> ft.Control:
                  "Heures d'immobilisation", DANGER, ft.Icons.TIMER_OFF_OUTLINED),
             _kpi("Ratio PM/CM",
                  f"{ratio_pm:.0f}%",
-                 "Objectif ≥ 70% préventif", ratio_color, ft.Icons.PIE_CHART_OUTLINED),
+                 "Objectif ≥ 70% préventif", ratio_color, ft.Icons.DONUT_LARGE_OUTLINED),
             _kpi("Alertes pièces",
                  str(dash.get("nb_alerte_pieces", 0)),
                  "Stock sous seuil minimum", DANGER if dash.get("nb_alerte_pieces",0) > 0 else SUCCESS,
