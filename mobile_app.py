@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -404,7 +405,7 @@ def get_mobile_connection() -> "sqlite3.Connection":
                         ("type_intervention","TEXT DEFAULT 'corrective'"),
                         ("duree_estimee","REAL DEFAULT 0"),("assigned_to","TEXT"),
                         ("date_debut","TEXT"),("date_fin","TEXT"),
-                        ("statut_changed_at","TEXT")]:
+                        ("statut_changed_at","TEXT"),("photos_json","TEXT")]:
         try: con.execute(f"ALTER TABLE pending_maintenance ADD COLUMN {_col} {_def}")
         except Exception: pass
     # Migrate pending_drilling with signature columns (safe — ignores if exists)
@@ -1167,6 +1168,106 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
             border_radius=10,border_color=BRD,focused_border_color=BLUE,
             bgcolor=CARD,color=TXT)
 
+    def _photo_gallery(label="Photos", max_photos=6):
+        """Widget de capture photo — connecte le picker de fichiers à la galerie
+        du téléphone (ou à l'explorateur sur desktop) et garde les images en
+        mémoire (base64) jusqu'à l'enregistrement du formulaire."""
+        photos: list[str] = []
+        thumbs_row = ft.Row(spacing=8, wrap=True)
+        counter_txt = ft.Text("Aucune photo", size=11, color=MUT)
+        picker = ft.FilePicker()
+        if picker not in page.services:
+            page.services.append(picker)
+
+        def _refresh():
+            def _remove(idx):
+                def _fn(e):
+                    if 0 <= idx < len(photos):
+                        photos.pop(idx)
+                        _refresh()
+                return _fn
+            thumbs = []
+            for i, b64 in enumerate(photos):
+                thumbs.append(ft.Stack(
+                    controls=[
+                        ft.Container(width=64, height=64, border_radius=10,
+                            border=ft.Border.all(1, BRD),
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            content=ft.Image(src=f"data:image/jpeg;base64,{b64}",
+                                width=64, height=64, fit=ft.BoxFit.COVER)),
+                        ft.Container(width=20, height=20, border_radius=10, bgcolor=DNG,
+                            right=-4, top=-4, alignment=AL(0, 0), ink=True,
+                            on_click=_remove(i),
+                            content=ft.Icon(ft.Icons.CLOSE_ROUNDED, color="#FFFFFF", size=13)),
+                    ], width=64, height=64))
+            thumbs_row.controls = thumbs
+            counter_txt.value = f"{len(photos)}/{max_photos} photo(s)" if photos else "Aucune photo"
+            for _c in (thumbs_row, counter_txt): _u(_c)
+
+        async def _pick(e):
+            if len(photos) >= max_photos:
+                notify(f"Maximum {max_photos} photos.", WARN)
+                return
+            files = await picker.pick_files(
+                allow_multiple=True,
+                file_type=ft.FilePickerFileType.IMAGE,
+            )
+            if not files:
+                return
+            import base64 as _b64mod
+            added = 0
+            for f in files:
+                if len(photos) >= max_photos:
+                    break
+                path = f.path
+                if not path:
+                    continue
+                try:
+                    with open(path, "rb") as fh:
+                        photos.append(_b64mod.b64encode(fh.read()).decode())
+                    added += 1
+                except Exception:
+                    pass
+            _refresh()
+            if added:
+                notify(f"{added} photo(s) ajoutée(s) depuis la galerie.", OK)
+
+        add_btn = ft.Container(bgcolor=f"#10{INFO[1:]}", border_radius=12,
+            border=ft.Border.all(1, f"#44{INFO[1:]}"), height=46,
+            ink=True, alignment=AL(0, 0), on_click=_pick,
+            content=ft.Row([
+                ft.Icon(ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED, color=INFO, size=18),
+                ft.Text("Ajouter depuis la galerie", color=INFO, size=12,
+                        weight=ft.FontWeight.W_700),
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=8))
+
+        widget = ft.Column([
+            ft.Row([ft.Icon(ft.Icons.PHOTO_LIBRARY_OUTLINED, color=MUT, size=14),
+                    ft.Text(label, size=12, weight=ft.FontWeight.W_700, color=MUT)],
+                   spacing=6),
+            add_btn,
+            thumbs_row,
+            counter_txt,
+        ], spacing=8)
+
+        def get_photos() -> list[str]:
+            return list(photos)
+
+        def set_photos(items) -> None:
+            photos[:] = list(items or [])
+            _refresh()
+
+        def clear() -> None:
+            photos.clear()
+            _refresh()
+
+        def has_photos() -> bool:
+            return bool(photos)
+
+        return SimpleNamespace(widget=widget, get_photos=get_photos,
+                                set_photos=set_photos, clear=clear,
+                                has_photos=has_photos)
+
     # ── Form Controls ─────────────────────────────────────────────────────────
     APP_VERSION = "2.0.0"
 
@@ -1230,6 +1331,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
 
     ins_eq   = _dd("Équipement *")
     ins_sign = _tf("Signature (Prénom Nom)")
+    ins_photos = _photo_gallery("Photos de l'inspection")
     ins_chk: dict[str,bool] = {it:False for it in INSPECTION_ITEMS}
     ins_col  = ft.Column(spacing=6)
 
@@ -4460,13 +4562,15 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                  f" | NOK: {', '.join(nok_items) or 'Aucun'}"
                  + (f" | Sig: {sign}" if sign else ""))
             site_id_val=cj("dashboard",{}).get("site_id") or None
+            photos_val=json.dumps(ins_photos.get_photos())
             def do_save(_=None):
                 with get_mobile_connection() as c:
                     c.execute("INSERT INTO pending_maintenance(observation_date,equipment_label,"
-                        "site_id,priority,observation) VALUES(?,?,?,?,?)",
-                        (date.today().isoformat(),equip,site_id_val,prio,obs))
+                        "site_id,priority,observation,photos_json) VALUES(?,?,?,?,?,?)",
+                        (date.today().isoformat(),equip,site_id_val,prio,obs,photos_val))
                 for it in chk: chk[it]=False; ins_chk[it]=False
                 ins_eq.value=None; ins_sign.value=""
+                ins_photos.clear()
                 notify("Inspection enregistrée offline.",OK)
                 go_to("maintenance")
             confirm("Valider l'inspection",
@@ -4518,18 +4622,7 @@ def build_mobile_page(page: ft.Page) -> None:  # noqa: PLR0914,PLR0915
                         ],spacing=8),
                         checklist_col,
                         # ── Photo + Signature ───────────────────────────────────
-                        ft.Row([
-                            ft.Container(bgcolor=f"#10{INFO[1:]}",border_radius=12,
-                                border=ft.Border.all(1,f"#44{INFO[1:]}"),expand=True,height=46,
-                                ink=True,alignment=AL(0,0),
-                                on_click=lambda e:notify(
-                                    "Fonctionnalité photo disponible prochainement.",INFO),
-                                content=ft.Row([
-                                    ft.Icon(ft.Icons.CAMERA_ALT_OUTLINED,color=INFO,size=18),
-                                    ft.Text("Photo",color=INFO,size=12,
-                                            weight=ft.FontWeight.W_700),
-                                ],alignment=ft.MainAxisAlignment.CENTER,spacing=8)),
-                        ],spacing=10),
+                        ins_photos.widget,
                         ins_sign,
                         # ── Submit ─────────────────────────────────────────────
                         _btn("Valider l'inspection",ft.Icons.CHECK_CIRCLE_ROUNDED,OK,on_save),
